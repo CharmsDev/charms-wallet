@@ -24,7 +24,6 @@ export async function createTransferCharmTxs(
         },
         body: JSON.stringify({
             destination_address: destinationAddress,
-            transfer_amount: transferAmount,
             spell_json: spellJson,
             funding_utxo_id: fundingUtxoId,
         }),
@@ -38,6 +37,7 @@ export async function createTransferCharmTxs(
     const result = await response.json();
 
     // Log raw and decoded transactions
+    console.log("Raw API Response:", result);
     console.log("Raw Commit Transaction:", result.transactions.commit_tx);
     console.log("Raw Spell Transaction:", result.transactions.spell_tx);
 
@@ -47,5 +47,21 @@ export async function createTransferCharmTxs(
     console.log("Decoded Commit Transaction:", decodedCommitTx);
     console.log("Decoded Spell Transaction:", decodedSpellTx);
 
-    return result as TransferCharmsResponse;
+    // Transform the API response to match the expected TransferCharmsResponse interface
+    const transformedResult: TransferCharmsResponse = {
+        status: result.status,
+        message: result.message || "",
+        transactions: {
+            commit_tx: result.transactions.commit_tx,
+            spell_tx: result.transactions.spell_tx,
+            taproot_data: {
+                script: result.transactions.taproot_script || "",
+                control_block: "" // API doesn't provide control_block, so use empty string
+            }
+        }
+    };
+
+    console.log("Transformed Response:", transformedResult);
+
+    return transformedResult;
 }
