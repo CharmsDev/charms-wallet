@@ -72,7 +72,10 @@
         {/if}
       </div>
       <span class="text-lg font-medium text-blue-600 tabular-nums">
-        {charm.amount.toLocaleString()}
+        {charm.amount?.remaining?.toLocaleString() || "0"}
+        <div class="text-xs text-gray-500">
+          {charm.amount?.ticker || `CHARM-${charm.id}`}
+        </div>
       </span>
     </div>
 

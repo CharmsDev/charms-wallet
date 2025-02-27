@@ -15,12 +15,15 @@
             <p class="text-sm text-gray-500">
                 Available Amount: <span class="font-medium text-gray-900"
                     >{(
-                        charm.amount - (transferAmount || 0)
+                        charm.amount?.remaining - (transferAmount || 0)
                     ).toLocaleString()}</span
                 >
             </p>
             <p class="text-xs text-gray-400">
-                Total: {charm.amount.toLocaleString()}
+                Total: {charm.amount?.remaining.toLocaleString()}
+            </p>
+            <p class="text-xs text-gray-400">
+                Ticker: {charm.amount?.ticker || `CHARM-${charm.id}`}
             </p>
         </div>
         <div class="w-16 h-16 bg-white rounded-lg overflow-hidden">
