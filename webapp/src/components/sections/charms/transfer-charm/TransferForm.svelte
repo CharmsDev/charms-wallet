@@ -35,12 +35,12 @@
             id="amount"
             bind:value={transferAmount}
             min="0"
-            max={charm.amount}
+            max={charm.amount?.remaining}
             on:input={(e) => {
                 const value = Number(e.currentTarget.value);
-                if (value > charm.amount) {
-                    e.currentTarget.value = charm.amount.toString();
-                    transferAmount = charm.amount;
+                if (charm.amount && value > charm.amount.remaining) {
+                    e.currentTarget.value = charm.amount.remaining.toString();
+                    transferAmount = charm.amount.remaining;
                 }
             }}
             class="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"

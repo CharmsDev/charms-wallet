@@ -8,14 +8,18 @@ class CharmsService {
     private readonly API_BASE: string = CHARMS_API_URL;
 
     composeTransferSpell(charm: ProcessedCharm, transferAmount: number, destinationAddress: string): string {
-        const remainingAmount = charm.amount - transferAmount;
         const [type, appId, appVk] = charm.app.split("/");
+
+        // Get the remaining amount from the charm amount
+        const totalAmount = charm.amount.remaining;
+        const remainingAmount = totalAmount - transferAmount;
 
         // Log composition details for debugging
         console.log('Composing spell with:', {
             charm,
             transferAmount,
             destinationAddress,
+            totalAmount,
             remainingAmount,
             appParts: { type, appId, appVk }
         });
@@ -31,7 +35,7 @@ class CharmsService {
         // Use safe defaults for template composition
         const targetAddress = destinationAddress || 'DESTINATION_ADDRESS';
         const safeTransferAmount = transferAmount > 0 ? transferAmount : 0;
-        const safeRemainingAmount = charm.amount - safeTransferAmount;
+        const safeRemainingAmount = totalAmount - safeTransferAmount;
 
         // Only validate amounts if we're actually trying to transfer
         if (transferAmount > 0) {
@@ -59,24 +63,42 @@ class CharmsService {
         }
 
         // Use minimum amount for sats to avoid dust
-        const MIN_SATS = 546; // Bitcoin dust limit
+        const MIN_SATS = 1000; // Bitcoin dust limit is 546
 
-        const spell = `version: 2
-apps:
-  $01: ${type}/${appId}/${appVk}
-ins:
-  - utxo_id: "${charm.txid}:${charm.outputIndex}"
-    charms:
-      $01: ${charm.amount}
-outs:
-  - address: "${targetAddress}"
-    charms:
-      $01: ${safeTransferAmount}
-    sats: ${MIN_SATS}
-  - address: "${charm.address}"
-    charms:
-      $01: ${safeRemainingAmount}
-    sats: ${MIN_SATS}`;
+        // Create the spell in the new format
+        const spell = JSON.stringify({
+            version: 2,
+            apps: {
+                "$0000": `${type}/${appId}/${appVk}`
+            },
+            ins: [
+                {
+                    utxo_id: `${charm.txid}:${charm.outputIndex}`
+                }
+            ],
+            outs: [
+                {
+                    address: targetAddress,
+                    charms: {
+                        "$0000": {
+                            ticker: charm.amount.ticker,
+                            remaining: safeTransferAmount
+                        }
+                    },
+                    sats: MIN_SATS
+                },
+                {
+                    address: charm.address,
+                    charms: {
+                        "$0000": {
+                            ticker: charm.amount.ticker,
+                            remaining: safeRemainingAmount
+                        }
+                    },
+                    sats: MIN_SATS
+                }
+            ]
+        }, null, 2);
 
         console.log('Generated spell:', spell);
         return spell;
@@ -137,10 +159,26 @@ outs:
                             return;
                         }
 
+                        // Check if amount is an object with a 'remaining' property (new format)
+                        // or a number (old format)
+                        const charmAmount = typeof amount === 'object' && amount !== null && 'remaining' in amount
+                            ? {
+                                ticker: 'ticker' in amount && typeof amount.ticker === 'string'
+                                    ? amount.ticker
+                                    : `CHARM-${appId}`,
+                                remaining: 'remaining' in amount && typeof amount.remaining === 'number'
+                                    ? amount.remaining
+                                    : 0
+                            }
+                            : {
+                                ticker: `CHARM-${appId}`,
+                                remaining: typeof amount === 'number' ? amount : 0
+                            };
+
                         charms.push({
-                            uniqueId: `${txId}-${appId}-${outputIndex}-${amount}`,
+                            uniqueId: `${txId}-${appId}-${outputIndex}-${JSON.stringify(charmAmount)}`,
                             id: appId,
-                            amount: amount as number,
+                            amount: charmAmount,
                             app,
                             outputIndex,
                             txid: txId,

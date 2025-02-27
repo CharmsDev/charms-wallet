@@ -24,6 +24,9 @@
     export let show: boolean = false;
     export let onClose: () => void;
 
+    // Log charm data when component is initialized
+    console.log("TransferCharmDialog initialized with charm:", charm);
+
     let transferAmount: number = 55342;
     let destinationAddress: string =
         "tb1qfmdy2ek8j3uga4q76td3ka2dhmwrag3jwhppd9";
@@ -45,8 +48,8 @@
         }
     });
 
-    $: if (transferAmount > charm.amount) {
-        transferAmount = charm.amount;
+    $: if (charm.amount && transferAmount > charm.amount.remaining) {
+        transferAmount = charm.amount.remaining;
     }
 
     let spellTemplate: string = "";
@@ -55,23 +58,44 @@
     // Update spell template whenever inputs change
     $: {
         try {
+            console.log("Reactive block triggered with:", {
+                transferAmount,
+                destinationAddress,
+                charmAmount: charm.amount,
+            });
+
             // Use the original charm address for return
             spellTemplate = charmsService.composeTransferSpell(
                 { ...charm }, // Don't override the original charm address
                 transferAmount || 0,
                 destinationAddress,
             );
+
+            console.log("Generated spell template:", spellTemplate);
+
             // Store the valid spell for later use
-            if (
-                destinationAddress?.trim() &&
+            const hasValidAddress = !!destinationAddress?.trim();
+            const hasValidAmount =
+                charm.amount &&
                 transferAmount > 0 &&
-                transferAmount <= charm.amount
-            ) {
+                transferAmount <= charm.amount.remaining;
+
+            console.log("Spell validation:", {
+                hasValidAddress,
+                hasValidAmount,
+                transferAmount,
+                charmAmount: charm.amount,
+            });
+
+            if (hasValidAddress && hasValidAmount) {
                 finalSpell = spellTemplate;
+                console.log("Final spell set:", finalSpell);
+            } else {
+                console.log("Final spell not set due to validation failure");
             }
         } catch (error: any) {
             // Ignore errors during template composition
-            console.debug("Spell template composition error:", error);
+            console.error("Spell template composition error:", error);
         }
     }
 
@@ -86,7 +110,7 @@
         if (transferAmount <= 0) {
             return "Amount must be greater than 0";
         }
-        if (transferAmount > charm.amount) {
+        if (charm.amount && transferAmount > charm.amount.remaining) {
             return "Insufficient charm amount";
         }
         return null;
@@ -103,18 +127,39 @@
      * Creates transactions for charm transfer (step 1 of the transfer process)
      * Validates inputs, generates transactions, and updates UI state
      */
-    async function handleCreateTransferTxs() {
+    async function handleCreate2txs() {
+        console.log("handleCreate2txs called");
         // Input validation
         const validationError = validateTransferInputs();
+        console.log("Validation result:", validationError);
         if (validationError) {
             logMessages = [...logMessages, validationError];
             return;
         }
 
         try {
-            // Verify spell exists
-            if (!finalSpell) {
-                throw new Error("Invalid spell template");
+            // Verify spell exists or generate it
+            console.log("Final spell:", finalSpell);
+
+            // Force regenerate the spell to ensure it's up to date
+            try {
+                console.log("Generating spell with:", {
+                    charm,
+                    transferAmount,
+                    destinationAddress,
+                });
+
+                finalSpell = charmsService.composeTransferSpell(
+                    { ...charm },
+                    transferAmount,
+                    destinationAddress,
+                );
+                console.log("Generated spell:", finalSpell);
+            } catch (error: any) {
+                console.error("Failed to generate spell:", error);
+                throw new Error(
+                    `Failed to generate spell: ${error.message || String(error)}`,
+                );
             }
 
             // Log the initiation
@@ -122,12 +167,23 @@
 
             // Create funding ID and call API
             const fundingUtxoId = `${charm.txid}:${charm.outputIndex}`;
+            console.log("Funding UTXO ID:", fundingUtxoId);
+            console.log("Calling createTransferCharmTxs with:", {
+                destinationAddress,
+                transferAmount,
+                finalSpell,
+                fundingUtxoId,
+            });
+
             const response = await createTransferCharmTxs(
                 destinationAddress,
                 transferAmount,
                 finalSpell,
                 fundingUtxoId,
             );
+
+            // Log the response for debugging
+            console.log("API Response:", response);
 
             // Store results for next step
             result = response;
@@ -137,7 +193,21 @@
             // Success message
             addLogMessage(`Transfer successful! Transactions ready to sign.`);
         } catch (error: any) {
-            addLogMessage(`Transfer failed: ${error.message || error}`);
+            console.error("Transfer failed:", error);
+            const errorMessage = error.message || String(error);
+            addLogMessage(`Transfer failed: ${errorMessage}`);
+
+            // Add more detailed error information to the log
+            if (error.stack) {
+                console.error("Error stack:", error.stack);
+            }
+
+            // Check if it's a network error
+            if (error.name === "TypeError" && errorMessage.includes("fetch")) {
+                addLogMessage(
+                    "Network error: Check if the API server is running",
+                );
+            }
         }
     }
 
@@ -169,7 +239,8 @@
                 signedSpellTx: signedSpellResult,
             } = await signTransactionService.signBothTransactions(
                 {
-                    ...result.transactions,
+                    commit_tx: result.transactions.commit_tx,
+                    spell_tx: result.transactions.spell_tx,
                     taproot_data: result.transactions.taproot_data,
                 },
                 currentWallet.private_key,

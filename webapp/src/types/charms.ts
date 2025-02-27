@@ -1,7 +1,12 @@
+export interface CharmAmount {
+    ticker: string;
+    remaining: number;
+}
+
 export interface ProcessedCharm {
     uniqueId: string;
     id: string;
-    amount: number;
+    amount: CharmAmount;
     app: string;
     outputIndex: number;
     txid: string;
@@ -15,10 +20,8 @@ export interface SpellTemplate {
     apps: Record<string, string>;
     ins: Array<{
         utxo_id: string;
-        charms: Record<string, number>;
     }>;
     outs: Array<{
-        address: string;
-        charms: Record<string, number>;
+        charms: Record<string, CharmAmount>;
     }>;
 }
