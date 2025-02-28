@@ -24,12 +24,20 @@
     export let show: boolean = false;
     export let onClose: () => void;
 
-    // Log charm data when component is initialized
-    console.log("TransferCharmDialog initialized with charm:", charm);
+    // Check if the charm is an NFT (starts with "n/")
+    $: isNFT = charm.app.startsWith("n/");
 
-    let transferAmount: number = 55342;
-    let destinationAddress: string =
-        "tb1qfmdy2ek8j3uga4q76td3ka2dhmwrag3jwhppd9";
+    // Log charm data when component is initialized
+    console.log(
+        "TransferCharmDialog initialized with charm:",
+        charm,
+        "isNFT:",
+        isNFT,
+    );
+
+    // Initialize transfer amount based on charm type
+    let transferAmount: number = charm.amount.remaining;
+    let destinationAddress: string = "";
     let logMessages: string[] = [];
     let currentAddress: string = "";
     let commitTxHex: string | null = null;
@@ -55,6 +63,12 @@
     let spellTemplate: string = "";
     let finalSpell: string = "";
 
+    // Check if form is valid for creating transactions
+    $: isFormValid =
+        !!destinationAddress?.trim() &&
+        (isNFT ||
+            (transferAmount > 0 && transferAmount <= charm.amount.remaining));
+
     // Update spell template whenever inputs change
     $: {
         try {
@@ -62,36 +76,46 @@
                 transferAmount,
                 destinationAddress,
                 charmAmount: charm.amount,
+                isFormValid,
             });
 
-            // Use the original charm address for return
-            spellTemplate = charmsService.composeTransferSpell(
-                { ...charm }, // Don't override the original charm address
-                transferAmount || 0,
-                destinationAddress,
-            );
+            // Only try to compose the spell if we have a destination address
+            if (destinationAddress?.trim()) {
+                // Use the original charm address for return
+                spellTemplate = charmsService.composeTransferSpell(
+                    { ...charm }, // Don't override the original charm address
+                    transferAmount || 0,
+                    destinationAddress,
+                );
 
-            console.log("Generated spell template:", spellTemplate);
+                console.log("Generated spell template:", spellTemplate);
 
-            // Store the valid spell for later use
-            const hasValidAddress = !!destinationAddress?.trim();
-            const hasValidAmount =
-                charm.amount &&
-                transferAmount > 0 &&
-                transferAmount <= charm.amount.remaining;
+                // Store the valid spell for later use
+                const hasValidAddress = !!destinationAddress?.trim();
+                const hasValidAmount =
+                    charm.amount &&
+                    transferAmount > 0 &&
+                    transferAmount <= charm.amount.remaining;
 
-            console.log("Spell validation:", {
-                hasValidAddress,
-                hasValidAmount,
-                transferAmount,
-                charmAmount: charm.amount,
-            });
+                console.log("Spell validation:", {
+                    hasValidAddress,
+                    hasValidAmount,
+                    transferAmount,
+                    charmAmount: charm.amount,
+                });
 
-            if (hasValidAddress && hasValidAmount) {
-                finalSpell = spellTemplate;
-                console.log("Final spell set:", finalSpell);
+                if (hasValidAddress && hasValidAmount) {
+                    finalSpell = spellTemplate;
+                    console.log("Final spell set:", finalSpell);
+                } else {
+                    console.log(
+                        "Final spell not set due to validation failure",
+                    );
+                }
             } else {
-                console.log("Final spell not set due to validation failure");
+                // Clear the spell template if we don't have a destination address
+                spellTemplate = "";
+                finalSpell = "";
             }
         } catch (error: any) {
             // Ignore errors during template composition
@@ -107,12 +131,23 @@
         if (!destinationAddress?.trim()) {
             return "Destination address is required";
         }
-        if (transferAmount <= 0) {
-            return "Amount must be greater than 0";
+
+        // For NFTs, we always transfer the entire amount
+        if (isNFT) {
+            if (transferAmount !== charm.amount.remaining) {
+                // Ensure the transfer amount is the full remaining amount for NFTs
+                transferAmount = charm.amount.remaining;
+            }
+        } else {
+            // For regular tokens, validate the amount
+            if (transferAmount <= 0) {
+                return "Amount must be greater than 0";
+            }
+            if (charm.amount && transferAmount > charm.amount.remaining) {
+                return "Insufficient charm amount";
+            }
         }
-        if (charm.amount && transferAmount > charm.amount.remaining) {
-            return "Insufficient charm amount";
-        }
+
         return null;
     }
 
@@ -162,8 +197,14 @@
                 );
             }
 
-            // Log the initiation
-            addLogMessage(`Initiating transfer of ${transferAmount} charms...`);
+            // Log the initiation with appropriate message based on charm type
+            if (isNFT) {
+                addLogMessage(`Initiating transfer of 1 NFT...`);
+            } else {
+                addLogMessage(
+                    `Initiating transfer of ${transferAmount} charms...`,
+                );
+            }
 
             // Create funding ID and call API
             const fundingUtxoId = `${charm.txid}:${charm.outputIndex}`;
@@ -369,7 +410,10 @@
             <button
                 type="button"
                 on:click={handleCreate2txs}
-                class="inline-flex justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                disabled={!isFormValid}
+                class="inline-flex justify-center rounded-md border border-transparent {isFormValid
+                    ? 'bg-blue-600 hover:bg-blue-700'
+                    : 'bg-blue-300 cursor-not-allowed'} px-4 py-2 text-sm font-medium text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
                 Create transfer Txs
             </button>
