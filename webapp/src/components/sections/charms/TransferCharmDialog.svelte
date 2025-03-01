@@ -72,54 +72,19 @@
     // Update spell template whenever inputs change
     $: {
         try {
-            console.log("Reactive block triggered with:", {
-                transferAmount,
-                destinationAddress,
-                charmAmount: charm.amount,
-                isFormValid,
-            });
-
-            // Only try to compose the spell if we have a destination address
             if (destinationAddress?.trim()) {
-                // Use the original charm address for return
                 spellTemplate = charmsService.composeTransferSpell(
-                    { ...charm }, // Don't override the original charm address
+                    { ...charm },
                     transferAmount || 0,
                     destinationAddress,
                 );
-
-                console.log("Generated spell template:", spellTemplate);
-
-                // Store the valid spell for later use
-                const hasValidAddress = !!destinationAddress?.trim();
-                const hasValidAmount =
-                    charm.amount &&
-                    transferAmount > 0 &&
-                    transferAmount <= charm.amount.remaining;
-
-                console.log("Spell validation:", {
-                    hasValidAddress,
-                    hasValidAmount,
-                    transferAmount,
-                    charmAmount: charm.amount,
-                });
-
-                if (hasValidAddress && hasValidAmount) {
-                    finalSpell = spellTemplate;
-                    console.log("Final spell set:", finalSpell);
-                } else {
-                    console.log(
-                        "Final spell not set due to validation failure",
-                    );
-                }
+                finalSpell = spellTemplate;
             } else {
-                // Clear the spell template if we don't have a destination address
                 spellTemplate = "";
                 finalSpell = "";
             }
         } catch (error: any) {
             // Ignore errors during template composition
-            console.error("Spell template composition error:", error);
         }
     }
 
