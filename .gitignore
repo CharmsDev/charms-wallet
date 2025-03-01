@@ -37,7 +37,6 @@ lerna-debug.log*
 .idea/
 .vscode/
 !.vscode/extensions.json
-/zrjj
 
 # Virtual environments and Python dependencies (if used)
 /venv/
