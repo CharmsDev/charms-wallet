@@ -27,14 +27,6 @@
     // Check if the charm is an NFT (starts with "n/")
     $: isNFT = charm.app.startsWith("n/");
 
-    // Log charm data when component is initialized
-    console.log(
-        "TransferCharmDialog initialized with charm:",
-        charm,
-        "isNFT:",
-        isNFT,
-    );
-
     // Initialize transfer amount based on charm type
     let transferAmount: number = charm.amount.remaining;
     let destinationAddress: string = "";
@@ -56,7 +48,10 @@
         }
     });
 
-    $: if (charm.amount && transferAmount > charm.amount.remaining) {
+    // Ensure NFTs always transfer the full amount
+    $: if (isNFT) {
+        transferAmount = charm.amount.remaining;
+    } else if (transferAmount > charm.amount.remaining) {
         transferAmount = charm.amount.remaining;
     }
 
@@ -64,10 +59,7 @@
     let finalSpell: string = "";
 
     // Check if form is valid for creating transactions
-    $: isFormValid =
-        !!destinationAddress?.trim() &&
-        (isNFT ||
-            (transferAmount > 0 && transferAmount <= charm.amount.remaining));
+    $: isFormValid = !!destinationAddress?.trim() && transferAmount > 0;
 
     // Update spell template whenever inputs change
     $: {
@@ -88,81 +80,14 @@
         }
     }
 
-    /**
-     * Validates all required transfer inputs
-     * @returns Error message or null if valid
-     */
-    function validateTransferInputs(): string | null {
-        if (!destinationAddress?.trim()) {
-            return "Destination address is required";
-        }
-
-        // For NFTs, we always transfer the entire amount
-        if (isNFT) {
-            if (transferAmount !== charm.amount.remaining) {
-                // Ensure the transfer amount is the full remaining amount for NFTs
-                transferAmount = charm.amount.remaining;
-            }
-        } else {
-            // For regular tokens, validate the amount
-            if (transferAmount <= 0) {
-                return "Amount must be greater than 0";
-            }
-            if (charm.amount && transferAmount > charm.amount.remaining) {
-                return "Insufficient charm amount";
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Adds a message to the log display
-     */
+    // Adds a message to the log display
     function addLogMessage(message: string): void {
         logMessages = [...logMessages, message];
     }
 
-    /**
-     * Creates transactions for charm transfer (step 1 of the transfer process)
-     * Validates inputs, generates transactions, and updates UI state
-     */
+    // Creates transactions for charm transfer (step 1 of the transfer process)
     async function handleCreate2txs() {
-        console.log("handleCreate2txs called");
-        // Input validation
-        const validationError = validateTransferInputs();
-        console.log("Validation result:", validationError);
-        if (validationError) {
-            logMessages = [...logMessages, validationError];
-            return;
-        }
-
         try {
-            // Verify spell exists or generate it
-            console.log("Final spell:", finalSpell);
-
-            // Force regenerate the spell to ensure it's up to date
-            try {
-                console.log("Generating spell with:", {
-                    charm,
-                    transferAmount,
-                    destinationAddress,
-                });
-
-                finalSpell = charmsService.composeTransferSpell(
-                    { ...charm },
-                    transferAmount,
-                    destinationAddress,
-                );
-                console.log("Generated spell:", finalSpell);
-            } catch (error: any) {
-                console.error("Failed to generate spell:", error);
-                throw new Error(
-                    `Failed to generate spell: ${error.message || String(error)}`,
-                );
-            }
-
-            // Log the initiation with appropriate message based on charm type
             if (isNFT) {
                 addLogMessage(`Initiating transfer of 1 NFT...`);
             } else {
@@ -171,25 +96,14 @@
                 );
             }
 
-            // Create funding ID and call API
+            // Set funding UTXO and call API
             const fundingUtxoId = `${charm.txid}:${charm.outputIndex}`;
-            console.log("Funding UTXO ID:", fundingUtxoId);
-            console.log("Calling createTransferCharmTxs with:", {
-                destinationAddress,
-                transferAmount,
-                finalSpell,
-                fundingUtxoId,
-            });
-
             const response = await createTransferCharmTxs(
                 destinationAddress,
                 transferAmount,
                 finalSpell,
                 fundingUtxoId,
             );
-
-            // Log the response for debugging
-            console.log("API Response:", response);
 
             // Store results for next step
             result = response;
@@ -199,14 +113,8 @@
             // Success message
             addLogMessage(`Transfer successful! Transactions ready to sign.`);
         } catch (error: any) {
-            console.error("Transfer failed:", error);
             const errorMessage = error.message || String(error);
             addLogMessage(`Transfer failed: ${errorMessage}`);
-
-            // Add more detailed error information to the log
-            if (error.stack) {
-                console.error("Error stack:", error.stack);
-            }
 
             // Check if it's a network error
             if (error.name === "TypeError" && errorMessage.includes("fetch")) {
@@ -218,20 +126,18 @@
     }
 
     async function signAndBroadcastTxs() {
-        console.log("signAndBroadcastTxs called");
         if (
             !result?.transactions?.commit_tx ||
             !result?.transactions?.spell_tx
         ) {
-            logMessages = [...logMessages, "No transactions to sign"];
+            addLogMessage("No transactions to sign");
             return;
         }
 
         try {
-            logMessages = [
-                ...logMessages,
+            addLogMessage(
                 "Starting transaction signing and broadcasting process...",
-            ];
+            );
 
             // Get current wallet
             const currentWallet = $wallet;
@@ -251,7 +157,7 @@
                 },
                 currentWallet.private_key,
                 (message) => {
-                    logMessages = [...logMessages, message];
+                    addLogMessage(message);
                 },
             );
 
@@ -266,7 +172,7 @@
                     signedCommitTx,
                     signedSpellTx,
                     (message) => {
-                        logMessages = [...logMessages, message];
+                        addLogMessage(message);
                     },
                 );
 
@@ -293,14 +199,8 @@
             // Clear the signed transactions
             signedCommitTx = null;
             signedSpellTx = null;
-
-            console.log("Transfer process completed successfully");
         } catch (error: any) {
-            console.error("Error in signAndBroadcastTxs:", error);
-            logMessages = [
-                ...logMessages,
-                `Transaction failed: ${error.message || error}`,
-            ];
+            addLogMessage(`Transaction failed: ${error.message || error}`);
         }
     }
 
