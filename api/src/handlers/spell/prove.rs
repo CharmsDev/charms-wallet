@@ -26,7 +26,8 @@ pub async fn prove_spell(
             "transactions": {
                 "commit_tx": result.commit_tx,
                 "spell_tx": result.spell_tx,
-                "taproot_script": result.taproot_script
+                "taproot_script": result.taproot_script,
+                "control_block": result.control_block
             }
         }))),
         Err(e) => {

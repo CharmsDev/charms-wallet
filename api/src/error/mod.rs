@@ -1,4 +1,3 @@
-// api/src/error/mod.rs
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},

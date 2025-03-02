@@ -73,6 +73,7 @@ pub struct TransactionBroadcaster {
     rpc_client: RpcClient,
 }
 
+// RJJ-TODO get url from .env
 impl TransactionBroadcaster {
     pub fn new() -> WalletResult<Self> {
         let rpc_client = RpcClient::new(
@@ -85,6 +86,15 @@ impl TransactionBroadcaster {
     }
 
     pub fn broadcast(&self, request: &BroadcastTxRequest) -> WalletResult<BroadcastTxResponse> {
+        // Check if we're broadcasting a package or a single transaction
+        if let Some(tx_package) = &request.tx_package {
+            if tx_package.len() >= 2 {
+                // We have a package of transactions to broadcast together
+                return self.broadcast_package(tx_package);
+            }
+        }
+
+        // Single transaction broadcast
         use bitcoin::consensus::encode::Decodable;
         let tx_bytes = Vec::<u8>::from_hex(&request.tx_hex)
             .map_err(|e| WalletError::BitcoinError(format!("Invalid hex: {}", e)))?;
@@ -97,8 +107,76 @@ impl TransactionBroadcaster {
             .send_raw_transaction(&tx)
             .map_err(|e| WalletError::BitcoinError(format!("Broadcast failed: {}", e)))?;
 
+        let command = format!("bitcoin-cli sendrawtransaction {}", request.tx_hex);
+
         Ok(BroadcastTxResponse {
             txid: txid.to_string(),
+            command,
+        })
+    }
+
+    fn broadcast_package(&self, tx_hexes: &[String]) -> WalletResult<BroadcastTxResponse> {
+        // Log the package details
+        tracing::info!("Broadcasting package of {} transactions", tx_hexes.len());
+        for (i, tx_hex) in tx_hexes.iter().enumerate() {
+            tracing::info!(
+                "Transaction {}: {} bytes, prefix: {}",
+                i + 1,
+                tx_hex.len(),
+                &tx_hex[..20]
+            );
+        }
+
+        // Convert all transactions to JSON array format for submitpackage
+        let tx_array_json = serde_json::to_string(tx_hexes)
+            .map_err(|e| WalletError::BitcoinError(format!("JSON serialization failed: {}", e)))?;
+
+        // Use bitcoin-cli submitpackage command
+        let command = format!("bitcoin-cli submitpackage '{}'", tx_array_json);
+        tracing::info!("Command: {}", command);
+
+        // RJJ-TODO testing mode | sending sequentially : switch to sendpackage
+        let mut last_txid = String::new();
+
+        for (i, tx_hex) in tx_hexes.iter().enumerate() {
+            tracing::info!("Broadcasting transaction {} of {}", i + 1, tx_hexes.len());
+
+            use bitcoin::consensus::encode::Decodable;
+            let tx_bytes = Vec::<u8>::from_hex(tx_hex).map_err(|e| {
+                tracing::error!("Invalid hex for transaction {}: {}", i + 1, e);
+                WalletError::BitcoinError(format!("Invalid hex: {}", e))
+            })?;
+
+            let mut cursor = std::io::Cursor::new(tx_bytes);
+            let tx = Transaction::consensus_decode(&mut cursor).map_err(|e| {
+                tracing::error!("Deserialization failed for transaction {}: {}", i + 1, e);
+                WalletError::BitcoinError(format!("Deserialization failed: {}", e))
+            })?;
+
+            tracing::info!("Sending transaction {} to Bitcoin node", i + 1);
+            match self.rpc_client.send_raw_transaction(&tx) {
+                Ok(txid) => {
+                    last_txid = txid.to_string();
+                    tracing::info!(
+                        "Transaction {} broadcast successful, txid: {}",
+                        i + 1,
+                        last_txid
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("Broadcast failed for transaction {}: {}", i + 1, e);
+                    return Err(WalletError::BitcoinError(format!(
+                        "Broadcast failed: {}",
+                        e
+                    )));
+                }
+            }
+        }
+
+        tracing::info!("Package broadcast completed successfully");
+        Ok(BroadcastTxResponse {
+            txid: last_txid,
+            command,
         })
     }
 }

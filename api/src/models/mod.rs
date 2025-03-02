@@ -1,4 +1,3 @@
-// api/src/models/mod.rs
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
@@ -39,11 +38,13 @@ pub struct FeeEstimateResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BroadcastTxRequest {
     pub tx_hex: String,
+    pub tx_package: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BroadcastTxResponse {
     pub txid: String,
+    pub command: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -51,4 +52,5 @@ pub struct ProveSpellRequest {
     pub spell_json: String,
     pub funding_utxo_id: String,
     pub destination_address: String,
+    pub public_key: Option<String>,
 }
