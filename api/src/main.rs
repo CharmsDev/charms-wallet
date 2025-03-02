@@ -29,7 +29,6 @@ async fn main() {
     load_env();
     tracing_subscriber::fmt::init();
 
-    tracing::info!("Configuring CORS with permissive settings");
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
@@ -45,9 +44,6 @@ async fn main() {
         .expose_headers([header::CONTENT_TYPE, header::CONTENT_LENGTH])
         .max_age(Duration::from_secs(3600));
 
-    tracing::info!("CORS configured with specific headers");
-
-    tracing::info!("Setting up routes with CORS logging");
     let app = Router::new()
         .route("/health", get(handlers::health_check))
         .route("/wallet/create", post(handlers::create_wallet))
@@ -66,10 +62,6 @@ async fn main() {
             }),
         )
         .layer(cors);
-
-    tracing::info!("Added all routes with OPTIONS handlers");
-
-    tracing::info!("CORS and routes configured successfully");
 
     let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port = env::var("PORT").unwrap_or("3333".to_string());
