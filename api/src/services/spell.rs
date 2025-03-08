@@ -22,21 +22,21 @@ impl SpellProver {
             req.destination_address
         );
 
-        // Step 1: Create the transactions
+        // Create the transactions
         let (commit_tx, spell_tx) = self.create_transaction_pair(req)?;
 
-        // Step 2: Extract necessary information for signing
-        let (commit_tx_hex, spell_tx_hex, script, control_block) =
-            self.extract_signing_data(&commit_tx, &spell_tx, req)?;
+        // Serialize transactions to hex
+        let commit_tx_hex = bitcoin::consensus::encode::serialize_hex(&commit_tx);
+        let spell_tx_hex = bitcoin::consensus::encode::serialize_hex(&spell_tx);
 
         info!("Transfer request processed successfully");
 
-        // Return the complete result
+        // Return the transaction hex strings with empty values for other fields
         Ok(SpellProofResult {
             commit_tx: commit_tx_hex,
             spell_tx: spell_tx_hex,
-            taproot_script: script,
-            control_block,
+            taproot_script: String::new(),
+            control_block: String::new(),
         })
     }
 
@@ -82,44 +82,6 @@ impl SpellProver {
 
         // Convert the array [Transaction; 2] to a tuple (Transaction, Transaction)
         Ok((txs[0].clone(), txs[1].clone()))
-    }
-
-    /// Extracts all necessary data for transaction signing
-    fn extract_signing_data(
-        &self,
-        commit_tx: &bitcoin::Transaction,
-        spell_tx: &bitcoin::Transaction,
-        req: &models::ProveSpellRequest,
-    ) -> WalletResult<(String, String, String, String)> {
-        // Serialize transactions to hex
-        let commit_tx_hex = encode::serialize_hex(commit_tx);
-        let spell_tx_hex = encode::serialize_hex(spell_tx);
-
-        // Get script from spell transaction
-        let script = spell_tx.output[0].script_pubkey.to_string();
-
-        // Generate the control block
-        let control_block = services::taproot::generate_control_block(
-            &commit_tx.output[0].script_pubkey,
-            &spell_tx.output[0].script_pubkey,
-        )
-        .unwrap_or_else(|| {
-            // Fallback to the provided public key if available
-            req.public_key
-                .as_ref()
-                .and_then(|pk| {
-                    services::taproot::generate_control_block_from_key(
-                        pk,
-                        &spell_tx.output[0].script_pubkey,
-                    )
-                })
-                .unwrap_or_else(|| {
-                    info!("Warning: Failed to generate control block");
-                    String::new()
-                })
-        });
-
-        Ok((commit_tx_hex, spell_tx_hex, script, control_block))
     }
 }
 
