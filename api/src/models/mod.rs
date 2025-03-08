@@ -45,6 +45,7 @@ pub struct BroadcastTxRequest {
 pub struct BroadcastTxResponse {
     pub txid: String,
     pub command: String,
+    pub node_response: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
