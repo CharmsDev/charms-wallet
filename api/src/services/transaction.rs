@@ -34,6 +34,7 @@ pub fn parse_outpoint(s: &str) -> WalletResult<OutPoint> {
     Ok(OutPoint::new(txid, vout))
 }
 
+// RJJ-TODO do it from teh wallet - clean this
 pub fn get_funding_utxo_value(utxo: OutPoint) -> WalletResult<u64> {
     let rpc_client = get_rpc_client()?;
     let tx_out = rpc_client
