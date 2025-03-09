@@ -5,6 +5,7 @@ import Header from './Header';
 import Footer from './Footer';
 import AddressManager from '@/components/wallet/addresses/AddressManager';
 import UTXOList from '@/components/wallet/utxos/UTXOList';
+import CharmsList from '@/components/wallet/charms/CharmsList';
 
 export default function MainLayout({ children }) {
     const [activeSection, setActiveSection] = useState('wallets');
@@ -46,7 +47,7 @@ export default function MainLayout({ children }) {
                             }`}
                     >
                         <h1 className="text-2xl font-bold mb-4">Charms</h1>
-                        <p>Charms section content will go here.</p>
+                        <CharmsList />
                     </div>
 
                     {/* Settings Section */}

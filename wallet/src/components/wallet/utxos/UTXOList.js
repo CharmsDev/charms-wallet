@@ -90,8 +90,7 @@ export default function UTXOList() {
                     <table className="min-w-full bg-white border border-gray-200">
                         <thead className="bg-gray-100">
                             <tr>
-                                <th className="py-2 px-4 border-b text-left">TXID</th>
-                                <th className="py-2 px-4 border-b text-left">Vout</th>
+                                <th className="py-2 px-4 border-b text-left">UTXO</th>
                                 <th className="py-2 px-4 border-b text-left">Address</th>
                                 <th className="py-2 px-4 border-b text-left">Amount (BTC)</th>
                                 <th className="py-2 px-4 border-b text-left">Status</th>
@@ -101,11 +100,10 @@ export default function UTXOList() {
                             {flattenedUtxos.map((utxo, index) => (
                                 <tr key={`${utxo.txid}-${utxo.vout}`} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
                                     <td className="py-2 px-4 border-b">
-                                        <div className="truncate max-w-xs" title={utxo.txid}>
-                                            {utxo.txid.substring(0, 8)}...{utxo.txid.substring(utxo.txid.length - 8)}
+                                        <div className="font-mono text-xs break-all" title={`${utxo.txid}:${utxo.vout}`}>
+                                            {utxo.txid}:{utxo.vout}
                                         </div>
                                     </td>
-                                    <td className="py-2 px-4 border-b">{utxo.vout}</td>
                                     <td className="py-2 px-4 border-b">
                                         <div className="truncate max-w-xs" title={utxo.address}>
                                             {utxo.address.substring(0, 8)}...{utxo.address.substring(utxo.address.length - 8)}
