@@ -8,7 +8,7 @@ import BitcoinCoreInstructions from './BitcoinCoreInstructions';
 export default function WalletDashboard({ seedPhrase, walletInfo, createSuccess }) {
     const [copyNotification, setCopyNotification] = useState(false);
 
-    // Function to copy text to clipboard and show notification
+    // Copy text and show temporary notification
     const copyToClipboard = (text) => {
         navigator.clipboard.writeText(text);
         setCopyNotification(true);

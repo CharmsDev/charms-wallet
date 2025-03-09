@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Header from './Header';
 import Footer from './Footer';
 import AddressManager from '@/components/wallet/addresses/AddressManager';
+import UTXOList from '@/components/wallet/utxos/UTXOList';
 
 export default function MainLayout({ children }) {
     const [activeSection, setActiveSection] = useState('wallets');
@@ -36,8 +37,7 @@ export default function MainLayout({ children }) {
                         className={`transition-opacity duration-200 ${activeSection !== "utxos" ? "opacity-0 hidden" : ""
                             }`}
                     >
-                        <h1 className="text-2xl font-bold mb-4">UTXOs</h1>
-                        <p>UTXOs section content will go here.</p>
+                        <UTXOList />
                     </div>
 
                     {/* Charms Section */}

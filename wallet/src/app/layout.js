@@ -2,6 +2,7 @@ import "./globals.css";
 import MainLayout from "@/components/layout/MainLayout";
 import { WalletProvider } from "@/stores/walletStore";
 import { AddressesProvider } from "@/stores/addressesStore";
+import { UTXOProvider } from "@/stores/utxoStore";
 
 export const metadata = {
   title: "Bitcoin Wallet with Charms",
@@ -14,9 +15,11 @@ export default function RootLayout({ children }) {
       <body>
         <WalletProvider>
           <AddressesProvider>
-            <MainLayout>
-              {children}
-            </MainLayout>
+            <UTXOProvider>
+              <MainLayout>
+                {children}
+              </MainLayout>
+            </UTXOProvider>
           </AddressesProvider>
         </WalletProvider>
       </body>
