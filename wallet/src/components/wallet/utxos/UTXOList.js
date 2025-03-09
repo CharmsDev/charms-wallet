@@ -2,24 +2,30 @@
 
 import { useState, useEffect } from 'react';
 import { useUTXOs } from '@/stores/utxoStore';
+import { useAddresses } from '@/stores/addressesStore';
 
 export default function UTXOList() {
     const { utxos, isLoading, error, totalBalance, refreshUTXOs, formatSats } = useUTXOs();
+    const { addresses } = useAddresses();
     const [flattenedUtxos, setFlattenedUtxos] = useState([]);
 
-    // Transform UTXOs into flat array with address
+    // Flatten UTXOs and add isChange flag
     useEffect(() => {
         const flattened = [];
         Object.entries(utxos).forEach(([address, addressUtxos]) => {
+            const addressEntry = addresses.find(addr => addr.address === address);
+            const isChange = addressEntry?.isChange || false;
+
             addressUtxos.forEach(utxo => {
                 flattened.push({
                     ...utxo,
-                    address
+                    address,
+                    isChange
                 });
             });
         });
         setFlattenedUtxos(flattened);
-    }, [utxos]);
+    }, [utxos, addresses]);
 
     const handleRefresh = async () => {
         await refreshUTXOs();
@@ -105,8 +111,15 @@ export default function UTXOList() {
                                         </div>
                                     </td>
                                     <td className="py-2 px-4 border-b">
-                                        <div className="truncate max-w-xs" title={utxo.address}>
-                                            {utxo.address.substring(0, 8)}...{utxo.address.substring(utxo.address.length - 8)}
+                                        <div className="flex flex-col">
+                                            <div className="truncate max-w-xs" title={utxo.address}>
+                                                {utxo.address.substring(0, 8)}...{utxo.address.substring(utxo.address.length - 8)}
+                                            </div>
+                                            {utxo.isChange && (
+                                                <span className="text-xs text-blue-600 mt-1">
+                                                    Change Address
+                                                </span>
+                                            )}
                                         </div>
                                     </td>
                                     <td className="py-2 px-4 border-b">{formatSats(utxo.value)}</td>

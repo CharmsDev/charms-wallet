@@ -3,29 +3,21 @@
 import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
 import { ECPairFactory } from 'ecpair';
-
-// Initialize bitcoinjs-lib with the ECC library
-bitcoin.initEccLib(ecc);
-
-// Initialize ECPair with the tiny-secp256k1 library
-const ECPair = ECPairFactory(ecc);
-
-// Validates a Bitcoin testnet address
-export function validateAddress(address) {
-    // Since we're using only taproot, we could just check for taproot pattern
-    // But keeping segwit pattern for backward compatibility
-    const p2wpkhPattern = /^tb1q[a-z0-9]{38,39}$/;
-    const p2trPattern = /^tb1p[a-z0-9]{58,59}$/;
-
-    // Prioritize taproot addresses but still accept segwit for compatibility
-    return p2trPattern.test(address) || p2wpkhPattern.test(address);
-}
-
 import * as bip39 from 'bip39';
 import { BIP32Factory } from 'bip32';
 
-// Initialize BIP32
+// Initialize libraries
+bitcoin.initEccLib(ecc);
+const ECPair = ECPairFactory(ecc);
 const bip32 = BIP32Factory(ecc);
+
+// Validates a Bitcoin testnet address
+export function validateAddress(address) {
+    // Check both taproot and segwit patterns for compatibility
+    const p2wpkhPattern = /^tb1q[a-z0-9]{38,39}$/;
+    const p2trPattern = /^tb1p[a-z0-9]{58,59}$/;
+    return p2trPattern.test(address) || p2wpkhPattern.test(address);
+}
 
 // Generates a new Bitcoin testnet Taproot address using BIP86 derivation path
 export async function generateTaprootAddress(seedPhrase, index, isChange = false) {
@@ -107,6 +99,7 @@ export async function importPrivateKey(privateKey) {
             address,
             privateKey,
             index: 0, // Assume it's the first address in the BIP86 path
+            isChange: false, // Assume it's a receiving address
             created: new Date().toISOString()
         };
     } catch (error) {
