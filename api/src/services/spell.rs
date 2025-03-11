@@ -58,7 +58,7 @@ impl SpellProver {
 
         // Get funding UTXO information
         let funding_utxo = services::transaction::parse_outpoint(&req.funding_utxo_id)?;
-        let funding_utxo_value = services::transaction::get_funding_utxo_value(funding_utxo)?;
+        let funding_utxo_value = req.funding_utxo_amount;
 
         // Get change address for remaining funds
         let change_address = services::transaction::get_change_address()?;
