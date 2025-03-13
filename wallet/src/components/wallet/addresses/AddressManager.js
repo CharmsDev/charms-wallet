@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useAddresses } from '@/stores/addressesStore';
 import { useWallet } from '@/stores/walletStore';
-import { validateAddress, generateTaprootAddress, importPrivateKey, copyToClipboard } from '@/utils/addressUtils';
+import { validateAddress, generateTaprootAddress, importPrivateKey, copyToClipboard, derivePrivateKey } from '@/utils/addressUtils';
 
 export default function AddressManager() {
     const { addresses, addAddress, deleteAddress } = useAddresses();
@@ -15,6 +15,8 @@ export default function AddressManager() {
     const [showConfirmDelete, setShowConfirmDelete] = useState(false);
     const [addressToDelete, setAddressToDelete] = useState(null);
     const [importMode, setImportMode] = useState('address'); // 'address' or 'privateKey'
+    const [visiblePrivateKeys, setVisiblePrivateKeys] = useState({});
+    const [privateKeys, setPrivateKeys] = useState({});
 
     // Set address for deletion
     const handleDeleteClick = (address) => {
@@ -95,6 +97,40 @@ export default function AddressManager() {
         }
     };
 
+    // Toggle private key visibility
+    const togglePrivateKey = async (address, index, isChange) => {
+        // If we already have the private key, just toggle visibility
+        if (privateKeys[address]) {
+            setVisiblePrivateKeys(prev => ({
+                ...prev,
+                [address]: !prev[address]
+            }));
+            return;
+        }
+
+        // Otherwise, derive the private key
+        try {
+            if (!seedPhrase) {
+                setAddressError('No wallet found');
+                return;
+            }
+
+            const privKey = await derivePrivateKey(seedPhrase, index, isChange);
+            setPrivateKeys(prev => ({
+                ...prev,
+                [address]: privKey
+            }));
+
+            setVisiblePrivateKeys(prev => ({
+                ...prev,
+                [address]: true
+            }));
+        } catch (error) {
+            console.error('Error deriving private key:', error);
+            setAddressError('Failed to derive private key: ' + error.message);
+        }
+    };
+
     return (
         <div className="mt-8 space-y-6">
 
@@ -152,37 +188,89 @@ export default function AddressManager() {
 
                                                 {/* Receiving address */}
                                                 {externalAddr && (
-                                                    <div className="flex items-center justify-between mb-2 pl-2 border-l-4 border-blue-500">
-                                                        <div className="flex-1">
-                                                            <div className="font-mono text-sm truncate">
-                                                                {externalAddr.address}
+                                                    <div className="mb-2 pl-2 border-l-4 border-blue-500">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex-1">
+                                                                <div className="font-mono text-sm truncate">
+                                                                    {externalAddr.address}
+                                                                </div>
+                                                                <span className="text-xs text-gray-500">Receiving Address</span>
                                                             </div>
-                                                            <span className="text-xs text-gray-500">Receiving Address</span>
+                                                            <div className="flex gap-2">
+                                                                <button
+                                                                    onClick={() => handleCopy(externalAddr.address)}
+                                                                    className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
+                                                                >
+                                                                    Copy
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => togglePrivateKey(externalAddr.address, externalAddr.index, externalAddr.isChange)}
+                                                                    className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
+                                                                >
+                                                                    {visiblePrivateKeys[externalAddr.address] ? 'Hide Key' : 'Show Key'}
+                                                                </button>
+                                                            </div>
                                                         </div>
-                                                        <button
-                                                            onClick={() => handleCopy(externalAddr.address)}
-                                                            className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
-                                                        >
-                                                            Copy
-                                                        </button>
+                                                        {visiblePrivateKeys[externalAddr.address] && privateKeys[externalAddr.address] && (
+                                                            <div className="mt-1 bg-gray-100 p-2 rounded">
+                                                                <div className="flex items-center justify-between">
+                                                                    <div className="font-mono text-sm truncate text-red-600">
+                                                                        {privateKeys[externalAddr.address]}
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={() => handleCopy(privateKeys[externalAddr.address])}
+                                                                        className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
+                                                                    >
+                                                                        Copy
+                                                                    </button>
+                                                                </div>
+                                                                <span className="text-xs text-red-500">Private Key (Keep Secret!)</span>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
 
                                                 {/* Change address */}
                                                 {changeAddr && (
-                                                    <div className="flex items-center justify-between pl-2 border-l-4 border-green-500">
-                                                        <div className="flex-1">
-                                                            <div className="font-mono text-sm truncate">
-                                                                {changeAddr.address}
+                                                    <div className="pl-2 border-l-4 border-green-500">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex-1">
+                                                                <div className="font-mono text-sm truncate">
+                                                                    {changeAddr.address}
+                                                                </div>
+                                                                <span className="text-xs text-gray-500">Change Address</span>
                                                             </div>
-                                                            <span className="text-xs text-gray-500">Change Address</span>
+                                                            <div className="flex gap-2">
+                                                                <button
+                                                                    onClick={() => handleCopy(changeAddr.address)}
+                                                                    className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
+                                                                >
+                                                                    Copy
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => togglePrivateKey(changeAddr.address, changeAddr.index, changeAddr.isChange)}
+                                                                    className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
+                                                                >
+                                                                    {visiblePrivateKeys[changeAddr.address] ? 'Hide Key' : 'Show Key'}
+                                                                </button>
+                                                            </div>
                                                         </div>
-                                                        <button
-                                                            onClick={() => handleCopy(changeAddr.address)}
-                                                            className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
-                                                        >
-                                                            Copy
-                                                        </button>
+                                                        {visiblePrivateKeys[changeAddr.address] && privateKeys[changeAddr.address] && (
+                                                            <div className="mt-1 bg-gray-100 p-2 rounded">
+                                                                <div className="flex items-center justify-between">
+                                                                    <div className="font-mono text-sm truncate text-red-600">
+                                                                        {privateKeys[changeAddr.address]}
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={() => handleCopy(privateKeys[changeAddr.address])}
+                                                                        className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
+                                                                    >
+                                                                        Copy
+                                                                    </button>
+                                                                </div>
+                                                                <span className="text-xs text-red-500">Private Key (Keep Secret!)</span>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
@@ -191,25 +279,51 @@ export default function AddressManager() {
 
                                     {/* Custom imported addresses */}
                                     {customAddresses.map(addr => (
-                                        <div key={addr.address} className="flex items-center justify-between bg-gray-50 p-3 rounded-md">
-                                            <div className="flex-1 font-mono text-sm truncate">
-                                                {addr.address}
+                                        <div key={addr.address} className="bg-gray-50 p-3 rounded-md">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex-1 font-mono text-sm truncate">
+                                                    {addr.address}
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs text-gray-500">Custom</span>
+                                                    <button
+                                                        onClick={() => handleCopy(addr.address)}
+                                                        className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
+                                                    >
+                                                        Copy
+                                                    </button>
+                                                    {addr.privateKey && (
+                                                        <button
+                                                            onClick={() => togglePrivateKey(addr.address, addr.index, addr.isChange)}
+                                                            className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
+                                                        >
+                                                            {visiblePrivateKeys[addr.address] ? 'Hide Key' : 'Show Key'}
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => handleDeleteClick(addr.address)}
+                                                        className="px-3 py-1 text-xs text-white bg-red-600 hover:bg-red-700 rounded-md"
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                </div>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-xs text-gray-500">Custom</span>
-                                                <button
-                                                    onClick={() => handleCopy(addr.address)}
-                                                    className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
-                                                >
-                                                    Copy
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteClick(addr.address)}
-                                                    className="px-3 py-1 text-xs text-white bg-red-600 hover:bg-red-700 rounded-md"
-                                                >
-                                                    Delete
-                                                </button>
-                                            </div>
+                                            {addr.privateKey && visiblePrivateKeys[addr.address] && (
+                                                <div className="mt-1 bg-gray-100 p-2 rounded">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="font-mono text-sm truncate text-red-600">
+                                                            {addr.privateKey}
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleCopy(addr.privateKey)}
+                                                            className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
+                                                        >
+                                                            Copy
+                                                        </button>
+                                                    </div>
+                                                    <span className="text-xs text-red-500">Private Key (Keep Secret!)</span>
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </>

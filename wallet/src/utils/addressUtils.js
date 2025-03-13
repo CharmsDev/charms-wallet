@@ -63,6 +63,37 @@ export async function generateTaprootAddress(seedPhrase, index, isChange = false
     }
 }
 
+// Derives the private key for a given address index and isChange flag
+export async function derivePrivateKey(seedPhrase, index, isChange = false) {
+    try {
+        // Use testnet network
+        const network = bitcoin.networks.testnet;
+
+        // Convert seed phrase to seed
+        const seed = await bip39.mnemonicToSeed(seedPhrase);
+
+        // Derive the master node
+        const masterNode = bip32.fromSeed(seed, network);
+
+        // Derive the account node using BIP86 path for taproot: m/86'/0'/0'
+        const accountNode = masterNode.derivePath("m/86'/0'/0'");
+
+        // Derive the chain node (0 for receiving addresses, 1 for change addresses)
+        const chainNode = accountNode.derive(isChange ? 1 : 0);
+
+        // Derive the address node at the specified index
+        const addressNode = chainNode.derive(index);
+
+        // Get the private key in hex format
+        const privateKey = addressNode.privateKey.toString('hex');
+
+        return privateKey;
+    } catch (error) {
+        console.error("Error deriving private key:", error);
+        throw error;
+    }
+}
+
 // Imports a private key and derives the corresponding address using BIP86 for Taproot
 export async function importPrivateKey(privateKey) {
     try {
