@@ -18,6 +18,16 @@ pub async fn prove_spell(
         ));
     }
 
+    if req.funding_utxo_amount == 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": "funding_utxo_amount must be greater than 0"
+            })),
+        ));
+    }
+
     // Prove spell
     let prover = SpellProver::new();
     match prover.prove_spell(&req).await {

@@ -53,5 +53,5 @@ pub struct ProveSpellRequest {
     pub spell_json: String,
     pub funding_utxo_id: String,
     pub destination_address: String,
-    pub public_key: Option<String>,
+    pub funding_utxo_amount: u64,
 }
