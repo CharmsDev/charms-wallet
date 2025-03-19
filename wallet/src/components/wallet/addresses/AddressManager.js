@@ -1,21 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAddresses } from '@/stores/addressesStore';
 import { useWallet } from '@/stores/walletStore';
-import { validateAddress, generateTaprootAddress, importPrivateKey, copyToClipboard, derivePrivateKey } from '@/utils/addressUtils';
+import { generateTaprootAddress, derivePrivateKey } from '@/utils/addressUtils';
+
+// Import components
+import AddressControls from './components/AddressControls';
+import AddressList from './components/AddressList';
+import DeleteConfirmationDialog from './components/DeleteConfirmationDialog';
 
 export default function AddressManager() {
     const { addresses, addAddress, deleteAddress } = useAddresses();
     const { seedPhrase } = useWallet();
 
-    const [newAddress, setNewAddress] = useState('');
-    const [privateKey, setPrivateKey] = useState('');
     const [addressError, setAddressError] = useState('');
     const [showConfirmDelete, setShowConfirmDelete] = useState(false);
     const [addressToDelete, setAddressToDelete] = useState(null);
-    const [importMode, setImportMode] = useState('address'); // 'address' or 'privateKey'
-    const [visiblePrivateKeys, setVisiblePrivateKeys] = useState({});
     const [privateKeys, setPrivateKeys] = useState({});
 
     // Set address for deletion
@@ -24,7 +25,7 @@ export default function AddressManager() {
         setShowConfirmDelete(true);
     };
 
-    // Delete selected address(es)
+    // Delete selected addresses
     const confirmDelete = () => {
         if (addressToDelete) {
             const addressEntry = addresses.find(addr => addr.address === addressToDelete);
@@ -51,7 +52,7 @@ export default function AddressManager() {
         setShowConfirmDelete(false);
     };
 
-    // Generate new address pair (external + change)
+    // Generate new address pair
     const generateNewAddress = async () => {
         try {
             setAddressError('');
@@ -89,285 +90,63 @@ export default function AddressManager() {
         }
     };
 
-    // Copy address to clipboard
-    const handleCopy = async (text) => {
-        const success = await copyToClipboard(text);
-        if (!success) {
-            setAddressError('Failed to copy to clipboard');
-        }
-    };
-
-    // Toggle private key visibility
-    const togglePrivateKey = async (address, index, isChange) => {
-        // If we already have the private key, just toggle visibility
-        if (privateKeys[address]) {
-            setVisiblePrivateKeys(prev => ({
-                ...prev,
-                [address]: !prev[address]
-            }));
-            return;
-        }
-
-        // Otherwise, derive the private key
+    // Derive private keys for addresses
+    const deriveAllPrivateKeys = async () => {
         try {
             if (!seedPhrase) {
                 setAddressError('No wallet found');
                 return;
             }
 
-            const privKey = await derivePrivateKey(seedPhrase, index, isChange);
-            setPrivateKeys(prev => ({
-                ...prev,
-                [address]: privKey
-            }));
-
-            setVisiblePrivateKeys(prev => ({
-                ...prev,
-                [address]: true
-            }));
+            const keys = {};
+            for (const addr of addresses) {
+                if (addr.index >= 0) { // Only derive for HD addresses, not imported ones
+                    const privKey = await derivePrivateKey(seedPhrase, addr.index, addr.isChange);
+                    keys[addr.address] = privKey;
+                }
+            }
+            setPrivateKeys(keys);
         } catch (error) {
-            console.error('Error deriving private key:', error);
-            setAddressError('Failed to derive private key: ' + error.message);
+            console.error('Error deriving private keys:', error);
+            setAddressError('Failed to derive private keys: ' + error.message);
         }
     };
 
+    // Derive private keys when addresses change
+    useEffect(() => {
+        if (addresses.length > 0 && seedPhrase) {
+            deriveAllPrivateKeys();
+        }
+    }, [addresses, seedPhrase]);
+
     return (
         <div className="mt-8 space-y-6">
-
             {/* Main address container */}
             <div className="bg-white rounded-lg shadow-md p-4">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-medium">Your Addresses</h3>
-                    <button
-                        onClick={generateNewAddress}
-                        className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-md"
-                    >
-                        Generate New Address
-                    </button>
-                </div>
+                <AddressControls
+                    onGenerateAddress={generateNewAddress}
+                    error={addressError}
+                />
+
                 {addressError && (
                     <p className="mb-3 text-sm text-red-600">{addressError}</p>
                 )}
-                <div className="space-y-4 max-h-[500px] overflow-y-auto">
-                    {addresses.length === 0 ? (
-                        <p className="text-gray-500">No addresses yet. Generate or import an address to get started.</p>
-                    ) : (
-                        (() => {
-                            // Group and organize addresses
-                            const addressPairs = {};
-                            const customAddresses = [];
 
-                            addresses.forEach(addr => {
-                                if (addr.index === -1) {
-                                    customAddresses.push(addr);
-                                } else {
-                                    if (!addressPairs[addr.index]) {
-                                        addressPairs[addr.index] = [];
-                                    }
-                                    addressPairs[addr.index].push(addr);
-                                }
-                            });
-
-                            return (
-                                <>
-                                    {Object.entries(addressPairs).map(([index, addrGroup]) => {
-                                        const externalAddr = addrGroup.find(a => !a.isChange);
-                                        const changeAddr = addrGroup.find(a => a.isChange);
-
-                                        return (
-                                            <div key={`pair-${index}`} className="bg-gray-50 p-4 rounded-md">
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <span className="font-medium text-sm">Address Pair - Index: {index}</span>
-                                                    <button
-                                                        onClick={() => handleDeleteClick(externalAddr?.address || changeAddr?.address)}
-                                                        className="px-3 py-1 text-xs text-white bg-red-600 hover:bg-red-700 rounded-md"
-                                                    >
-                                                        Delete Pair
-                                                    </button>
-                                                </div>
-
-                                                {/* Receiving address */}
-                                                {externalAddr && (
-                                                    <div className="mb-2 pl-2 border-l-4 border-blue-500">
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex-1">
-                                                                <div className="font-mono text-sm truncate">
-                                                                    {externalAddr.address}
-                                                                </div>
-                                                                <span className="text-xs text-gray-500">Receiving Address</span>
-                                                            </div>
-                                                            <div className="flex gap-2">
-                                                                <button
-                                                                    onClick={() => handleCopy(externalAddr.address)}
-                                                                    className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
-                                                                >
-                                                                    Copy
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => togglePrivateKey(externalAddr.address, externalAddr.index, externalAddr.isChange)}
-                                                                    className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
-                                                                >
-                                                                    {visiblePrivateKeys[externalAddr.address] ? 'Hide Key' : 'Show Key'}
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                        {visiblePrivateKeys[externalAddr.address] && privateKeys[externalAddr.address] && (
-                                                            <div className="mt-1 bg-gray-100 p-2 rounded">
-                                                                <div className="flex items-center justify-between">
-                                                                    <div className="font-mono text-sm truncate text-red-600">
-                                                                        {privateKeys[externalAddr.address]}
-                                                                    </div>
-                                                                    <button
-                                                                        onClick={() => handleCopy(privateKeys[externalAddr.address])}
-                                                                        className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
-                                                                    >
-                                                                        Copy
-                                                                    </button>
-                                                                </div>
-                                                                <span className="text-xs text-red-500">Private Key (Keep Secret!)</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-
-                                                {/* Change address */}
-                                                {changeAddr && (
-                                                    <div className="pl-2 border-l-4 border-green-500">
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex-1">
-                                                                <div className="font-mono text-sm truncate">
-                                                                    {changeAddr.address}
-                                                                </div>
-                                                                <span className="text-xs text-gray-500">Change Address</span>
-                                                            </div>
-                                                            <div className="flex gap-2">
-                                                                <button
-                                                                    onClick={() => handleCopy(changeAddr.address)}
-                                                                    className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
-                                                                >
-                                                                    Copy
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => togglePrivateKey(changeAddr.address, changeAddr.index, changeAddr.isChange)}
-                                                                    className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
-                                                                >
-                                                                    {visiblePrivateKeys[changeAddr.address] ? 'Hide Key' : 'Show Key'}
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                        {visiblePrivateKeys[changeAddr.address] && privateKeys[changeAddr.address] && (
-                                                            <div className="mt-1 bg-gray-100 p-2 rounded">
-                                                                <div className="flex items-center justify-between">
-                                                                    <div className="font-mono text-sm truncate text-red-600">
-                                                                        {privateKeys[changeAddr.address]}
-                                                                    </div>
-                                                                    <button
-                                                                        onClick={() => handleCopy(privateKeys[changeAddr.address])}
-                                                                        className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
-                                                                    >
-                                                                        Copy
-                                                                    </button>
-                                                                </div>
-                                                                <span className="text-xs text-red-500">Private Key (Keep Secret!)</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-
-                                    {/* Custom imported addresses */}
-                                    {customAddresses.map(addr => (
-                                        <div key={addr.address} className="bg-gray-50 p-3 rounded-md">
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex-1 font-mono text-sm truncate">
-                                                    {addr.address}
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-xs text-gray-500">Custom</span>
-                                                    <button
-                                                        onClick={() => handleCopy(addr.address)}
-                                                        className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
-                                                    >
-                                                        Copy
-                                                    </button>
-                                                    {addr.privateKey && (
-                                                        <button
-                                                            onClick={() => togglePrivateKey(addr.address, addr.index, addr.isChange)}
-                                                            className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
-                                                        >
-                                                            {visiblePrivateKeys[addr.address] ? 'Hide Key' : 'Show Key'}
-                                                        </button>
-                                                    )}
-                                                    <button
-                                                        onClick={() => handleDeleteClick(addr.address)}
-                                                        className="px-3 py-1 text-xs text-white bg-red-600 hover:bg-red-700 rounded-md"
-                                                    >
-                                                        Delete
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            {addr.privateKey && visiblePrivateKeys[addr.address] && (
-                                                <div className="mt-1 bg-gray-100 p-2 rounded">
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="font-mono text-sm truncate text-red-600">
-                                                            {addr.privateKey}
-                                                        </div>
-                                                        <button
-                                                            onClick={() => handleCopy(addr.privateKey)}
-                                                            className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50"
-                                                        >
-                                                            Copy
-                                                        </button>
-                                                    </div>
-                                                    <span className="text-xs text-red-500">Private Key (Keep Secret!)</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                </>
-                            );
-                        })()
-                    )}
-                </div>
+                <AddressList
+                    addresses={addresses}
+                    privateKeys={privateKeys}
+                    onDeleteClick={handleDeleteClick}
+                />
             </div>
 
             {/* Delete confirmation dialog */}
-            {showConfirmDelete && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 max-w-md w-full">
-                        <h3 className="text-lg font-medium mb-4">Delete Address</h3>
-                        {(() => {
-                            const addressEntry = addresses.find(addr => addr.address === addressToDelete);
-                            if (addressEntry && addressEntry.index >= 0) {
-                                return (
-                                    <p className="mb-6">
-                                        Are you sure you want to delete this address pair (index: {addressEntry.index})?
-                                        Both the receiving and change addresses will be deleted.
-                                    </p>
-                                );
-                            } else {
-                                return <p className="mb-6">Are you sure you want to delete this address?</p>;
-                            }
-                        })()}
-                        <div className="flex justify-end gap-3">
-                            <button
-                                onClick={cancelDelete}
-                                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium border border-gray-300 rounded-md"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={confirmDelete}
-                                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-md"
-                            >
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <DeleteConfirmationDialog
+                isOpen={showConfirmDelete}
+                addressToDelete={addressToDelete}
+                addresses={addresses}
+                onConfirm={confirmDelete}
+                onCancel={cancelDelete}
+            />
         </div>
     );
 }

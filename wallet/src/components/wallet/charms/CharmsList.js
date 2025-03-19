@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useCharms } from '@/stores/charmsStore';
+import { useAddresses } from '@/stores/addressesStore';
+import TransferCharmDialog from './TransferCharmDialog';
 
 export default function CharmsList() {
     const { charms, isLoading, error, loadCharms, refreshCharms, isNFT, getCharmDisplayName } = useCharms();
     const [selectedType, setSelectedType] = useState('all'); // 'all', 'nft', 'token'
 
-    // Load charms when the component mounts
+    // Load charms on mount
     useEffect(() => {
         loadCharms();
     }, []);
@@ -84,7 +86,7 @@ export default function CharmsList() {
                     )}
                 </div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {filteredCharms.map((charm) => (
                         <CharmCard key={charm.uniqueId} charm={charm} />
                     ))}
@@ -96,7 +98,19 @@ export default function CharmsList() {
 
 function CharmCard({ charm }) {
     const { isNFT, getCharmDisplayName } = useCharms();
+    const { addresses } = useAddresses();
     const isNftCharm = isNFT(charm);
+    const [showTransferDialog, setShowTransferDialog] = useState(false);
+
+    // Find address entry for charm
+    const addressEntry = addresses.find(addr => addr.address === charm.address);
+
+    // Construct the derivation path
+    const isChange = addressEntry?.isChange || false;
+    const addressIndex = addressEntry?.index || 'Unknown';
+    const derivationPath = addressIndex !== 'Unknown'
+        ? `m/86'/0'/0'/${isChange ? '1' : '0'}/${addressIndex}`
+        : 'Unknown';
 
     return (
         <div className="bg-white border rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
@@ -123,12 +137,45 @@ function CharmCard({ charm }) {
                             <span className="font-mono">{charm.id}</span>
                         </div>
                         <div className="flex flex-col">
-                            <span>TXID:</span>
-                            <span className="font-mono break-all mt-1">{charm.txid}</span>
+                            <span>UTXO:</span>
+                            <span className="font-mono break-all mt-1">{charm.txid}:{charm.outputIndex}</span>
+                        </div>
+                        <div className="flex flex-col">
+                            <span>Address:</span>
+                            <span className="font-mono break-all mt-1">{charm.address}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>Address Type:</span>
+                            <span className="font-mono">{isChange ? 'Change' : 'Receiver'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>Address Index:</span>
+                            <span className="font-mono">{addressIndex}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>Derivation Path:</span>
+                            <span className="font-mono">{derivationPath}</span>
                         </div>
                     </div>
                 </div>
+
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                    <button
+                        onClick={() => setShowTransferDialog(true)}
+                        className="w-full py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                    >
+                        Transfer
+                    </button>
+                </div>
             </div>
+
+            {showTransferDialog && (
+                <TransferCharmDialog
+                    charm={charm}
+                    show={showTransferDialog}
+                    onClose={() => setShowTransferDialog(false)}
+                />
+            )}
         </div>
     );
 }

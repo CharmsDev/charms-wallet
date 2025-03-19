@@ -5,7 +5,7 @@ import * as bip39 from 'bip39';
 import * as ecc from 'tiny-secp256k1';
 import { BIP32Factory } from 'bip32';
 
-// Initialize bitcoinjs-lib with the ECC library
+// Initialize bitcoinjs-lib with ECC
 bitcoin.initEccLib(ecc);
 
 // Initialize BIP32
@@ -20,8 +20,7 @@ export async function deriveXpubFromSeedPhrase(seedPhrase, path = "m/86'/0'/0'")
         // Derive the master node using testnet network
         const masterNode = bip32.fromSeed(seed, bitcoin.networks.testnet);
 
-        // Get the master key fingerprint as an 8-character hexadecimal string
-        // The fingerprint is a 4-byte buffer, we need to convert it to an 8-character hex string
+        // Get master key fingerprint (hex)
 
         // Get the fingerprint as a Buffer
         const fingerprintBuffer = masterNode.fingerprint;
@@ -61,7 +60,7 @@ export async function deriveXpubFromSeedPhrase(seedPhrase, path = "m/86'/0'/0'")
     }
 }
 
-// Generates a descriptor wallet import command for Bitcoin Core testnet
+// Generate descriptor wallet import command
 export async function generateDescriptorImportCommand(seedPhrase, path = "m/86'/0'/0'") {
     try {
         const { xpub, xpriv, fingerprint, path: formattedPath } = await deriveXpubFromSeedPhrase(seedPhrase, path);

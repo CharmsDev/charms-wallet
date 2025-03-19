@@ -11,7 +11,7 @@ export interface AddressEntry {
     address: string;
     index: number;
     created: string;
-    isChange?: boolean; // Identifies change addresses
+    isChange?: boolean;  // Identifies change addresses
     privateKey?: string; // For imported addresses
 }
 

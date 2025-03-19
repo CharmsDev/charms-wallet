@@ -18,7 +18,7 @@ export default function WalletDashboard({ seedPhrase, walletInfo, createSuccess 
     const { utxos, loadUTXOs } = useUTXOs();
     const { charms, loadCharms } = useCharms();
 
-    // Copy text and show temporary notification
+    // Copy text with notification
     const copyToClipboard = (text) => {
         navigator.clipboard.writeText(text);
         setCopyNotification(true);
@@ -89,7 +89,7 @@ export default function WalletDashboard({ seedPhrase, walletInfo, createSuccess 
                     </div>
                 )}
 
-                {/* Delete Wallet Button */}
+                {/* Delete wallet button */}
                 <div className="mt-8 flex justify-center">
                     <button
                         onClick={() => setShowDeleteDialog(true)}
@@ -100,7 +100,7 @@ export default function WalletDashboard({ seedPhrase, walletInfo, createSuccess 
                 </div>
             </div>
 
-            {/* Delete Confirmation Dialog */}
+            {/* Delete confirmation dialog */}
             {showDeleteDialog && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                     <div className="bg-white rounded-lg p-6 max-w-md w-full">

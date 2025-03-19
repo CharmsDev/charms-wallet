@@ -7,7 +7,7 @@ import * as ecc from 'tiny-secp256k1';
 import WalletCreation from '@/components/wallet/setup/WalletCreation';
 import WalletDashboard from '@/components/wallet/setup/WalletDashboard';
 
-// Initialize bitcoinjs-lib with the ECC library
+// Initialize bitcoinjs-lib with ECC
 bitcoin.initEccLib(ecc);
 
 export default function Home() {
@@ -21,20 +21,20 @@ export default function Home() {
     derivationLoading: false
   });
 
-  // Derive wallet info when seed phrase is available
+  // Derive wallet info on seed phrase
   useEffect(() => {
     const deriveWalletInfo = async () => {
       if (hasWallet && seedPhrase) {
         try {
           setWalletInfo(prev => ({ ...prev, derivationLoading: true }));
 
-          // Import the deriveXpubFromSeedPhrase function from descriptorUtils
+          // Import deriveXpubFromSeedPhrase from descriptorUtils
           const { deriveXpubFromSeedPhrase } = await import('@/utils/descriptorUtils');
 
-          // Derive the wallet info from the seed phrase
+          // Derive wallet info from seed phrase
           const { xpub, xpriv, fingerprint, path } = await deriveXpubFromSeedPhrase(seedPhrase);
 
-          // Set the wallet info with real values
+          // Set wallet info
           setWalletInfo({
             xpub,
             xpriv,
@@ -63,14 +63,13 @@ export default function Home() {
 
   const handleImportWallet = async (inputSeedPhrase) => {
     try {
-      // Implementation for importing would go here
       console.log('Import wallet clicked with seed phrase:', inputSeedPhrase);
     } catch (err) {
       console.error('Error importing wallet:', err);
     }
   };
 
-  // If we have a wallet, show the wallet dashboard
+  // Show wallet dashboard if available
   if (hasWallet && seedPhrase) {
     return (
       <WalletDashboard
@@ -81,7 +80,7 @@ export default function Home() {
     );
   }
 
-  // Default view - create or import wallet
+  // Default view: create or import wallet
   return (
     <WalletCreation
       isLoading={isLoading}

@@ -149,3 +149,55 @@ export async function copyToClipboard(text) {
         return false;
     }
 }
+
+/**
+ * Group addresses into pairs and custom addresses
+ * @param {Array} addresses - Array of address objects
+ * @returns {Object} Object containing addressPairs and customAddresses
+ */
+export function organizeAddresses(addresses) {
+    const addressPairs = {};
+    const customAddresses = [];
+
+    addresses.forEach(addr => {
+        if (addr.index === -1) {
+            customAddresses.push(addr);
+        } else {
+            if (!addressPairs[addr.index]) {
+                addressPairs[addr.index] = [];
+            }
+            addressPairs[addr.index].push(addr);
+        }
+    });
+
+    return { addressPairs, customAddresses };
+}
+
+/**
+ * Derives the extended public key (xpub) for the wallet
+ * @param {string} seedPhrase - The wallet's seed phrase
+ * @returns {Promise<string>} The extended public key in base58 format
+ */
+export async function deriveXpub(seedPhrase) {
+    try {
+        // Use testnet network
+        const network = bitcoin.networks.testnet;
+
+        // Convert seed phrase to seed
+        const seed = await bip39.mnemonicToSeed(seedPhrase);
+
+        // Derive the master node
+        const masterNode = bip32.fromSeed(seed, network);
+
+        // Derive the account node using BIP86 path for taproot: m/86'/0'/0'
+        const accountNode = masterNode.derivePath("m/86'/0'/0'");
+
+        // Get the extended public key (xpub)
+        const xpub = accountNode.neutered().toBase58();
+
+        return xpub;
+    } catch (error) {
+        console.error("Error deriving xpub:", error);
+        throw error;
+    }
+}

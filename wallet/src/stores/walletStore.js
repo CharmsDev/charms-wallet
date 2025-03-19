@@ -7,7 +7,7 @@ import { getSeedPhrase, clearSeedPhrase } from '@/services/storage';
 // Create context
 const WalletContext = createContext();
 
-// Custom hook to use the wallet context
+// Use wallet context
 export const useWallet = () => {
     const context = useContext(WalletContext);
     if (!context) {
@@ -23,7 +23,7 @@ export function WalletProvider({ children }) {
     const [error, setError] = useState(null);
     const [hasWallet, setHasWallet] = useState(false);
 
-    // Check if wallet exists on mount and load it if it does
+    // Check/load wallet on mount
     useEffect(() => {
         const checkWalletExists = async () => {
             const storedSeedPhrase = await getSeedPhrase();

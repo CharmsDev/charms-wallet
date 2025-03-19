@@ -3,11 +3,11 @@ import { useState } from 'react';
 export default function Header({ activeSection, setActiveSection }) {
     return (
         <>
-            {/* Header */}
+            {/* Header section */}
             <header className="bg-white shadow-sm">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
                     <div className="flex justify-between items-center">
-                        {/* Logo */}
+                        {/* Logo section */}
                         <div className="flex items-center">
                             <img
                                 src="https://charms.dev/_astro/logo-charms-dark.Ceshk2t3.png"
@@ -17,7 +17,7 @@ export default function Header({ activeSection, setActiveSection }) {
                             <span className="ml-2 text-xl font-semibold text-gray-900">Wallet</span>
                         </div>
 
-                        {/* Network Badge */}
+                        {/* Network badge section */}
                         <div className="flex items-center">
                             <span
                                 className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800"
@@ -29,7 +29,7 @@ export default function Header({ activeSection, setActiveSection }) {
                 </div>
             </header>
 
-            {/* Navigation */}
+            {/* Navigation section */}
             <nav className="bg-white border-b border-gray-200">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex space-x-8">

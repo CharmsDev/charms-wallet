@@ -14,10 +14,10 @@ export default function MainLayout({ children }) {
         <div className="min-h-screen flex flex-col bg-gray-50 relative">
             <Header activeSection={activeSection} setActiveSection={setActiveSection} />
 
-            {/* Main Content */}
+            {/* Main content section */}
             <main className="flex-grow py-8">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    {/* Wallet Section */}
+                    {/* Wallet section */}
                     <div
                         className={`transition-opacity duration-200 ${activeSection !== "wallets" ? "opacity-0 hidden" : ""
                             }`}
@@ -25,7 +25,7 @@ export default function MainLayout({ children }) {
                         {children}
                     </div>
 
-                    {/* Addresses Section */}
+                    {/* Addresses section */}
                     <div
                         className={`transition-opacity duration-200 ${activeSection !== "addresses" ? "opacity-0 hidden" : ""
                             }`}
@@ -33,7 +33,7 @@ export default function MainLayout({ children }) {
                         <AddressManager />
                     </div>
 
-                    {/* UTXOs Section */}
+                    {/* UTXOs section */}
                     <div
                         className={`transition-opacity duration-200 ${activeSection !== "utxos" ? "opacity-0 hidden" : ""
                             }`}
@@ -41,7 +41,7 @@ export default function MainLayout({ children }) {
                         <UTXOList />
                     </div>
 
-                    {/* Charms Section */}
+                    {/* Charms section */}
                     <div
                         className={`transition-opacity duration-200 ${activeSection !== "charms" ? "opacity-0 hidden" : ""
                             }`}
@@ -50,7 +50,7 @@ export default function MainLayout({ children }) {
                         <CharmsList />
                     </div>
 
-                    {/* Settings Section */}
+                    {/* Settings section */}
                     <div
                         className={`transition-opacity duration-200 ${activeSection !== "settings" ? "opacity-0 hidden" : ""
                             }`}

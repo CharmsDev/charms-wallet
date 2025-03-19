@@ -5,7 +5,7 @@ if (!bitcoin.ecc) {
     bitcoin.initEccLib(ecc);
 }
 
-// Decodes a Bitcoin transaction hex string into a structured object
+// Decode Bitcoin transaction hex
 export function decodeTx(txHex) {
     try {
         const tx = bitcoin.Transaction.fromHex(txHex);

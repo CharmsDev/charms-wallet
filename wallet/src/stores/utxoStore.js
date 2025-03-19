@@ -21,14 +21,14 @@ export function UTXOProvider({ children }) {
     const [totalBalance, setTotalBalance] = useState(0);
     const { addresses } = useAddresses();
 
-    // Load UTXOs when addresses change
+    // Load UTXOs on address change
     useEffect(() => {
         if (addresses.length > 0) {
             loadUTXOs();
         }
     }, [addresses]);
 
-    // Update total balance when UTXOs change
+    // Update total balance on UTXO change
     useEffect(() => {
         const balance = utxoService.calculateTotalBalance(utxos);
         setTotalBalance(balance);

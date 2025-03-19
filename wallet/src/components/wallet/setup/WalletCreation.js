@@ -25,7 +25,7 @@ export default function WalletCreation({ isLoading, onCreateWallet, onImportWall
                     Bitcoin Wallet
                 </h1>
 
-                {/* Create Wallet Button */}
+                {/* Create wallet button */}
                 <div className="flex justify-center">
                     <button
                         onClick={onCreateWallet}
@@ -42,7 +42,7 @@ export default function WalletCreation({ isLoading, onCreateWallet, onImportWall
                     <div className="flex-grow border-t border-gray-300"></div>
                 </div>
 
-                {/* Import Wallet Section */}
+                {/* Import wallet section */}
                 <div className="space-y-4">
                     <div>
                         <label htmlFor="seedPhrase" className="block text-sm font-medium text-gray-700 mb-1">

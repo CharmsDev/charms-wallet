@@ -9,7 +9,7 @@ export default function UTXOList() {
     const { addresses } = useAddresses();
     const [flattenedUtxos, setFlattenedUtxos] = useState([]);
 
-    // Flatten UTXOs and add isChange flag
+    // Flatten UTXOs, add isChange flag
     useEffect(() => {
         const flattened = [];
         Object.entries(utxos).forEach(([address, addressUtxos]) => {
@@ -98,8 +98,7 @@ export default function UTXOList() {
                             <tr>
                                 <th className="py-2 px-4 border-b text-left">UTXO</th>
                                 <th className="py-2 px-4 border-b text-left">Address</th>
-                                <th className="py-2 px-4 border-b text-left">Amount (BTC)</th>
-                                <th className="py-2 px-4 border-b text-left">Status</th>
+                                <th className="py-2 px-4 border-b text-left">Amount & Status</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -112,27 +111,34 @@ export default function UTXOList() {
                                     </td>
                                     <td className="py-2 px-4 border-b">
                                         <div className="flex flex-col">
-                                            <div className="truncate max-w-xs" title={utxo.address}>
-                                                {utxo.address.substring(0, 8)}...{utxo.address.substring(utxo.address.length - 8)}
+                                            <div className="font-mono text-xs break-all" title={utxo.address}>
+                                                {utxo.address}
                                             </div>
-                                            {utxo.isChange && (
-                                                <span className="text-xs text-blue-600 mt-1">
-                                                    Change Address
+                                            {addresses.find(addr => addr.address === utxo.address)?.index !== undefined && (
+                                                <span className="text-xs text-gray-600 mt-1">
+                                                    Index: {addresses.find(addr => addr.address === utxo.address)?.index}
+                                                    {utxo.isChange && (
+                                                        <span className="text-blue-600 ml-2">Change Address</span>
+                                                    )}
                                                 </span>
                                             )}
                                         </div>
                                     </td>
-                                    <td className="py-2 px-4 border-b">{formatSats(utxo.value)}</td>
                                     <td className="py-2 px-4 border-b">
-                                        {utxo.status.confirmed ? (
-                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                                Confirmed
-                                            </span>
-                                        ) : (
-                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                                Pending
-                                            </span>
-                                        )}
+                                        <div className="flex flex-col">
+                                            <div>{formatSats(utxo.value)} BTC</div>
+                                            <div className="mt-1">
+                                                {utxo.status.confirmed ? (
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                        Confirmed
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                                        Pending
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}

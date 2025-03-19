@@ -20,8 +20,7 @@ export function CharmsProvider({ children }) {
     const [error, setError] = useState(null);
     const { utxos } = useUTXOs();
 
-    // We'll only load charms when explicitly requested, not automatically when UTXOs change
-    // This prevents unnecessary API calls when viewing other sections
+    // Load charms on request, not UTXO change
 
     const loadCharms = async () => {
         try {

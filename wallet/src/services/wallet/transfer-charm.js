@@ -1,7 +1,7 @@
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
 
 /**
- * Creates transactions for transferring charms
+ * Create transfer charm transactions
  * @param {string} destinationAddress - The destination address
  * @param {number} fundingUtxoAmount - The amount of the funding UTXO
  * @param {string} spellJson - The spell JSON

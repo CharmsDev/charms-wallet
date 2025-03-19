@@ -1,9 +1,9 @@
 /**
- * Service for composing charm spells
+ * Compose charm spells
  */
 class CharmsSpellService {
     /**
-     * Composes a transfer spell based on the charm type (NFT or token)
+     * Compose transfer spell (NFT or token)
      * @param {Object} charm The charm to transfer
      * @param {number} transferAmount The amount to transfer
      * @param {string} destinationAddress The destination address
@@ -19,7 +19,7 @@ class CharmsSpellService {
     }
 
     /**
-     * Composes a transfer spell for NFTs
+     * Compose transfer spell for NFTs
      * For NFTs, we transfer the entire amount and don't create a remaining UTXO
      * @param {Object} charm The NFT charm to transfer
      * @param {string} destinationAddress The destination address
@@ -108,7 +108,7 @@ class CharmsSpellService {
     }
 
     /**
-     * Composes a transfer spell for tokens
+     * Compose transfer spell for tokens
      * For tokens, we can transfer a partial amount and create a remaining UTXO
      * @param {Object} charm The token charm to transfer
      * @param {number} transferAmount The amount to transfer

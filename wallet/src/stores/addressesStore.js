@@ -6,7 +6,7 @@ import { getAddresses, addAddress as addStorageAddress, deleteAddress as deleteS
 // Create context
 const AddressesContext = createContext();
 
-// Custom hook to use the addresses context
+// Use addresses context
 export const useAddresses = () => {
     const context = useContext(AddressesContext);
     if (!context) {
@@ -19,7 +19,7 @@ export const useAddresses = () => {
 export function AddressesProvider({ children }) {
     const [addresses, setAddresses] = useState([]);
 
-    // Load addresses from storage on mount
+    // Load addresses on mount
     useEffect(() => {
         loadAddresses();
     }, []);
