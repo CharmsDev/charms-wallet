@@ -46,9 +46,8 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(handlers::health_check))
-        .route("/wallet/create", post(handlers::create_wallet))
-        .route("/wallet/balance/{address}", get(handlers::get_balance))
         .route("/wallet/broadcast", post(handlers::broadcast_transaction))
+        .route("/bitcoin-node/utxos/{address}", get(handlers::get_utxos))
         .route(
             "/spell/prove_spell",
             get(|| async {

@@ -1,15 +1,16 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize)]
-pub struct KeyPair {
-    pub public_key: String,
-    pub private_key: String,
-    pub address: String,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Utxo {
+    pub txid: String,
+    pub vout: u32,
+    pub value: u64,
+    pub status: UtxoStatus,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct CreateWalletRequest {
-    pub password: String,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UtxoStatus {
+    pub confirmed: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -19,13 +20,6 @@ pub struct TransactionRequest {}
 pub struct TransactionResponse {
     pub tx_id: String,
     pub fee: u64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct BalanceResponse {
-    pub address: String,
-    pub balance: f64,
-    pub unconfirmed_balance: f64,
 }
 
 #[derive(Debug, Serialize)]
