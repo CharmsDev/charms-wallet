@@ -3,6 +3,7 @@ use crate::models;
 use crate::services;
 use bitcoin::consensus::encode;
 use charms;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
@@ -66,7 +67,9 @@ impl SpellProver {
         // Create the transaction pair
         debug!("Creating transaction pair with fee rate 2.0 sat/vB");
         let fee_rate = 2.0; // RJJ-TODO (configurable ?)
-        let app_bins: Vec<PathBuf> = vec![];
+
+        // Create an empty BTreeMap for app_bins instead of Vec<PathBuf>
+        let app_bins: BTreeMap<charms_data::B32, Vec<u8>> = BTreeMap::new();
 
         let txs = charms::spell::prove_spell_tx(
             spell,

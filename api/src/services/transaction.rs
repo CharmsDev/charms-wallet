@@ -54,7 +54,7 @@ pub fn get_change_address() -> WalletResult<String> {
     Ok(address.assume_checked().to_string())
 }
 
-pub fn get_prev_txs(tx: &Transaction) -> WalletResult<Vec<String>> {
+pub fn get_prev_txs(tx: &Transaction) -> WalletResult<Vec<Transaction>> {
     let rpc_client = get_rpc_client()?;
     let mut prev_txs = Vec::new();
 
@@ -64,7 +64,7 @@ pub fn get_prev_txs(tx: &Transaction) -> WalletResult<Vec<String>> {
             .map_err(|e| {
                 WalletError::BitcoinError(format!("Failed to get raw transaction: {}", e))
             })?;
-        prev_txs.push(encode::serialize_hex(&raw_tx));
+        prev_txs.push(raw_tx);
     }
 
     Ok(prev_txs)
