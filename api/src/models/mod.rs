@@ -43,6 +43,13 @@ pub struct BroadcastTxResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct SendHexTxRequest {
+    #[serde(rename = "txHex")]
+    pub tx_hex: String,
+    pub network: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ProveSpellRequest {
     pub spell_json: String,
     pub funding_utxo_id: String,

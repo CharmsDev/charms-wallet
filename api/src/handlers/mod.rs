@@ -1,9 +1,12 @@
-mod bitcoin_node;
+#[path = "bitcoin-cli/mod.rs"]
+mod bitcoin_cli;
 mod health;
 mod spell;
-mod transaction;
 
-pub use bitcoin_node::get_utxos;
+pub use bitcoin_cli::estimatefee;
+pub use bitcoin_cli::gettransaction;
+pub use bitcoin_cli::listunspent;
+pub use bitcoin_cli::sendrawtransaction;
+pub use bitcoin_cli::sendrawtransactionbroadcast;
 pub use health::health_check;
 pub use spell::prove_spell;
-pub use transaction::broadcast_transaction;
