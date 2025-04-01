@@ -1,11 +1,4 @@
 use crate::error::{WalletError, WalletResult};
-use crate::models;
-use crate::services;
-use bitcoin::consensus::encode;
-use charms;
-use std::collections::BTreeMap;
-use std::path::PathBuf;
-use tracing::{debug, info};
 
 pub struct SpellProver;
 

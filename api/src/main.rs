@@ -63,6 +63,7 @@ async fn main() {
             post(handlers::estimatefee),
         )
         .route("/bitcoin-cli/utxos/{address}", get(handlers::listunspent))
+        .route("/bitcoin-rpc/prev-txs/:txid", get(handlers::get_prev_txs))
         .route(
             "/spell/prove_spell",
             get(|| async {
