@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect } from 'react';
-import { generateSeedPhrase } from '@/utils/wallet';
+import { generateSeedPhrase, importSeedPhrase } from '@/utils/wallet';
 import { getSeedPhrase, clearSeedPhrase } from '@/services/storage';
 
 // Create context
@@ -65,6 +65,23 @@ export function WalletProvider({ children }) {
         setHasWallet(false);
     };
 
+    // Import an existing wallet
+    const importWallet = async (inputSeedPhrase) => {
+        try {
+            setIsLoading(true);
+            setError(null);
+            const validatedSeedPhrase = await importSeedPhrase(inputSeedPhrase);
+            setSeedPhrase(validatedSeedPhrase);
+            setHasWallet(true);
+            return validatedSeedPhrase;
+        } catch (err) {
+            setError('Failed to import wallet: ' + err.message);
+            throw err;
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     // Context value
     const value = {
         seedPhrase,
@@ -72,6 +89,7 @@ export function WalletProvider({ children }) {
         isLoading,
         error,
         createWallet,
+        importWallet,
         clearWallet
     };
 
