@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@bitcoinerlab/secp256k1": "^1.2.0",
     "@noble/hashes": "^1.7.1",
     "@noble/secp256k1": "^2.2.3",
     "@unisat/wallet-sdk": "^1.9.0",

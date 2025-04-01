@@ -11,19 +11,40 @@ bitcoin.initEccLib(ecc);
 const ECPair = ECPairFactory(ecc);
 const bip32 = BIP32Factory(ecc);
 
-// Validates a Bitcoin testnet address
-export function validateAddress(address) {
-    // Check both taproot and segwit patterns for compatibility
-    const p2wpkhPattern = /^tb1q[a-z0-9]{38,39}$/;
-    const p2trPattern = /^tb1p[a-z0-9]{58,59}$/;
-    return p2trPattern.test(address) || p2wpkhPattern.test(address);
+// Get the network from environment variable
+const BITCOIN_NETWORK = process.env.NEXT_PUBLIC_BITCOIN_NETWORK || 'testnet';
+
+// Create a regtest network configuration (based on testnet but with different prefix)
+const regtestNetwork = {
+    ...bitcoin.networks.testnet,
+    bech32: 'bcrt'
+};
+
+// Get the appropriate network based on the environment variable
+function getNetwork() {
+    return BITCOIN_NETWORK === 'regtest' ? regtestNetwork : bitcoin.networks.testnet;
 }
 
-// Generates a new Bitcoin testnet Taproot address using BIP86 derivation path
+// Validates a Bitcoin address based on the current network
+export function validateAddress(address) {
+    if (BITCOIN_NETWORK === 'regtest') {
+        // Check both taproot and segwit patterns for regtest
+        const p2wpkhPattern = /^bcrt1q[a-z0-9]{38,39}$/;
+        const p2trPattern = /^bcrt1p[a-z0-9]{58,59}$/;
+        return p2trPattern.test(address) || p2wpkhPattern.test(address);
+    } else {
+        // Check both taproot and segwit patterns for testnet
+        const p2wpkhPattern = /^tb1q[a-z0-9]{38,39}$/;
+        const p2trPattern = /^tb1p[a-z0-9]{58,59}$/;
+        return p2trPattern.test(address) || p2wpkhPattern.test(address);
+    }
+}
+
+// Generates a new Bitcoin Taproot address using BIP86 derivation path
 export async function generateTaprootAddress(seedPhrase, index, isChange = false) {
     try {
-        // Use testnet network
-        const network = bitcoin.networks.testnet;
+        // Get the appropriate network based on environment
+        const network = getNetwork();
 
         // Convert seed phrase to seed
         const seed = await bip39.mnemonicToSeed(seedPhrase);
@@ -31,8 +52,20 @@ export async function generateTaprootAddress(seedPhrase, index, isChange = false
         // Derive the master node
         const masterNode = bip32.fromSeed(seed, network);
 
-        // Derive the account node using BIP86 path for taproot: m/86'/0'/0'
-        const accountNode = masterNode.derivePath("m/86'/0'/0'");
+        // Derive the account node using BIP86 path for taproot
+        // For regtest, Bitcoin Core might use a different derivation path
+        let derivationPath;
+        if (BITCOIN_NETWORK === 'mainnet') {
+            derivationPath = "m/86'/0'/0'";
+        } else if (BITCOIN_NETWORK === 'regtest') {
+            // Try using the same derivation path as mainnet for regtest
+            derivationPath = "m/86'/0'/0'";
+        } else {
+            // For testnet
+            derivationPath = "m/86'/0'/0'";
+        }
+        console.log(`Using derivation path: ${derivationPath} for network: ${BITCOIN_NETWORK}`);
+        const accountNode = masterNode.derivePath(derivationPath);
 
         // Derive the chain node (0 for receiving addresses, 1 for change addresses)
         const chainNode = accountNode.derive(isChange ? 1 : 0);
@@ -66,8 +99,8 @@ export async function generateTaprootAddress(seedPhrase, index, isChange = false
 // Derives the private key for a given address index and isChange flag
 export async function derivePrivateKey(seedPhrase, index, isChange = false) {
     try {
-        // Use testnet network
-        const network = bitcoin.networks.testnet;
+        // Get the appropriate network based on environment
+        const network = getNetwork();
 
         // Convert seed phrase to seed
         const seed = await bip39.mnemonicToSeed(seedPhrase);
@@ -75,8 +108,20 @@ export async function derivePrivateKey(seedPhrase, index, isChange = false) {
         // Derive the master node
         const masterNode = bip32.fromSeed(seed, network);
 
-        // Derive the account node using BIP86 path for taproot: m/86'/0'/0'
-        const accountNode = masterNode.derivePath("m/86'/0'/0'");
+        // Derive the account node using BIP86 path for taproot
+        // For regtest, Bitcoin Core might use a different derivation path
+        let derivationPath;
+        if (BITCOIN_NETWORK === 'mainnet') {
+            derivationPath = "m/86'/0'/0'";
+        } else if (BITCOIN_NETWORK === 'regtest') {
+            // Try using the same derivation path as mainnet for regtest
+            derivationPath = "m/86'/0'/0'";
+        } else {
+            // For testnet
+            derivationPath = "m/86'/0'/0'";
+        }
+        console.log(`Using derivation path for private key: ${derivationPath} for network: ${BITCOIN_NETWORK}`);
+        const accountNode = masterNode.derivePath(derivationPath);
 
         // Derive the chain node (0 for receiving addresses, 1 for change addresses)
         const chainNode = accountNode.derive(isChange ? 1 : 0);
@@ -97,8 +142,8 @@ export async function derivePrivateKey(seedPhrase, index, isChange = false) {
 // Imports a private key and derives the corresponding address using BIP86 for Taproot
 export async function importPrivateKey(privateKey) {
     try {
-        // Use testnet network
-        const network = bitcoin.networks.testnet;
+        // Get the appropriate network based on environment
+        const network = getNetwork();
 
         // Validate private key format (should be 64 hex characters)
         if (!/^[0-9a-fA-F]{64}$/.test(privateKey)) {
@@ -180,8 +225,8 @@ export function organizeAddresses(addresses) {
  */
 export async function deriveXpub(seedPhrase) {
     try {
-        // Use testnet network
-        const network = bitcoin.networks.testnet;
+        // Get the appropriate network based on environment
+        const network = getNetwork();
 
         // Convert seed phrase to seed
         const seed = await bip39.mnemonicToSeed(seedPhrase);
@@ -189,8 +234,20 @@ export async function deriveXpub(seedPhrase) {
         // Derive the master node
         const masterNode = bip32.fromSeed(seed, network);
 
-        // Derive the account node using BIP86 path for taproot: m/86'/0'/0'
-        const accountNode = masterNode.derivePath("m/86'/0'/0'");
+        // Derive the account node using BIP86 path for taproot
+        // For regtest, Bitcoin Core might use a different derivation path
+        let derivationPath;
+        if (BITCOIN_NETWORK === 'mainnet') {
+            derivationPath = "m/86'/0'/0'";
+        } else if (BITCOIN_NETWORK === 'regtest') {
+            // Try using the same derivation path as mainnet for regtest
+            derivationPath = "m/86'/0'/0'";
+        } else {
+            // For testnet
+            derivationPath = "m/86'/0'/0'";
+        }
+        console.log(`Using derivation path for xpub: ${derivationPath} for network: ${BITCOIN_NETWORK}`);
+        const accountNode = masterNode.derivePath(derivationPath);
 
         // Get the extended public key (xpub)
         const xpub = accountNode.neutered().toBase58();

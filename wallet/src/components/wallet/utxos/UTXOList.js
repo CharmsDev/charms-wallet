@@ -3,32 +3,72 @@
 import { useState, useEffect } from 'react';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useAddresses } from '@/stores/addressesStore';
+import config from '@/config';
+import SendBitcoinDialog from './SendBitcoinDialog';
 
 export default function UTXOList() {
     const { utxos, isLoading, error, totalBalance, refreshUTXOs, formatSats } = useUTXOs();
     const { addresses } = useAddresses();
     const [flattenedUtxos, setFlattenedUtxos] = useState([]);
+    const [isSendDialogOpen, setIsSendDialogOpen] = useState(false);
+    const [confirmedUtxos, setConfirmedUtxos] = useState([]);
 
-    // Flatten UTXOs, add isChange flag
+    // Refresh UTXOs on component mount
+    useEffect(() => {
+        // Log the network we're in
+        console.log('Bitcoin network:', config.bitcoin.network);
+        console.log('Is regtest mode:', config.bitcoin.isRegtest());
+
+        // If we're in regtest mode, refresh UTXOs on mount
+        if (config.bitcoin.isRegtest()) {
+            console.log('In regtest mode, refreshing UTXOs on mount');
+            refreshUTXOs();
+        } else {
+            console.log('Not in regtest mode, skipping auto-refresh');
+        }
+    }, []);
+
+    // Flatten UTXOs, add isChange flag, and filter confirmed UTXOs
     useEffect(() => {
         const flattened = [];
+        const confirmed = [];
+
         Object.entries(utxos).forEach(([address, addressUtxos]) => {
             const addressEntry = addresses.find(addr => addr.address === address);
             const isChange = addressEntry?.isChange || false;
 
             addressUtxos.forEach(utxo => {
-                flattened.push({
+                const formattedUtxo = {
                     ...utxo,
                     address,
-                    isChange
-                });
+                    isChange,
+                    formattedValue: formatSats(utxo.value)
+                };
+
+                flattened.push(formattedUtxo);
+
+                if (utxo.status.confirmed) {
+                    confirmed.push(formattedUtxo);
+                }
             });
         });
+
         setFlattenedUtxos(flattened);
-    }, [utxos, addresses]);
+        setConfirmedUtxos(confirmed);
+    }, [utxos, addresses, formatSats]);
 
     const handleRefresh = async () => {
         await refreshUTXOs();
+    };
+
+    const handleOpenSendDialog = () => {
+        setIsSendDialogOpen(true);
+    };
+
+    const handleSendBitcoin = (sendData) => {
+        // Empty handler for future implementation
+        console.log('Send Bitcoin data:', sendData);
+        // This would be where you'd implement the actual send functionality
     };
 
     if (isLoading) {
@@ -73,12 +113,21 @@ export default function UTXOList() {
         <div className="p-4">
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold">UTXOs</h2>
-                <button
-                    className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                    onClick={handleRefresh}
-                >
-                    Refresh
-                </button>
+                <div className="flex space-x-2">
+                    <button
+                        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                        onClick={handleOpenSendDialog}
+                        disabled={confirmedUtxos.length === 0}
+                    >
+                        Send Bitcoin
+                    </button>
+                    <button
+                        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                        onClick={handleRefresh}
+                    >
+                        Refresh
+                    </button>
+                </div>
             </div>
 
             <div className="mb-4 p-3 bg-gray-100 rounded">
@@ -146,6 +195,15 @@ export default function UTXOList() {
                     </table>
                 </div>
             )}
+
+            {/* Send Bitcoin Dialog */}
+            <SendBitcoinDialog
+                isOpen={isSendDialogOpen}
+                onClose={() => setIsSendDialogOpen(false)}
+                confirmedUtxos={confirmedUtxos}
+                onSend={handleSendBitcoin}
+                formatSats={formatSats}
+            />
         </div>
     );
 }
