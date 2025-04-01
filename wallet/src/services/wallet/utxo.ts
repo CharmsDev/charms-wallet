@@ -1,13 +1,31 @@
 import { UTXO, UTXOMap } from '@/types';
 import { getAddresses, saveUTXOs, getUTXOs } from '@/services/storage';
+import config from '@/config';
 
 class UTXOService {
-    private readonly API_BASE = 'https://mempool.space/testnet4/api';
 
     // Fetch UTXOs for a single address
     async getAddressUTXOs(address: string): Promise<UTXO[]> {
         try {
-            const response = await fetch(`${this.API_BASE}/address/${address}/utxo`);
+            let response;
+
+            // Debug logging
+            console.log('Environment check:');
+            console.log('- Bitcoin network:', config.bitcoin.network);
+            console.log('- Is regtest mode:', config.bitcoin.isRegtest());
+            console.log('- Wallet API base:', config.api.wallet);
+
+            // Use the wallet API for regtest mode, mempool.space for testnet
+            if (config.bitcoin.isRegtest()) {
+                const apiUrl = `${config.api.wallet}/bitcoin-node/utxos/${address}`;
+                console.log(`Using wallet API for regtest: ${apiUrl}`);
+                response = await fetch(apiUrl);
+            } else {
+                const mempoolApiUrl = config.bitcoin.getMempoolApiUrl();
+                console.log(`Using mempool API for testnet: ${mempoolApiUrl}/address/${address}/utxo`);
+                response = await fetch(`${mempoolApiUrl}/address/${address}/utxo`);
+            }
+
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
