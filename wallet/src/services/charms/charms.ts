@@ -58,21 +58,45 @@ class CharmsService {
                             return;
                         }
 
-                        // Check if amount is an object with a 'remaining' property (new format)
-                        // or a number (old format)
-                        const charmAmount = typeof amount === 'object' && amount !== null && 'remaining' in amount
-                            ? {
+                        // Parse charm data based on the format
+                        // The amount can be either a number or an object with metadata
+                        let charmAmount;
+
+                        if (typeof amount === 'object' && amount !== null) {
+                            // New format with metadata
+                            charmAmount = {
                                 ticker: 'ticker' in amount && typeof amount.ticker === 'string'
                                     ? amount.ticker
                                     : `CHARM-${appId}`,
                                 remaining: 'remaining' in amount && typeof amount.remaining === 'number'
                                     ? amount.remaining
-                                    : 0
-                            }
-                            : {
+                                    : 0,
+                                name: 'name' in amount && typeof amount.name === 'string'
+                                    ? amount.name
+                                    : undefined,
+                                description: 'description' in amount && typeof amount.description === 'string'
+                                    ? amount.description
+                                    : undefined,
+                                image: 'image' in amount && typeof amount.image === 'string'
+                                    ? amount.image
+                                    : undefined,
+                                image_hash: 'image_hash' in amount && typeof amount.image_hash === 'string'
+                                    ? amount.image_hash
+                                    : undefined,
+                                url: 'url' in amount && typeof amount.url === 'string'
+                                    ? amount.url
+                                    : undefined
+                            };
+                        } else {
+                            // Old format (just a number)
+                            charmAmount = {
                                 ticker: `CHARM-${appId}`,
                                 remaining: typeof amount === 'number' ? amount : 0
                             };
+                        }
+
+                        // Log the parsed charm data for debugging
+                        console.log(`Parsed charm ${appId}:`, charmAmount);
 
                         charms.push({
                             uniqueId: `${txId}-${appId}-${outputIndex}-${JSON.stringify(charmAmount)}`,
