@@ -84,7 +84,7 @@ export default function WalletDashboard({ seedPhrase, walletInfo, createSuccess 
                 {createSuccess && (
                     <div className="bg-green-50 border-l-4 border-green-400 p-4">
                         <p className="text-green-800">
-                            Wallet created successfully! Make sure to save your seed phrase.
+                            Wallet setup successful! Make sure to save your seed phrase.
                         </p>
                     </div>
                 )}

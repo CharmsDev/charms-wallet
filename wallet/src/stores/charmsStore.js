@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect } from 'react';
-import { charmsService } from '@/services/wallet/charms';
+import { charmsService } from '@/services/charms/charms';
 import { useUTXOs } from './utxoStore';
 
 const CharmsContext = createContext();

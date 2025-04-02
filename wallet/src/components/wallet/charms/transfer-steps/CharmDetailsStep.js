@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { charmsSpellService } from '@/services/wallet/charms-spell';
+import { charmsSpellService } from '@/services/charms/spell-composer';
 
 export default function CharmDetailsStep({
     charm,
