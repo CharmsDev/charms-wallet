@@ -4,10 +4,22 @@ import { useState } from 'react';
 
 export default function WalletCreation({ isLoading, onCreateWallet, onImportWallet }) {
     const [inputSeedPhrase, setInputSeedPhrase] = useState('');
+    const [importError, setImportError] = useState('');
 
     const handleImportWallet = async () => {
+        // Reset error state
+        setImportError('');
+
+        // Validate input
         if (!inputSeedPhrase.trim()) {
-            console.error('Please enter a valid seed phrase');
+            setImportError('Please enter a seed phrase');
+            return;
+        }
+
+        // Check if it's likely a valid seed phrase (basic check)
+        const words = inputSeedPhrase.trim().split(/\s+/);
+        if (words.length !== 12 && words.length !== 24) {
+            setImportError('Seed phrase must be 12 or 24 words');
             return;
         }
 
@@ -15,6 +27,7 @@ export default function WalletCreation({ isLoading, onCreateWallet, onImportWall
             await onImportWallet(inputSeedPhrase);
         } catch (err) {
             console.error('Error importing wallet:', err);
+            setImportError(err.message || 'Failed to import wallet');
         }
     };
 
@@ -57,6 +70,11 @@ export default function WalletCreation({ isLoading, onCreateWallet, onImportWall
                             onChange={(e) => setInputSeedPhrase(e.target.value)}
                         ></textarea>
                     </div>
+                    {importError && (
+                        <div className="text-red-500 text-sm mt-1">
+                            {importError}
+                        </div>
+                    )}
                     <button
                         onClick={handleImportWallet}
                         disabled={isLoading}

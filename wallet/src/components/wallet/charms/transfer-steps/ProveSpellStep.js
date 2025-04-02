@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
-import { transferCharmService } from '@/services/wallet/transfer-charm';
+import { transferCharmService } from '@/services/charms/transfer';
 import { useUTXOs } from '@/stores/utxoStore';
 
 export default function ProveSpellStep({
