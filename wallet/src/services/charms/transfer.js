@@ -1,4 +1,5 @@
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
+import * as cbor from 'cbor-web';
 
 /**
  * Create transfer charm transactions
@@ -14,91 +15,88 @@ export async function createTransferCharmTxs(
     spellJson,
     fundingUtxoId,
 ) {
-    console.log("Creating transfer transactions with params:", {
-        destinationAddress,
-        fundingUtxoAmount,
-        fundingUtxoId,
-        spellJson
-    });
-
     // Parse spell JSON
     let parsedSpell;
     try {
         parsedSpell = JSON.parse(spellJson);
     } catch (error) {
-        console.error("Error parsing spell JSON:", error);
         throw new Error("Invalid spell JSON format");
     }
 
     // Charms prover API endpoint
-    const proveApiUrl = 'https://prove.charms.dev/spells/prove';
-    console.log("--> call new API: ", proveApiUrl);
+    const proveApiUrl = process.env.NEXT_PUBLIC_PROVE_API_URL || 'https://prove.charms.dev/spells/prove';
 
-    // Get previous transactions
-    console.log("Fetching previous transactions for funding UTXO:", fundingUtxoId);
+    // Extract transaction ID from funding UTXO (format: txid:vout)
+    const txid = fundingUtxoId.split(':')[0];
 
     // Call wallet API for previous transactions
     const walletApiUrl = process.env.NEXT_PUBLIC_WALLET_API_URL || 'http://localhost:3355';
-    const prevTxsUrl = `${walletApiUrl}/bitcoin-rpc/prev-txs/${fundingUtxoId}`;
+    const prevTxsUrl = `${walletApiUrl}/bitcoin-rpc/prev-txs/${txid}`;
 
     let prev_txs = [];
     try {
         const prevTxsResponse = await fetch(prevTxsUrl);
+
         if (!prevTxsResponse.ok) {
-            console.error("Failed to fetch previous transactions:", prevTxsResponse.statusText);
-        } else {
-            prev_txs = await prevTxsResponse.json();
-            console.log("Previous transactions fetched successfully:", prev_txs.length);
+            throw new Error(`Failed to fetch previous transactions: ${prevTxsResponse.status} ${prevTxsResponse.statusText}`);
         }
+
+        prev_txs = await prevTxsResponse.json();
     } catch (error) {
-        console.error("Error fetching previous transactions:", error);
+        throw new Error(`Failed to fetch previous transactions: ${error.message}`);
     }
 
-    // Create transactions via API
-    const response = await fetch(proveApiUrl, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            spell: parsedSpell,
+    // Ensure the spell has the required fields
+    if (!parsedSpell.ins) {
+        parsedSpell.ins = [];
+    }
+
+    if (!parsedSpell.outs) {
+        parsedSpell.outs = [];
+    }
+
+    // Make API request with prev_txs
+    let response = null;
+    let error = null;
+
+    try {
+        // Encode the spell object in CBOR format
+        const encodedSpell = cbor.encode(parsedSpell);
+
+        const requestBody = {
+            spell: Array.from(new Uint8Array(encodedSpell)), // CBOR-encoded spell
             binaries: {},
             prev_txs: prev_txs,
             funding_utxo: fundingUtxoId,
             funding_utxo_value: fundingUtxoAmount,
             change_address: destinationAddress,
             fee_rate: 2.0
-        }),
-    });
+        };
 
-    /* Old API call - commented out
-    const walletApiUrl = process.env.NEXT_PUBLIC_WALLET_API_URL || 'http://localhost:3355';
-    console.log("--> call ", `${walletApiUrl}/spell/prove_spell`);
-
-    // Call the API to create the transactions
-    const response = await fetch(`${walletApiUrl}/spell/prove_spell`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            destination_address: destinationAddress,
-            spell_json: spellJson,
-            funding_utxo_id: fundingUtxoId,
-            funding_utxo_amount: fundingUtxoAmount,
-        }),
-    });
-    */
-
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to create transfer transactions");
+        response = await fetch(proveApiUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(requestBody),
+        });
+    } catch (e) {
+        error = e.message;
     }
 
-    const result = await response.json();
+    // Check if we have a successful response
+    if (!response || !response.ok) {
+        throw new Error(error || "Failed to create transfer transactions");
+    }
 
-    // Log response
-    console.log("Raw API Response:", result);
+    let result;
+    try {
+        result = await response.json();
+    } catch (e) {
+        throw new Error("Invalid response format from the API");
+    }
+
+    // RJJ-TODO | review from here when prover works
 
     // Extract transactions from response
     const commit_tx = result.commit_tx || result.transactions?.commit_tx;
@@ -108,14 +106,9 @@ export async function createTransferCharmTxs(
         throw new Error("Invalid response format from the API");
     }
 
-    console.log("Raw Commit Transaction:", commit_tx);
-    console.log("Raw Spell Transaction:", spell_tx);
-
-    const decodedCommitTx = decodeTx(commit_tx);
-    const decodedSpellTx = decodeTx(spell_tx);
-
-    console.log("Decoded Commit Transaction:", decodedCommitTx);
-    console.log("Decoded Spell Transaction:", decodedSpellTx);
+    // RJJ-TODO log to screen to debug or information process
+    //const decodedCommitTx = decodeTx(commit_tx);
+    //const decodedSpellTx = decodeTx(spell_tx);
 
     // Format response
     const transformedResult = {
@@ -126,12 +119,10 @@ export async function createTransferCharmTxs(
             spell_tx: spell_tx,
             taproot_data: {
                 script: result.taproot_script || result.transactions?.taproot_script || "",
-                control_block: "" // Empty as not provided by API
+                control_block: ""
             }
         }
     };
-
-    console.log("Transformed Response:", transformedResult);
 
     return transformedResult;
 }
