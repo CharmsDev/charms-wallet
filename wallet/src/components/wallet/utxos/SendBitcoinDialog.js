@@ -1,12 +1,6 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-<<<<<<< HEAD
-
-export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onSend, formatSats }) {
-    const [destinationAddress, setDestinationAddress] = useState('');
-    const [amount, setAmount] = useState('');
-=======
 import { transferBitcoin, composeBitcoinTransaction, createBitcoinTransactionHex } from '@/services/wallet/transfer-bitcoin';
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
 import config from '@/config';
@@ -14,18 +8,14 @@ import config from '@/config';
 export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onSend, formatSats }) {
     const [destinationAddress, setDestinationAddress] = useState('bcrt1pr8wsw2dnwzyt0c9r69f42c8yu35n5sga3udf49et9220krg0a6fssaumxx');
     const [amount, setAmount] = useState('0.00005'); // 5000 satoshis
->>>>>>> feature/sign-2-txs
     const [showConfirmation, setShowConfirmation] = useState(false);
     const [error, setError] = useState('');
     const [selectedUtxos, setSelectedUtxos] = useState([]);
     const [totalSelected, setTotalSelected] = useState(0);
-<<<<<<< HEAD
-=======
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [txId, setTxId] = useState(null);
     const [feeRate, setFeeRate] = useState(1); // Default fee rate in sats/byte
     const [transactionData, setTransactionData] = useState(null);
->>>>>>> feature/sign-2-txs
 
     // Reset selected UTXOs when amount changes
     useEffect(() => {
@@ -282,18 +272,6 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                     <>
                         <h2 className="text-xl font-semibold mb-4">Confirm Transaction</h2>
 
-<<<<<<< HEAD
-                        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                            <p className="font-medium">Are you sure you want to send:</p>
-                            <p className="mt-2"><span className="font-semibold">{amount} BTC</span> to</p>
-                            <p className="mt-1 font-mono text-xs">{destinationAddress}</p>
-                            <div className="mt-3 pt-3 border-t border-yellow-200">
-                                <p className="font-medium">Using {selectedUtxos.length} UTXOs:</p>
-                                <p className="mt-1 text-sm">Total input: <span className="font-medium">{formatSats(totalSelected)} BTC</span></p>
-                                <p className="text-sm">Network fee: <span className="font-medium">{formatSats(totalSelected - parseFloat(amount) * 100000000)} BTC</span></p>
-                            </div>
-                        </div>
-=======
                         {transactionData?.decodedTx && (
                             <div className="mb-4">
                                 <pre className="bg-gray-900 text-white p-4 rounded overflow-auto text-xs font-mono">
@@ -307,38 +285,26 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                                 {error}
                             </div>
                         )}
->>>>>>> feature/sign-2-txs
 
                         <div className="flex justify-end space-x-2">
                             <button
                                 className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
                                 onClick={() => setShowConfirmation(false)}
-<<<<<<< HEAD
-=======
                                 disabled={isSubmitting}
->>>>>>> feature/sign-2-txs
                             >
                                 No, Cancel
                             </button>
                             <button
-<<<<<<< HEAD
-                                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-                                onClick={handleConfirmSend}
-                            >
-                                Yes, Send Now
-=======
                                 className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-green-300 disabled:cursor-not-allowed"
                                 onClick={handleConfirmSend}
-                disabled={isSubmitting}
+                                disabled={isSubmitting}
                             >
-                {isSubmitting ? 'Sending...' : 'Yes, Send Now'}
->>>>>>> feature/sign-2-txs
-            </button>
-        </div>
+                                {isSubmitting ? 'Sending...' : 'Yes, Send Now'}
+                            </button>
+                        </div>
                     </>
-                )
-}
-            </div >
-        </div >
+                )}
+            </div>
+        </div>
     );
 }
