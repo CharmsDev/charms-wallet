@@ -1,14 +1,21 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { transferBitcoin, composeBitcoinTransaction, createBitcoinTransactionHex } from '@/services/wallet/transfer-bitcoin';
+import { decodeTx } from '@/lib/bitcoin/txDecoder';
+import config from '@/config';
 
 export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onSend, formatSats }) {
-    const [destinationAddress, setDestinationAddress] = useState('');
-    const [amount, setAmount] = useState('');
+    const [destinationAddress, setDestinationAddress] = useState('bcrt1pr8wsw2dnwzyt0c9r69f42c8yu35n5sga3udf49et9220krg0a6fssaumxx');
+    const [amount, setAmount] = useState('0.00005'); // 5000 satoshis
     const [showConfirmation, setShowConfirmation] = useState(false);
     const [error, setError] = useState('');
     const [selectedUtxos, setSelectedUtxos] = useState([]);
     const [totalSelected, setTotalSelected] = useState(0);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [txId, setTxId] = useState(null);
+    const [feeRate, setFeeRate] = useState(1); // Default fee rate in sats/byte
+    const [transactionData, setTransactionData] = useState(null);
 
     // Reset selected UTXOs when amount changes
     useEffect(() => {
@@ -55,50 +62,118 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
         return totalSelected >= amountInSats;
     }, [amount, totalSelected]);
 
-    const handleSendClick = () => {
-        // Basic validation
-        if (!destinationAddress.trim()) {
-            setError('Destination address is required');
-            return;
+    const handleSendClick = async () => {
+        try {
+            // Basic validation
+            if (!destinationAddress.trim()) {
+                setError('Destination address is required');
+                return;
+            }
+
+            if (!amount.trim() || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+                setError('Please enter a valid amount');
+                return;
+            }
+
+            if (!hasEnoughFunds) {
+                setError('Insufficient funds');
+                return;
+            }
+
+            if (selectedUtxos.length === 0) {
+                setError('No UTXOs selected');
+                return;
+            }
+
+            // Clear any previous errors
+            setError('');
+
+            // Prepare transaction data
+            const txData = {
+                utxos: selectedUtxos,
+                destinationAddress,
+                amount: parseFloat(amount),
+                feeRate,
+                // The change address will be determined by the service
+                // but we can provide a default from the selected UTXOs
+                changeAddress: selectedUtxos[0]?.address || destinationAddress
+            };
+
+            // Compose the Bitcoin transaction object
+            const bitcoinTx = await composeBitcoinTransaction(txData);
+
+            // Create the transaction in hex format
+            const txHex = await createBitcoinTransactionHex(txData);
+
+            // Decode the transaction hex for display
+            const decodedTx = decodeTx(txHex);
+
+            // Store both the input data, composed transaction, hex, and decoded tx
+            setTransactionData({
+                ...txData,
+                bitcoinTx,
+                txHex,
+                decodedTx
+            });
+
+            // Show confirmation dialog
+            setShowConfirmation(true);
+        } catch (err) {
+            console.error('Error preparing transaction:', err);
+            setError(err.message || 'Failed to prepare transaction');
         }
-
-        if (!amount.trim() || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
-            setError('Please enter a valid amount');
-            return;
-        }
-
-        if (!hasEnoughFunds) {
-            setError('Insufficient funds');
-            return;
-        }
-
-        if (selectedUtxos.length === 0) {
-            setError('No UTXOs selected');
-            return;
-        }
-
-        // Clear any previous errors
-        setError('');
-
-        // Show confirmation dialog
-        setShowConfirmation(true);
     };
 
-    const handleConfirmSend = () => {
-        // Call the onSend handler with the input values
-        onSend({
-            utxos: selectedUtxos,
-            destinationAddress,
-            amount: parseFloat(amount)
-        });
+    const handleConfirmSend = async () => {
+        try {
+            setIsSubmitting(true);
+            setError('');
 
-        // Reset form and close dialog
-        resetAndClose();
+            // Send the hex transaction to the Charms API
+            const apiUrl = `${config.api.wallet}/transaction/send-hex`;
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    txHex: transactionData.txHex,
+                    network: config.bitcoin.network
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const result = await response.json();
+
+            // Store the transaction ID
+            setTxId(result.txid);
+
+            // Call the original onSend handler for any UI updates
+            onSend({
+                utxos: selectedUtxos,
+                destinationAddress,
+                amount: parseFloat(amount),
+                txid: result.txid,
+                bitcoinTx: transactionData.bitcoinTx,
+                txHex: transactionData.txHex
+            });
+
+            // Reset form and close dialog
+            resetAndClose();
+        } catch (err) {
+            console.error('Failed to send transaction:', err);
+            setError(err.response?.data?.message || err.message || 'Failed to send transaction');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const resetAndClose = () => {
-        setDestinationAddress('');
-        setAmount('');
+        setDestinationAddress('bcrt1pr8wsw2dnwzyt0c9r69f42c8yu35n5sga3udf49et9220krg0a6fssaumxx');
+        setAmount('0.00005');
         setShowConfirmation(false);
         setError('');
         setSelectedUtxos([]);
@@ -197,29 +272,34 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                     <>
                         <h2 className="text-xl font-semibold mb-4">Confirm Transaction</h2>
 
-                        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                            <p className="font-medium">Are you sure you want to send:</p>
-                            <p className="mt-2"><span className="font-semibold">{amount} BTC</span> to</p>
-                            <p className="mt-1 font-mono text-xs">{destinationAddress}</p>
-                            <div className="mt-3 pt-3 border-t border-yellow-200">
-                                <p className="font-medium">Using {selectedUtxos.length} UTXOs:</p>
-                                <p className="mt-1 text-sm">Total input: <span className="font-medium">{formatSats(totalSelected)} BTC</span></p>
-                                <p className="text-sm">Network fee: <span className="font-medium">{formatSats(totalSelected - parseFloat(amount) * 100000000)} BTC</span></p>
+                        {transactionData?.decodedTx && (
+                            <div className="mb-4">
+                                <pre className="bg-gray-900 text-white p-4 rounded overflow-auto text-xs font-mono">
+                                    {JSON.stringify(transactionData.decodedTx, null, 2)}
+                                </pre>
                             </div>
-                        </div>
+                        )}
+
+                        {error && (
+                            <div className="mb-4 p-2 bg-red-100 text-red-700 rounded">
+                                {error}
+                            </div>
+                        )}
 
                         <div className="flex justify-end space-x-2">
                             <button
                                 className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
                                 onClick={() => setShowConfirmation(false)}
+                                disabled={isSubmitting}
                             >
                                 No, Cancel
                             </button>
                             <button
-                                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-green-300 disabled:cursor-not-allowed"
                                 onClick={handleConfirmSend}
+                                disabled={isSubmitting}
                             >
-                                Yes, Send Now
+                                {isSubmitting ? 'Sending...' : 'Yes, Send Now'}
                             </button>
                         </div>
                     </>

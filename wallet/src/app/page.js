@@ -11,7 +11,7 @@ import WalletDashboard from '@/components/wallet/setup/WalletDashboard';
 bitcoin.initEccLib(ecc);
 
 export default function Home() {
-  const { hasWallet, seedPhrase, isLoading, error, createWallet } = useWallet();
+  const { hasWallet, seedPhrase, isLoading, error, createWallet, importWallet } = useWallet();
   const [createSuccess, setCreateSuccess] = useState(false);
   const [walletInfo, setWalletInfo] = useState({
     xpub: '',
@@ -63,7 +63,8 @@ export default function Home() {
 
   const handleImportWallet = async (inputSeedPhrase) => {
     try {
-      console.log('Import wallet clicked with seed phrase:', inputSeedPhrase);
+      await importWallet(inputSeedPhrase);
+      setCreateSuccess(true); // Show success message
     } catch (err) {
       console.error('Error importing wallet:', err);
     }

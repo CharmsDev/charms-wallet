@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
-import { signCommitTransaction } from '@/services/wallet/signCommitTx';
-import { signSpellTransaction } from '@/services/wallet/signSpellTx';
+import { signCommitTransaction } from '@/services/repository/signCommitTx';
+import { signSpellTransaction } from '@/services/repository/signSpellTx';
 
 export default function SignatureStep({
     transactionResult,
@@ -24,8 +24,12 @@ export default function SignatureStep({
             return;
         }
 
+        // Clear any previous error and set loading state
         setIsLoading(true);
         setError(null);
+
+        // Add a log message to indicate a new signing attempt
+        addLogMessage('Starting new commit transaction signing attempt...');
 
         try {
             // Check if we have a seed phrase
@@ -37,6 +41,10 @@ export default function SignatureStep({
             const signedCommit = await signCommitTransaction(
                 transactionResult.transactions.commit_tx,
                 seedPhrase,
+                transactionResult.utxoAmount || 19073, // Default to 19073 satoshis if not provided
+                transactionResult.utxoInternalKey || '6eb2ec4ab68e29176884e783dfd93bc42b9310f5ae47a202d0978988cebe1f87', // Default internal key from sign.js
+                undefined, // Use default network
+                undefined, // Use default derivation path
                 addLogMessage
             );
 
@@ -100,19 +108,31 @@ export default function SignatureStep({
 
     return (
         <div className="space-y-6">
+            {/* Testing mode banner */}
+            <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200 mb-4">
+                <p className="text-sm text-yellow-700 font-medium">
+                    🧪 Testing Mode: The "Sign Commit Tx" button will remain available for multiple signing attempts.
+                </p>
+            </div>
             <div className="flex justify-between items-center">
                 <h4 className="font-medium text-gray-900">Sign Transactions</h4>
                 <div className="space-x-2">
                     <button
                         onClick={signCommitTx}
-                        disabled={isLoading || !transactionResult || signedCommitTx}
-                        className={`px-4 py-2 rounded ${isLoading || !transactionResult || signedCommitTx
+                        disabled={isLoading || !transactionResult}
+                        className={`px-4 py-2 rounded ${isLoading || !transactionResult
                             ? 'bg-gray-300 cursor-not-allowed'
                             : 'bg-blue-500 text-white hover:bg-blue-600'
                             }`}
                     >
-                        {isLoading && !signedCommitTx ? 'Signing...' : signedCommitTx ? 'Commit Signed' : 'Sign Commit Tx'}
+                        {isLoading ? 'Signing...' : 'Sign Commit Tx'}
                     </button>
+                    {/* Testing mode indicator */}
+                    {signedCommitTx && (
+                        <span className="text-xs text-green-600 font-medium">
+                            ✓ Signed (Testing Mode)
+                        </span>
+                    )}
                     <button
                         onClick={signSpellTx}
                         disabled={isLoading || !signedCommitTx || signedSpellTx}
