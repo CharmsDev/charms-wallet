@@ -61,10 +61,10 @@ export async function createTransferCharmTxs(
 
     try {
         // Encode the spell object in CBOR format
-        const encodedSpell = cbor.encode(parsedSpell);
+        //const encodedSpell = cbor.encode(parsedSpell);
 
         const requestBody = {
-            spell: Array.from(new Uint8Array(encodedSpell)), // CBOR-encoded spell
+            spell: parsedSpell, //Array.from(new Uint8Array(encodedSpell)), // CBOR-encoded spell
             binaries: {},
             prev_txs: prev_txs,
             funding_utxo: fundingUtxoId,

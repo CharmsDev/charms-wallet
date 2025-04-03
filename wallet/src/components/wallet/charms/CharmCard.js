@@ -32,7 +32,7 @@ export default function CharmCard({ charm }) {
     return (
         <div className="bg-white border rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col h-full">
             {/* Image section */}
-            <div className="w-full h-64 bg-gray-100 overflow-hidden">
+            <div className="w-full h-96 bg-gray-100 overflow-hidden">
                 <img
                     src={image || placeholderImage}
                     alt={name || getCharmDisplayName(charm)}
