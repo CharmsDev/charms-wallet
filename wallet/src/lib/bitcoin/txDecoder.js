@@ -1,9 +1,8 @@
 import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
 
-if (!bitcoin.ecc) {
-    bitcoin.initEccLib(ecc);
-}
+// Initialize the ECC library for bitcoinjs-lib
+bitcoin.initEccLib(ecc);
 
 // Decode Bitcoin transaction hex in a format similar to bitcoin-cli decoderawtransaction
 export function decodeTx(txHex) {
