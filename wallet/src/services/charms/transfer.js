@@ -1,5 +1,4 @@
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
-import * as cbor from 'cbor-web';
 
 /**
  * Create transfer charm transactions
