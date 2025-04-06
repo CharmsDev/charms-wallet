@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { signCommitTransaction } from '../../services/repository/signCommitTx';
+import { signSpellTransaction } from '../../services/repository/signSpellTx';
 
 export default function Header({ activeSection, setActiveSection }) {
     return (
@@ -18,12 +20,44 @@ export default function Header({ activeSection, setActiveSection }) {
                         </div>
 
                         {/* Network badge section */}
-                        <div className="flex items-center">
+                        <div className="flex items-center space-x-3">
                             <span
                                 className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800"
                             >
                                 Testnet4
                             </span>
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        const result = await signCommitTransaction();
+                                        console.log('Commit transaction signed successfully:', result);
+                                    } catch (error) {
+                                        console.error('Error signing commit transaction:', error);
+                                    }
+                                }}
+                                className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 mr-2"
+                            >
+                                Sign Commit
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        // Call signSpellTransaction without parameters to use default values
+                                        const result = await signSpellTransaction(
+                                            null, // Use default spell tx hex
+                                            null, // Use default commit tx hex
+                                            null, // Use seed phrase from storage
+                                            (message) => console.log(`Spell TX Log: ${message}`)
+                                        );
+                                        console.log('Spell transaction signed successfully:', result);
+                                    } catch (error) {
+                                        console.error('Error signing spell transaction:', error);
+                                    }
+                                }}
+                                className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium bg-purple-600 text-white hover:bg-purple-700"
+                            >
+                                Sign Spell
+                            </button>
                         </div>
                     </div>
                 </div>
