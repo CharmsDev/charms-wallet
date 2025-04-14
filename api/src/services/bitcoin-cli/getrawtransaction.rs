@@ -1,29 +1,18 @@
-use crate::services::bitcoin_cli::{BitcoinCliError, Result};
+use super::error::{execute_bitcoin_cli, Result};
 use serde_json::Value;
-use std::process::Command;
 
 pub async fn get_raw_transaction(txid: &str, verbose: bool) -> Result<Value> {
     let verbose_arg = if verbose { "1" } else { "0" };
 
-    let output = Command::new("bitcoin-cli")
-        .arg("-regtest")
-        .arg("getrawtransaction")
-        .arg(txid)
-        .arg(verbose_arg)
-        .output()
-        .map_err(|e| BitcoinCliError::Other(format!("Failed to execute command: {}", e)))?;
+    let args = vec!["getrawtransaction", txid, verbose_arg];
+    let output = execute_bitcoin_cli(&args)?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(BitcoinCliError::Other(format!(
-            "Command failed: {}",
-            stderr
-        )));
+    if output.is_empty() {
+        return Err(super::error::BitcoinCliError::Other(
+            "Empty response from bitcoin-cli".to_string(),
+        ));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let tx_info: Value =
-        serde_json::from_str(&stdout).map_err(|e| BitcoinCliError::JsonError(e))?;
-
+    let tx_info: Value = serde_json::from_slice(&output)?;
     Ok(tx_info)
 }

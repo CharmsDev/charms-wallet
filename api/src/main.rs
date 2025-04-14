@@ -13,15 +13,7 @@ use std::{env, net::SocketAddr, str::FromStr, time::Duration};
 use tower_http::cors::{Any, CorsLayer};
 
 fn load_env() {
-    let env_file = match env::var("RUST_ENV")
-        .unwrap_or_else(|_| "development".to_string())
-        .as_str()
-    {
-        "production" => ".env.production",
-        _ => ".env.development",
-    };
-
-    dotenv::from_filename(env_file).ok();
+    dotenv::dotenv().ok();
 }
 
 #[tokio::main]
