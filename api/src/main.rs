@@ -64,18 +64,7 @@ async fn main() {
         )
         .route("/bitcoin-cli/utxos/{address}", get(handlers::listunspent))
         .route("/bitcoin-rpc/prev-txs/{txid}", get(handlers::get_prev_txs))
-        .route(
-            "/spell/prove_spell",
-            get(|| async {
-                tracing::info!("GET /spell/prove_spell");
-                "OK"
-            })
-            .post(handlers::prove_spell)
-            .options(|| async {
-                tracing::info!("OPTIONS /spell/prove_spell - Preflight request received");
-                "OK"
-            }),
-        )
+        .route("/spell/prove", post(handlers::prove_spell))
         .layer(cors);
 
     let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
