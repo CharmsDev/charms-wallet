@@ -7,7 +7,6 @@ import { getSeedPhrase } from '@/services/storage';
 import { utxoService } from '@/services/utxo';
 import {
     parseUnsignedTx,
-    COMMIT_UNSIGNED_TX_HEX,
     toXOnly,
     findAddressForUTXO,
     getDerivationPath,
@@ -21,7 +20,9 @@ const bip32 = BIP32Factory(ecc);
 export async function signCommitTransaction(unsignedTxHex, logCallback) {
 
     // SECTION 1: Initialize transaction
-    if (!unsignedTxHex) unsignedTxHex = COMMIT_UNSIGNED_TX_HEX;
+    if (!unsignedTxHex) {
+        throw new Error('Commit transaction hex is required');
+    }
 
     // Parse unsigned transaction to extract UTXO details
     const txDetails = parseUnsignedTx(unsignedTxHex);

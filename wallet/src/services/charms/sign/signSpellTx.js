@@ -7,8 +7,6 @@ import { getSeedPhrase, getAddresses } from '@/services/storage';
 import { utxoService } from '@/services/utxo';
 import { decodeTx } from '@/utils/txDecoder';
 import {
-    SPELL_UNSIGNED_TX_HEX,
-    COMMIT_UNSIGNED_TX_HEX,
     toXOnly,
     findAddressForUTXO,
     getDerivationPath,
@@ -19,8 +17,8 @@ const ECPair = ECPairFactory(ecc);
 const bip32 = BIP32Factory(ecc);
 
 export async function signSpellTransaction(
-    spellTxHex = SPELL_UNSIGNED_TX_HEX,
-    commitTxHex = COMMIT_UNSIGNED_TX_HEX,
+    spellTxHex,
+    commitTxHex,
     seedPhrase,
     logCallback = () => { }
 ) {
@@ -31,13 +29,11 @@ export async function signSpellTransaction(
         }
     };
     try {
-        const actualSpellTxHex = spellTxHex || SPELL_UNSIGNED_TX_HEX;
-        const actualCommitTxHex = commitTxHex || COMMIT_UNSIGNED_TX_HEX;
-
-        if (!actualCommitTxHex) throw new Error('commitTxHex is required');
+        if (!spellTxHex) throw new Error('Spell transaction hex is required');
+        if (!commitTxHex) throw new Error('Commit transaction hex is required');
 
         // Decode the commit transaction to extract necessary information
-        const decodedCommitTx = decodeTx(actualCommitTxHex);
+        const decodedCommitTx = decodeTx(commitTxHex);
         const commitTxId = decodedCommitTx.txid;
 
         // Extract scriptPubKey and amount from the commit transaction output
@@ -45,7 +41,7 @@ export async function signSpellTransaction(
         const commitTxScriptPubKey = commitTxOutput.scriptPubKey;
         const commitTxAmount = commitTxOutput.value;
 
-        const spellTx = bitcoin.Transaction.fromBuffer(Buffer.from(actualSpellTxHex, 'hex'), true);
+        const spellTx = bitcoin.Transaction.fromBuffer(Buffer.from(spellTxHex, 'hex'), true);
         spellTx.version = 2; // Set version 2 for Taproot compatibility
 
         // Generate BIP32 root key from seed phrase
