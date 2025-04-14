@@ -1,8 +1,10 @@
 use super::error::{execute_bitcoin_cli, Result};
 use serde_json::Value;
 
-pub async fn get_transaction(txid: &str) -> Result<Value> {
-    let args = vec!["gettransaction", txid];
+pub async fn get_raw_transaction(txid: &str, verbose: bool) -> Result<Value> {
+    let verbose_arg = if verbose { "1" } else { "0" };
+
+    let args = vec!["getrawtransaction", txid, verbose_arg];
     let output = execute_bitcoin_cli(&args)?;
 
     if output.is_empty() {

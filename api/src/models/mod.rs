@@ -50,9 +50,20 @@ pub struct SendHexTxRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct SpellData {
+    pub version: u32,
+    pub apps: serde_json::Value,
+    pub ins: Vec<serde_json::Value>,
+    pub outs: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ProveSpellRequest {
-    pub spell_json: String,
-    pub funding_utxo_id: String,
-    pub destination_address: String,
-    pub funding_utxo_amount: u64,
+    pub spell: SpellData,
+    pub binaries: serde_json::Value,
+    pub prev_txs: Vec<String>,
+    pub funding_utxo: String,
+    pub funding_utxo_value: u64,
+    pub change_address: String,
+    pub fee_rate: f64,
 }

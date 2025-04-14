@@ -10,15 +10,15 @@ export default function Header({ activeSection, setActiveSection }) {
                         {/* Logo section */}
                         <div className="flex items-center">
                             <img
-                                src="https://charms.dev/_astro/logo-charms-dark.Ceshk2t3.png"
+                                src="https://charms.dev/_astro/logo-charms.CjyOX-fy.png"
                                 alt="Charms Logo"
                                 className="h-8"
                             />
-                            <span className="ml-2 text-xl font-semibold text-gray-900">Wallet</span>
+                            <span className="ml-2 text-xl font-semibold text-gray-900"></span>
                         </div>
 
                         {/* Network badge section */}
-                        <div className="flex items-center">
+                        <div className="flex items-center space-x-3">
                             <span
                                 className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800"
                             >

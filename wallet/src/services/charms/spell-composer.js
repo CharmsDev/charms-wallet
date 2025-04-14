@@ -79,10 +79,18 @@ class CharmsSpellService {
 
         // Create charms object with dynamic key
         const charms = {};
-        charms[appKey] = {
-            ticker: charm.amount.ticker,
-            remaining: charm.amount.remaining
+        // RJJ-TODO review metadata standard
+        // Only include the remaining property if it exists and is not undefined
+        const charmData = {
+            ticker: charm.amount.ticker
         };
+
+        // Only add the remaining property if it exists
+        if (charm.amount.remaining !== undefined) {
+            charmData.remaining = charm.amount.remaining;
+        }
+
+        charms[appKey] = charmData;
 
         // Create the spell in the new format - for NFTs we only create one output
         const spell = JSON.stringify({

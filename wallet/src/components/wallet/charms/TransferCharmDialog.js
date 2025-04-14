@@ -35,7 +35,7 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
     // Check if the charm is an NFT
     const isNftCharm = isNFT(charm);
 
-    // Ensure NFTs always transfer the full amount
+    // Ensure NFTs always transfer the full amount (RJJ-TODO review how do we apply metadata standard)
     useEffect(() => {
         if (isNftCharm) {
             setTransferAmount(charm.amount.remaining);
@@ -45,7 +45,8 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
     }, [isNftCharm, charm.amount.remaining, transferAmount]);
 
     // Check if form is valid for creating transactions
-    const isFormValid = !!destinationAddress?.trim() && transferAmount > 0;
+    // For NFTs, we only need a valid destination address since they're always transferred as whole units
+    const isFormValid = !!destinationAddress?.trim() && (isNftCharm || transferAmount > 0);
 
     // Add a message to the log
     const addLogMessage = (message) => {
@@ -188,8 +189,8 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
                         onClick={handlePrevious}
                         disabled={currentStep === 0}
                         className={`px-4 py-2 rounded ${currentStep === 0
-                                ? 'bg-gray-300 cursor-not-allowed'
-                                : 'bg-blue-500 text-white hover:bg-blue-600'
+                            ? 'bg-gray-300 cursor-not-allowed'
+                            : 'bg-blue-500 text-white hover:bg-blue-600'
                             }`}
                     >
                         Previous
@@ -210,11 +211,11 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
                                 (currentStep === 2 && !commitTxHex) ||
                                 (currentStep === 3 && !signedCommitTx)}
                             className={`px-4 py-2 rounded ${currentStep === steps.length - 1 ||
-                                    (currentStep === 0 && !isFormValid) ||
-                                    (currentStep === 2 && !commitTxHex) ||
-                                    (currentStep === 3 && !signedCommitTx)
-                                    ? 'bg-gray-300 cursor-not-allowed'
-                                    : 'bg-blue-500 text-white hover:bg-blue-600'
+                                (currentStep === 0 && !isFormValid) ||
+                                (currentStep === 2 && !commitTxHex) ||
+                                (currentStep === 3 && !signedCommitTx)
+                                ? 'bg-gray-300 cursor-not-allowed'
+                                : 'bg-blue-500 text-white hover:bg-blue-600'
                                 }`}
                         >
                             {currentStep === steps.length - 1 ? 'Finish' : 'Next'}

@@ -1,4 +1,5 @@
 mod error;
+mod getrawtransaction;
 mod gettransaction;
 mod listunspent;
 mod sendrawtransaction;
@@ -6,6 +7,7 @@ mod signrawtransactionwithwallet;
 mod submitpackage;
 
 pub use error::{BitcoinCliError, Result};
+pub use getrawtransaction::get_raw_transaction;
 pub use gettransaction::get_transaction;
 pub use listunspent::list_unspent;
 pub use sendrawtransaction::send_raw_transaction;

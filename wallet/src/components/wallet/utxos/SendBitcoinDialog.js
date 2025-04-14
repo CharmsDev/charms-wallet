@@ -1,13 +1,17 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { transferBitcoin, composeBitcoinTransaction, createBitcoinTransactionHex } from '@/services/wallet/transfer-bitcoin';
-import { decodeTx } from '@/lib/bitcoin/txDecoder';
+import { createUnsignedTransaction } from '@/services/wallet/core/transaction';
+import { signTransaction } from '@/services/wallet/core/sign';
+import { broadcastService } from '@/services/wallet/broadcast-service';
+import { utxoService } from '@/services/utxo';
+import { decodeTx } from '@/utils/txDecoder';
 import config from '@/config';
+import * as bitcoin from 'bitcoinjs-lib';
 
 export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onSend, formatSats }) {
-    const [destinationAddress, setDestinationAddress] = useState('bcrt1pr8wsw2dnwzyt0c9r69f42c8yu35n5sga3udf49et9220krg0a6fssaumxx');
-    const [amount, setAmount] = useState('0.00005'); // 5000 satoshis
+    const [destinationAddress, setDestinationAddress] = useState('tb1pjrtlv2pqe3yq07jrx09em956yl2taav5p47jtuveehmrlw9jy4qq4gf4c2');
+    const [amount, setAmount] = useState('0.000014'); // 5000 satoshis
     const [showConfirmation, setShowConfirmation] = useState(false);
     const [error, setError] = useState('');
     const [selectedUtxos, setSelectedUtxos] = useState([]);
@@ -17,7 +21,7 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
     const [feeRate, setFeeRate] = useState(1); // Default fee rate in sats/byte
     const [transactionData, setTransactionData] = useState(null);
 
-    // Reset selected UTXOs when amount changes
+    // Update selected UTXOs based on amount
     useEffect(() => {
         if (amount && !isNaN(parseFloat(amount))) {
             const amountInSats = parseFloat(amount) * 100000000; // Convert BTC to satoshis
@@ -30,24 +34,17 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
         }
     }, [amount, confirmedUtxos]);
 
-    // Function to select UTXOs for a given amount
+    // Select optimal UTXOs for transaction amount
     const selectUtxosForAmount = (utxos, amountInSats) => {
-        // Sort UTXOs by value (largest first for simplicity)
-        const sortedUtxos = [...utxos].sort((a, b) => b.value - a.value);
+        // Create temporary UTXO map structure
+        const tempUtxoMap = { 'temp-address': utxos };
 
-        const selectedUtxos = [];
-        let totalValue = 0;
+        // Convert to BTC and select UTXOs
+        const amountBtc = amountInSats / 100000000;
+        const selectedUtxos = utxoService.selectUtxos(tempUtxoMap, amountBtc, feeRate);
 
-        // Simple coin selection algorithm - greedy
-        // In a real implementation, you might want to use a more sophisticated algorithm
-        for (const utxo of sortedUtxos) {
-            if (totalValue >= amountInSats) {
-                break;
-            }
-
-            selectedUtxos.push(utxo);
-            totalValue += utxo.value;
-        }
+        // Sum selected UTXO values
+        const totalValue = selectedUtxos.reduce((sum, utxo) => sum + utxo.value, 0);
 
         return {
             utxos: selectedUtxos,
@@ -55,16 +52,60 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
         };
     };
 
-    // Calculate if we have enough funds
+    // Check for sufficient funds
     const hasEnoughFunds = useMemo(() => {
         if (!amount || isNaN(parseFloat(amount))) return true;
         const amountInSats = parseFloat(amount) * 100000000;
         return totalSelected >= amountInSats;
     }, [amount, totalSelected]);
 
+    // Retrieve scriptPubKey for transaction input
+    const fetchScriptPubKey = async (utxo) => {
+        try {
+            // Use existing scriptPubKey if available
+            if (utxo.scriptPubKey) {
+                return utxo.scriptPubKey;
+            }
+
+            // Fetch transaction details from API
+            const apiUrl = `${config.api.wallet}/bitcoin-rpc/prev-txs/${utxo.txid}`;
+            console.log(`Fetching transaction details from: ${apiUrl}`);
+
+            const response = await fetch(apiUrl);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            // Validate API response
+            const txHexArray = await response.json();
+            if (!txHexArray || txHexArray.length === 0) {
+                throw new Error(`No transaction data returned for: ${utxo.txid}`);
+            }
+
+            // Extract transaction hex
+            const txHex = txHexArray[0];
+
+            // Parse transaction data
+            const decodedTx = decodeTx(txHex);
+
+            // Locate matching output
+            const output = decodedTx.outputs.find(output => output.index === utxo.vout);
+
+            if (!output || !output.scriptPubKey) {
+                throw new Error(`Could not find scriptPubKey for UTXO: ${utxo.txid}:${utxo.vout}`);
+            }
+
+            console.log(`Found scriptPubKey for UTXO ${utxo.txid}:${utxo.vout}: ${output.scriptPubKey}`);
+            return output.scriptPubKey;
+        } catch (error) {
+            console.error(`Failed to fetch scriptPubKey for UTXO: ${utxo.txid}:${utxo.vout}`, error);
+            throw error;
+        }
+    };
+
     const handleSendClick = async () => {
         try {
-            // Basic validation
+            // Validate input fields
             if (!destinationAddress.trim()) {
                 setError('Destination address is required');
                 return;
@@ -85,38 +126,72 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                 return;
             }
 
-            // Clear any previous errors
+            // Log transaction inputs
+            console.log('Selected UTXOs for transaction:', selectedUtxos);
+
+            // Reset error state
             setError('');
 
-            // Prepare transaction data
+            // Retrieve missing scriptPubKey data
+            setError('Fetching transaction details for UTXOs...');
+            const enhancedUtxos = [...selectedUtxos];
+
+            try {
+                for (let i = 0; i < enhancedUtxos.length; i++) {
+                    if (!enhancedUtxos[i].scriptPubKey) {
+                        console.log(`Fetching scriptPubKey for UTXO: ${enhancedUtxos[i].txid}:${enhancedUtxos[i].vout}`);
+                        const scriptPubKey = await fetchScriptPubKey(enhancedUtxos[i]);
+                        enhancedUtxos[i] = {
+                            ...enhancedUtxos[i],
+                            scriptPubKey
+                        };
+                        console.log(`Got scriptPubKey: ${scriptPubKey}`);
+                    }
+                }
+            } catch (err) {
+                console.error('Error fetching scriptPubKey:', err);
+                setError(`Failed to fetch transaction details: ${err.message}`);
+                return;
+            }
+
+            // Clear progress message
+            setError('');
+
+            // Construct transaction data
             const txData = {
-                utxos: selectedUtxos,
+                utxos: enhancedUtxos,
                 destinationAddress,
                 amount: parseFloat(amount),
                 feeRate,
                 // The change address will be determined by the service
                 // but we can provide a default from the selected UTXOs
-                changeAddress: selectedUtxos[0]?.address || destinationAddress
+                changeAddress: enhancedUtxos[0]?.address || destinationAddress
             };
 
-            // Compose the Bitcoin transaction object
-            const bitcoinTx = await composeBitcoinTransaction(txData);
+            console.log('Transaction data prepared:', txData);
 
-            // Create the transaction in hex format
-            const txHex = await createBitcoinTransactionHex(txData);
+            // Generate unsigned transaction
+            console.log('Creating unsigned Bitcoin transaction...');
+            const unsignedTxHex = await createUnsignedTransaction(txData);
+            console.log('Unsigned transaction created:', unsignedTxHex.substring(0, 50) + '...');
 
-            // Decode the transaction hex for display
+            // Sign transaction with wallet keys
+            console.log('Signing transaction locally...');
+            const txHex = await signTransaction(txData);
+            console.log('Transaction signed, hex:', txHex.substring(0, 50) + '...');
+
+            // Parse for confirmation display
             const decodedTx = decodeTx(txHex);
 
-            // Store both the input data, composed transaction, hex, and decoded tx
+            // Store complete transaction data
             setTransactionData({
                 ...txData,
-                bitcoinTx,
+                unsignedTxHex,
                 txHex,
                 decodedTx
             });
 
-            // Show confirmation dialog
+            // Display confirmation screen
             setShowConfirmation(true);
         } catch (err) {
             console.error('Error preparing transaction:', err);
@@ -129,39 +204,23 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
             setIsSubmitting(true);
             setError('');
 
-            // Send the hex transaction to the Charms API
-            const apiUrl = `${config.api.wallet}/transaction/send-hex`;
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    txHex: transactionData.txHex,
-                    network: config.bitcoin.network
-                }),
-            });
+            // Broadcast signed transaction
+            const result = await broadcastService.broadcastTransaction(transactionData.txHex);
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const result = await response.json();
-
-            // Store the transaction ID
+            // Save transaction identifier
             setTxId(result.txid);
 
-            // Call the original onSend handler for any UI updates
+            // Trigger parent component callback
             onSend({
                 utxos: selectedUtxos,
                 destinationAddress,
                 amount: parseFloat(amount),
                 txid: result.txid,
-                bitcoinTx: transactionData.bitcoinTx,
+                unsignedTxHex: transactionData.unsignedTxHex,
                 txHex: transactionData.txHex
             });
 
-            // Reset form and close dialog
+            // Clean up and close
             resetAndClose();
         } catch (err) {
             console.error('Failed to send transaction:', err);
@@ -172,7 +231,7 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
     };
 
     const resetAndClose = () => {
-        setDestinationAddress('bcrt1pr8wsw2dnwzyt0c9r69f42c8yu35n5sga3udf49et9220krg0a6fssaumxx');
+        setDestinationAddress('tb1pjrtlv2pqe3yq07jrx09em956yl2taav5p47jtuveehmrlw9jy4qq4gf4c2');
         setAmount('0.00005');
         setShowConfirmation(false);
         setError('');
@@ -223,7 +282,7 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                             )}
                         </div>
 
-                        {/* Selected UTXOs */}
+                        {/* Input UTXOs list */}
                         {selectedUtxos.length > 0 && (
                             <div className="mb-4">
                                 <label className="block text-sm font-medium text-gray-700 mb-2">

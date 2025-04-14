@@ -27,7 +27,7 @@ export default function ProveSpellStep({
         let maxUtxo = null;
         let maxValue = 0;
 
-        // Iterate through all UTXOs to find the one with the highest value
+        // Find UTXO with highest value
         Object.entries(utxos).forEach(([address, addressUtxos]) => {
             addressUtxos.forEach(utxo => {
                 if (utxo.value > maxValue) {
@@ -53,7 +53,7 @@ export default function ProveSpellStep({
         try {
             addLogMessage(`Initiating transfer of ${transferAmount} charms to ${destinationAddress}...`);
 
-            // Set funding UTXO - use the highest value UTXO if available, otherwise use the charm's UTXO
+            // Select funding UTXO based on availability
             const fundingUtxoId = highestUtxo
                 ? `${highestUtxo.txid}:${highestUtxo.vout}`
                 : `${charm.txid}:${charm.outputIndex}`;
@@ -65,7 +65,7 @@ export default function ProveSpellStep({
 
             addLogMessage(`Using funding UTXO: ${fundingUtxoId} with amount: ${fundingUtxoAmount}`);
 
-            // Use the transfer charm service to create the transactions
+            // Create transactions via service
             const result = await transferCharmService.createTransferCharmTxs(
                 destinationAddress,
                 fundingUtxoAmount,
@@ -193,7 +193,9 @@ export default function ProveSpellStep({
                 {isLoading && (
                     <div className="text-center py-8">
                         <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-                        <p className="mt-2 text-gray-600">Creating transactions...</p>
+                        <p className="mt-2 text-gray-600">Proving spell transfer, please wait.</p>
+                        <p className="mt-1 text-gray-500 text-sm">This process can take up to 10 minutes or more.</p>
+                        <p className="mt-1 text-gray-500 text-sm">You will need to sign the tx after.</p>
                     </div>
                 )}
             </div>

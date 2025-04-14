@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect } from 'react';
-import { utxoService } from '@/services/wallet/utxo';
+import { utxoService } from '@/services/utxo';
 import { useAddresses } from './addressesStore';
 
 const UTXOContext = createContext();
@@ -21,14 +21,14 @@ export function UTXOProvider({ children }) {
     const [totalBalance, setTotalBalance] = useState(0);
     const { addresses } = useAddresses();
 
-    // Load UTXOs on address change
+    // Trigger UTXO loading when addresses change
     useEffect(() => {
         if (addresses.length > 0) {
             loadUTXOs();
         }
     }, [addresses]);
 
-    // Update total balance on UTXO change
+    // Recalculate balance when UTXOs change
     useEffect(() => {
         const balance = utxoService.calculateTotalBalance(utxos);
         setTotalBalance(balance);
