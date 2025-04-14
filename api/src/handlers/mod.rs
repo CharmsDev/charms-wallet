@@ -5,7 +5,9 @@ mod bitcoin_rpc;
 mod health;
 mod spell;
 
+pub use bitcoin_cli::broadcast_btc_tx;
 pub use bitcoin_cli::estimatefee;
+pub use bitcoin_cli::getrawtransaction;
 pub use bitcoin_cli::gettransaction;
 pub use bitcoin_cli::listunspent;
 pub use bitcoin_cli::sendrawtransaction;

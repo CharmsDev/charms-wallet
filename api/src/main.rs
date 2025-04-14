@@ -51,12 +51,20 @@ async fn main() {
             post(handlers::sendrawtransactionbroadcast),
         )
         .route(
+            "/bitcoin-cli/wallet/broadcast_btc_tx",
+            post(handlers::broadcast_btc_tx),
+        )
+        .route(
             "/bitcoin-cli/transaction/send",
             post(handlers::sendrawtransaction),
         )
         .route(
             "/bitcoin-cli/transaction/status/{txid}",
             get(handlers::gettransaction),
+        )
+        .route(
+            "/bitcoin-cli/transaction/raw/{txid}",
+            get(handlers::getrawtransaction),
         )
         .route(
             "/bitcoin-cli/transaction/estimate-fee",
