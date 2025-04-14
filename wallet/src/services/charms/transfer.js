@@ -23,24 +23,50 @@ export async function createTransferCharmTxs(
     }
 
     // Charms prover API endpoint
-    const proveApiUrl = process.env.NEXT_PUBLIC_PROVE_API_URL || 'https://prove.charms.dev/spells/prove';
+    const proveApiUrl = process.env.NEXT_PUBLIC_PROVE_API_URL || 'https://prove-t4.charms.dev/spells/prove';
 
-    // Extract transaction ID from funding UTXO (format: txid:vout)
-    const txid = fundingUtxoId.split(':')[0];
+    // Find the input that contains a charm (RJJ-TODO support multiple charms)
+    let txid = null;
+    let charmInputFound = false;
+    if (parsedSpell.ins && parsedSpell.ins.length > 0) {
+        for (const input of parsedSpell.ins) {
+            if (input.charms && Object.keys(input.charms).length > 0) {
+                // Found an input with charms, extract its txid
+                if (input.utxo_id) {
+                    txid = input.utxo_id.split(':')[0];
+                    charmInputFound = true;
+                    console.log(`Found charm input with txid: ${txid}`);
+                    break;
+                }
+            }
+        }
+    }
+    if (!charmInputFound) {
+        throw new Error("No charm input found in the spell. A charm input is required for transfer.");
+    }
 
-    // Call wallet API for previous transactions
+    // Call wallet API to get the raw transaction
     const walletApiUrl = process.env.NEXT_PUBLIC_WALLET_API_URL || 'http://localhost:3355';
-    const prevTxsUrl = `${walletApiUrl}/bitcoin-rpc/prev-txs/${txid}`;
+    const rawTxUrl = `${walletApiUrl}/bitcoin-cli/transaction/raw/${txid}`;
 
     let prev_txs = [];
     try {
-        const prevTxsResponse = await fetch(prevTxsUrl);
+        console.log(`Fetching raw transaction for txid: ${txid}`);
+        const rawTxResponse = await fetch(rawTxUrl);
 
-        if (!prevTxsResponse.ok) {
-            throw new Error(`Failed to fetch previous transactions: ${prevTxsResponse.status} ${prevTxsResponse.statusText}`);
+        if (!rawTxResponse.ok) {
+            throw new Error(`Failed to fetch raw transaction: ${rawTxResponse.status} ${rawTxResponse.statusText}`);
         }
 
-        prev_txs = await prevTxsResponse.json();
+        const rawTxData = await rawTxResponse.json();
+
+        if (rawTxData.status === 'success' && rawTxData.transaction) {
+            // The transaction is already in the format we need
+            prev_txs = [rawTxData.transaction.hex];
+            console.log(`Retrieved raw transaction`, prev_txs);
+        } else {
+            throw new Error(`Invalid response format from raw transaction API`);
+        }
     } catch (error) {
         throw new Error(`Failed to fetch previous transactions: ${error.message}`);
     }
@@ -62,8 +88,9 @@ export async function createTransferCharmTxs(
         // Encode the spell object in CBOR format
         //const encodedSpell = cbor.encode(parsedSpell);
 
+        // Create the request body with the actual data
         const requestBody = {
-            spell: parsedSpell, //Array.from(new Uint8Array(encodedSpell)), // CBOR-encoded spell
+            spell: parsedSpell,
             binaries: {},
             prev_txs: prev_txs,
             funding_utxo: fundingUtxoId,
@@ -72,52 +99,92 @@ export async function createTransferCharmTxs(
             fee_rate: 2.0
         };
 
+        // Send the request directly to the Charms prover API
+        console.log('Sending request to Charms prover API:', proveApiUrl);
+
+        // Make the direct API call
         response = await fetch(proveApiUrl, {
-            method: "POST",
+            method: 'POST',
             headers: {
-                "Content-Type": "application/json",
+                'Content-Type': 'application/json'
             },
-            body: JSON.stringify(requestBody),
+            body: JSON.stringify(requestBody)
         });
+
+        console.log('Response status:', response.status);
+        console.log('Response status text:', response.statusText);
     } catch (e) {
         error = e.message;
     }
 
     // Check if we have a successful response
-    if (!response || !response.ok) {
-        throw new Error(error || "Failed to create transfer transactions");
+    if (!response) {
+        throw new Error(error || "No response received from the server");
     }
 
+    // Get the response data
+    let responseText;
+    try {
+        responseText = await response.text();
+        console.log('Response text length:', responseText.length);
+        console.log('First 100 chars of response:', responseText.substring(0, 100));
+    } catch (e) {
+        throw new Error(`Failed to read response: ${e.message}`);
+    }
+
+    // Try to parse the response as JSON
     let result;
     try {
-        result = await response.json();
+        result = JSON.parse(responseText);
     } catch (e) {
-        throw new Error("Invalid response format from the API");
+        console.error('Failed to parse response as JSON:', e);
+        throw new Error(`Invalid JSON response: ${responseText.substring(0, 100)}...`);
     }
 
-    // RJJ-TODO | review from here when prover works
+    // Check if the response contains an error
+    if (!response.ok) {
+        const errorMessage = result.error || result.details || response.statusText || "Failed to create transfer transactions";
+        console.error('Error response:', result);
+        throw new Error(errorMessage);
+    }
+
+    // Parse response
+    if (result.rawText) {
+        console.log('Received raw text response ');
+        try {
+            // Try to parse the raw text as JSON
+            result = JSON.parse(result.rawText);
+        } catch (e) {
+            throw new Error(`Invalid raw text response: ${result.rawText.substring(0, 100)}...`);
+        }
+    }
 
     // Extract transactions from response
-    const commit_tx = result.commit_tx || result.transactions?.commit_tx;
-    const spell_tx = result.spell_tx || result.transactions?.spell_tx;
-
-    if (!commit_tx || !spell_tx) {
-        throw new Error("Invalid response format from the API");
+    // The prover API returns an array with two transaction hex strings
+    // The first is the commit tx, and the second is the spell tx
+    if (!Array.isArray(result) || result.length !== 2) {
+        throw new Error("Invalid response format from the API. Expected array with two transactions.");
     }
 
-    // RJJ-TODO log to screen to debug or information process
-    //const decodedCommitTx = decodeTx(commit_tx);
-    //const decodedSpellTx = decodeTx(spell_tx);
+    const commit_tx = result[0];
+    const spell_tx = result[1];
+
+    if (!commit_tx || !spell_tx) {
+        throw new Error("Invalid transaction data in the API response");
+    }
+
+    console.log('Commit TX:', commit_tx.substring(0, 50) + '...');
+    console.log('Spell TX:', spell_tx.substring(0, 50) + '...');
 
     // Format response
     const transformedResult = {
         status: "success",
-        message: result.message || "",
+        message: "Transactions received from prover",
         transactions: {
             commit_tx: commit_tx,
             spell_tx: spell_tx,
             taproot_data: {
-                script: result.taproot_script || result.transactions?.taproot_script || "",
+                script: "",
                 control_block: ""
             }
         }

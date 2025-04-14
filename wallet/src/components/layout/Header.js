@@ -1,6 +1,4 @@
 import { useState } from 'react';
-import { signCommitTransaction } from '../../services/repository/signCommitTx';
-import { signSpellTransaction } from '../../services/repository/signSpellTx';
 
 export default function Header({ activeSection, setActiveSection }) {
     return (
@@ -12,11 +10,11 @@ export default function Header({ activeSection, setActiveSection }) {
                         {/* Logo section */}
                         <div className="flex items-center">
                             <img
-                                src="https://charms.dev/_astro/logo-charms-dark.Ceshk2t3.png"
+                                src="https://charms.dev/_astro/logo-charms.CjyOX-fy.png"
                                 alt="Charms Logo"
                                 className="h-8"
                             />
-                            <span className="ml-2 text-xl font-semibold text-gray-900">Wallet</span>
+                            <span className="ml-2 text-xl font-semibold text-gray-900"></span>
                         </div>
 
                         {/* Network badge section */}
@@ -26,38 +24,6 @@ export default function Header({ activeSection, setActiveSection }) {
                             >
                                 Testnet4
                             </span>
-                            <button
-                                onClick={async () => {
-                                    try {
-                                        const result = await signCommitTransaction();
-                                        console.log('Commit transaction signed successfully:', result);
-                                    } catch (error) {
-                                        console.error('Error signing commit transaction:', error);
-                                    }
-                                }}
-                                className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 mr-2"
-                            >
-                                Sign Commit
-                            </button>
-                            <button
-                                onClick={async () => {
-                                    try {
-                                        // Call signSpellTransaction without parameters to use default values
-                                        const result = await signSpellTransaction(
-                                            null, // Use default spell tx hex
-                                            null, // Use default commit tx hex
-                                            null, // Use seed phrase from storage
-                                            (message) => console.log(`Spell TX Log: ${message}`)
-                                        );
-                                        console.log('Spell transaction signed successfully:', result);
-                                    } catch (error) {
-                                        console.error('Error signing spell transaction:', error);
-                                    }
-                                }}
-                                className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium bg-purple-600 text-white hover:bg-purple-700"
-                            >
-                                Sign Spell
-                            </button>
                         </div>
                     </div>
                 </div>
