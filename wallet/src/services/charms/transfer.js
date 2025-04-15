@@ -16,10 +16,8 @@ export async function createTransferCharmTxs(
     }
 
     // Get the wallet API base URL
-    const walletApiUrl = process.env.NEXT_PUBLIC_WALLET_API_URL || 'https://prove-t4.charms.dev/spells/prove';
-
-    // Wallet API endpoint for spell proving
-    const proveApiUrl = `${walletApiUrl}/spell/prove`;
+    const walletApiUrl = process.env.NEXT_PUBLIC_WALLET_API_URL || 'http://localhost:3355';
+    const proveApiUrl = process.env.NEXT_PUBLIC_PROVE_API_URL || 'https://prove-t4.charms.dev';
 
     // Find the input that contains a charm (RJJ-TODO support multiple charms)
     let txid = null;
@@ -96,7 +94,7 @@ export async function createTransferCharmTxs(
 
         // Log the request body for debugging
         console.log('=== API CALL START ===');
-        console.log('Request URL:', proveApiUrl);
+        console.log('Request URL:', `${proveApiUrl}/spell/prove`);
         console.log('Request payload:', JSON.stringify(requestBody, null, 2));
         console.log('=== PAYLOAD END ===');
 
@@ -105,7 +103,7 @@ export async function createTransferCharmTxs(
         const startTime = new Date();
 
         // Execute API call
-        response = await fetch(proveApiUrl, {
+        response = await fetch(`${proveApiUrl}/spell/prove`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'

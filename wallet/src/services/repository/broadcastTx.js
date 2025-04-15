@@ -15,10 +15,10 @@ export async function broadcastTransactions(signedCommitTx, signedSpellTx, logCa
         logCallback('Broadcasting both transactions together...');
 
         // API endpoint for broadcasting transactions
-        const apiUrl = `${process.env.NEXT_PUBLIC_WALLET_API_URL || 'http://localhost:3355'}/wallet/broadcast`;
+        const apiUrl = process.env.NEXT_PUBLIC_WALLET_API_URL || 'http://localhost:3355';
 
         // Make the API request with both transactions
-        const response = await fetch(apiUrl, {
+        const response = await fetch(`${apiUrl}/wallet/broadcast`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

@@ -4,8 +4,8 @@
 const config = {
     // API endpoints
     api: {
-        wallet: process.env.NEXT_PUBLIC_WALLET_API_URL || 'http://localhost:3355',
-        charms: process.env.NEXT_PUBLIC_CHARMS_API_URL || 'http://localhost:3333',
+        wallet: process.env.NEXT_PUBLIC_WALLET_API_URL || 'https://api-wallet-test.charms.dev',
+        charms: process.env.NEXT_PUBLIC_CHARMS_API_URL || 'https://api-wallet-test.charms.dev',
     },
 
     // Bitcoin network configuration
