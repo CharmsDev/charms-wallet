@@ -1,7 +1,7 @@
 import { ProcessedCharm, UTXO, UTXOMap } from '@/types';
 
 class CharmsService {
-    private readonly CHARMS_API_BASE = process.env.NEXT_PUBLIC_CHARMS_API_URL || 'http://localhost:3333';
+    private readonly CHARMS_API_BASE = process.env.NEXT_PUBLIC_CHARMS_API_URL || 'https://api-wallet-test.charms.dev';
 
     async getCharmsByUTXOs(utxos: UTXOMap): Promise<ProcessedCharm[]> {
         try {
