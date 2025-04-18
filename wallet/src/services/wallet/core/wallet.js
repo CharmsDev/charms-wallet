@@ -28,8 +28,6 @@ class WalletCore {
                 throw new Error('Insufficient funds for transaction');
             }
 
-            console.log(`Selected ${selectedUtxos.length} UTXOs for transaction`);
-
             // Prepare transaction data
             const transactionData = {
                 utxos: selectedUtxos,
@@ -43,8 +41,6 @@ class WalletCore {
             const unsignedTxHex = await createUnsignedTransaction(transactionData);
             const signedTxHex = await signTransaction(unsignedTxHex);
 
-            console.log('Transaction created and signed:', signedTxHex.txid);
-
             // Broadcast to network
             const broadcastResult = await broadcastService.broadcastTransaction(signedTxHex.signedTxHex);
 
@@ -56,7 +52,6 @@ class WalletCore {
                 success: true
             };
         } catch (error) {
-            console.error('Error sending Bitcoin:', error);
             throw error;
         }
     }
@@ -73,7 +68,6 @@ class WalletCore {
             // Convert satoshis to BTC
             return totalSats / 100000000;
         } catch (error) {
-            console.error('Error getting balance:', error);
             throw error;
         }
     }
@@ -83,7 +77,6 @@ class WalletCore {
         try {
             return await utxoService.fetchAndStoreAllUTXOs();
         } catch (error) {
-            console.error('Error refreshing UTXOs:', error);
             throw error;
         }
     }
@@ -93,7 +86,6 @@ class WalletCore {
         try {
             return await broadcastService.getTransactionStatus(txid);
         } catch (error) {
-            console.error('Error getting transaction status:', error);
             throw error;
         }
     }

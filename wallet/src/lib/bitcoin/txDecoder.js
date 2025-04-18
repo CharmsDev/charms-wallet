@@ -58,7 +58,7 @@ export function decodeTx(txHex) {
                     asm = `Script: ${scriptPubKeyHex}`;
                 }
             } catch (e) {
-                console.error('Error decoding output script:', e);
+                // Error decoding output script
             }
 
             return {
@@ -87,7 +87,6 @@ export function decodeTx(txHex) {
             vout
         };
     } catch (error) {
-        console.error('Error decoding transaction:', error);
         return {
             error: `Failed to decode transaction: ${error.message}`,
             txHex

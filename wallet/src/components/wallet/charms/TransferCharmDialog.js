@@ -127,6 +127,7 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
                     setTransactionResult={setTransactionResult}
                     commitTxHex={commitTxHex}
                     spellTxHex={spellTxHex}
+                    handleNext={handleNext}
                 />
             )
         },

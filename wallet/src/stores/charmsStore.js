@@ -29,7 +29,6 @@ export function CharmsProvider({ children }) {
             const fetchedCharms = await charmsService.getCharmsByUTXOs(utxos);
             setCharms(fetchedCharms);
         } catch (error) {
-            console.error('Error loading charms:', error);
             setError('Failed to load charms');
         } finally {
             setIsLoading(false);
@@ -43,7 +42,6 @@ export function CharmsProvider({ children }) {
             const fetchedCharms = await charmsService.getCharmsByUTXOs(utxos);
             setCharms(fetchedCharms);
         } catch (error) {
-            console.error('Error refreshing charms:', error);
             setError('Failed to refresh charms');
         } finally {
             setIsLoading(false);

@@ -30,7 +30,7 @@ export function AddressesProvider({ children }) {
             const storedAddresses = await getAddresses();
             setAddresses(storedAddresses);
         } catch (error) {
-            console.error('Error loading addresses:', error);
+            // Error loading addresses
         }
     };
 
@@ -40,7 +40,7 @@ export function AddressesProvider({ children }) {
             const newAddresses = await addStorageAddress(address);
             setAddresses(newAddresses);
         } catch (error) {
-            console.error('Error adding address:', error);
+            // Error adding address
         }
     };
 
@@ -50,7 +50,7 @@ export function AddressesProvider({ children }) {
             const newAddresses = await deleteStorageAddress(addressToDelete);
             setAddresses(newAddresses);
         } catch (error) {
-            console.error('Error deleting address:', error);
+            // Error deleting address
         }
     };
 
@@ -60,7 +60,7 @@ export function AddressesProvider({ children }) {
             await clearStorageAddresses();
             setAddresses([]);
         } catch (error) {
-            console.error('Error clearing addresses:', error);
+            // Error clearing addresses
         }
     };
 

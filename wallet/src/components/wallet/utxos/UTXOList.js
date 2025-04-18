@@ -15,16 +15,9 @@ export default function UTXOList() {
 
     // Refresh UTXOs on component mount
     useEffect(() => {
-        // Log the network we're in
-        console.log('Bitcoin network:', config.bitcoin.network);
-        console.log('Is regtest mode:', config.bitcoin.isRegtest());
-
         // If we're in regtest mode, refresh UTXOs on mount
         if (config.bitcoin.isRegtest()) {
-            console.log('In regtest mode, refreshing UTXOs on mount');
             refreshUTXOs();
-        } else {
-            console.log('Not in regtest mode, skipping auto-refresh');
         }
     }, []);
 
@@ -69,8 +62,6 @@ export default function UTXOList() {
         // Show loading state
         setIsSendDialogOpen(false);
 
-        // Log the transaction details
-        console.log('Send Bitcoin data:', sendData);
 
         // Transaction has been sent successfully
         // Just refresh UTXOs to show updated balances

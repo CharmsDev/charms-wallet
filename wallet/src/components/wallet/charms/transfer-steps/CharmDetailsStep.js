@@ -52,7 +52,7 @@ export default function CharmDetailsStep({
                 setFinalSpell("");
             }
         } catch (error) {
-            console.error("Error composing spell template:", error);
+            // Error composing spell template
         }
     }, [destinationAddress, transferAmount, charm, setSpellTemplate, setFinalSpell]);
 
