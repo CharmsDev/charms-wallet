@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
-import { signCommitTransaction } from '@/services/repository/signCommitTx';
-import { signSpellTransaction } from '@/services/repository/signSpellTx';
+import { signCommitTransaction } from '@/services/charms/sign/signCommitTx';
+import { signSpellTransaction } from '@/services/charms/sign/signSpellTx';
 
 export default function SignatureStep({
     transactionResult,
@@ -17,8 +17,8 @@ export default function SignatureStep({
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    // Sign commit transaction
-    const signCommitTx = async () => {
+    // Sign both transactions
+    const signBothTransactions = async () => {
         if (!transactionResult || !transactionResult.transactions) {
             addLogMessage('No transactions to sign');
             return;
@@ -29,54 +29,26 @@ export default function SignatureStep({
         setError(null);
 
         // Add a log message to indicate a new signing attempt
-        addLogMessage('Starting new commit transaction signing attempt...');
+        addLogMessage('Starting transaction signing process...');
 
         try {
-            // Check if we have a seed phrase
-            if (!seedPhrase) {
-                throw new Error('No wallet available for signing');
-            }
-
-            // Sign the commit transaction
+            // Step 1: Sign the commit transaction
+            addLogMessage('Signing commit transaction...');
             const signedCommit = await signCommitTransaction(
                 transactionResult.transactions.commit_tx,
-                seedPhrase,
-                transactionResult.utxoAmount || 19073, // Default to 19073 satoshis if not provided
-                transactionResult.utxoInternalKey || '6eb2ec4ab68e29176884e783dfd93bc42b9310f5ae47a202d0978988cebe1f87', // Default internal key from sign.js
-                undefined, // Use default network
-                undefined, // Use default derivation path
                 addLogMessage
             );
 
             // Store the signed commit transaction
             setSignedCommitTx(signedCommit);
-        } catch (error) {
-            setError(error.message);
-            addLogMessage(`Error signing commit transaction: ${error.message}`);
+            addLogMessage('Commit transaction signed successfully!');
 
-            // Check if it's a network error
-            if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                addLogMessage('Network error: Check if the API server is running');
-            }
-        } finally {
-            setIsLoading(false);
-        }
-    };
+            // Step 2: Sign the spell transaction
+            addLogMessage('Signing spell transaction...');
 
-    // Sign spell transaction
-    const signSpellTx = async () => {
-        if (!transactionResult || !transactionResult.transactions || !signedCommitTx) {
-            addLogMessage('Commit transaction must be signed first');
-            return;
-        }
-
-        setIsLoading(true);
-        setError(null);
-
-        try {
             // Check if we have a seed phrase
             if (!seedPhrase) {
-                throw new Error('No wallet available for signing');
+                throw new Error('No wallet available for signing spell transaction');
             }
 
             // Sign the spell transaction
@@ -89,9 +61,12 @@ export default function SignatureStep({
 
             // Store the signed spell transaction
             setSignedSpellTx(signedSpell);
+            addLogMessage('Spell transaction signed successfully!');
+            addLogMessage('Both transactions signed successfully!');
+
         } catch (error) {
             setError(error.message);
-            addLogMessage(`Error signing spell transaction: ${error.message}`);
+            addLogMessage(`Error signing transactions: ${error.message}`);
 
             // Check if it's a network error
             if (error.name === 'TypeError' && error.message.includes('fetch')) {
@@ -103,46 +78,29 @@ export default function SignatureStep({
     };
 
     // Decode signed transactions for display
-    const decodedSignedCommitTx = signedCommitTx ? decodeTx(signedCommitTx.hex) : null;
+    const decodedSignedCommitTx = signedCommitTx ? decodeTx(signedCommitTx.signedTxHex) : null;
     const decodedSignedSpellTx = signedSpellTx ? decodeTx(signedSpellTx.hex) : null;
 
     return (
         <div className="space-y-6">
-            {/* Testing mode banner */}
-            <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200 mb-4">
-                <p className="text-sm text-yellow-700 font-medium">
-                    🧪 Testing Mode: The "Sign Commit Tx" button will remain available for multiple signing attempts.
-                </p>
-            </div>
             <div className="flex justify-between items-center">
                 <h4 className="font-medium text-gray-900">Sign Transactions</h4>
                 <div className="space-x-2">
                     <button
-                        onClick={signCommitTx}
-                        disabled={isLoading || !transactionResult}
-                        className={`px-4 py-2 rounded ${isLoading || !transactionResult
+                        onClick={signBothTransactions}
+                        disabled={isLoading || !transactionResult || (signedCommitTx && signedSpellTx)}
+                        className={`px-4 py-2 rounded ${isLoading || !transactionResult || (signedCommitTx && signedSpellTx)
                             ? 'bg-gray-300 cursor-not-allowed'
                             : 'bg-blue-500 text-white hover:bg-blue-600'
                             }`}
                     >
-                        {isLoading ? 'Signing...' : 'Sign Commit Tx'}
+                        {isLoading ? 'Signing...' : (signedCommitTx && signedSpellTx) ? 'Transactions Signed' : 'Sign Transactions'}
                     </button>
-                    {/* Testing mode indicator */}
-                    {signedCommitTx && (
+                    {signedCommitTx && signedSpellTx && (
                         <span className="text-xs text-green-600 font-medium">
-                            ✓ Signed (Testing Mode)
+                            ✓ Both Signed
                         </span>
                     )}
-                    <button
-                        onClick={signSpellTx}
-                        disabled={isLoading || !signedCommitTx || signedSpellTx}
-                        className={`px-4 py-2 rounded ${isLoading || !signedCommitTx || signedSpellTx
-                            ? 'bg-gray-300 cursor-not-allowed'
-                            : 'bg-green-500 text-white hover:bg-green-600'
-                            }`}
-                    >
-                        {isLoading && signedCommitTx && !signedSpellTx ? 'Signing...' : signedSpellTx ? 'Spell Signed' : 'Sign Spell Tx'}
-                    </button>
                 </div>
             </div>
 
@@ -159,46 +117,70 @@ export default function SignatureStep({
                 </p>
 
                 {/* Signed transaction details */}
-                {signedCommitTx && signedSpellTx && (
+                {signedCommitTx && (
                     <div className="space-y-4">
                         <div>
                             <h5 className="font-medium text-gray-900 mb-2">Signed Commit Transaction</h5>
                             <div className="bg-gray-800 text-green-400 p-3 rounded-md overflow-x-auto text-xs font-mono h-48 overflow-y-auto">
                                 <div>TXID: {decodedSignedCommitTx?.txid || 'Unknown'}</div>
-                                <div>Inputs: {decodedSignedCommitTx?.inputs?.length || 0}</div>
-                                <div>Outputs: {decodedSignedCommitTx?.outputs?.length || 0}</div>
                                 <div>Size: {decodedSignedCommitTx?.size || 0} bytes</div>
                                 <div>Has Witness: {decodedSignedCommitTx?.hasWitness ? 'Yes' : 'No'}</div>
                                 <div className="mt-2 border-t border-gray-700 pt-2">
                                     <div className="font-bold mb-1">Transaction Hex:</div>
-                                    <div className="break-all">{signedCommitTx?.hex || 'Not available'}</div>
+                                    <div className="break-all">{signedCommitTx?.signedTxHex || 'Not available'}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {signedSpellTx && (
+                            <div>
+                                <h5 className="font-medium text-gray-900 mb-2">Signed Spell Transaction</h5>
+                                <div className="bg-gray-800 text-green-400 p-3 rounded-md overflow-x-auto text-xs font-mono h-48 overflow-y-auto">
+                                    <div>TXID: {decodedSignedSpellTx?.txid || 'Unknown'}</div>
+                                    <div>Size: {decodedSignedSpellTx?.size || 0} bytes</div>
+                                    <div>Has Witness: {decodedSignedSpellTx?.hasWitness ? 'Yes' : 'No'}</div>
+                                    <div className="mt-2 border-t border-gray-700 pt-2">
+                                        <div className="font-bold mb-1">Transaction Hex:</div>
+                                        <div className="break-all">{signedSpellTx?.hex || 'Not available'}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {!signedCommitTx && !isLoading && transactionResult && (
+                    <div className="space-y-4">
+                        <div>
+                            <h5 className="font-medium text-gray-900 mb-2">Unsigned Commit Transaction</h5>
+                            <div className="bg-gray-800 text-amber-400 p-3 rounded-md overflow-x-auto text-xs font-mono h-48 overflow-y-auto">
+                                <div>TXID: {decodeTx(transactionResult.transactions.commit_tx)?.txid || 'Unknown'}</div>
+                                <div>Size: {decodeTx(transactionResult.transactions.commit_tx)?.size || 0} bytes</div>
+                                <div className="mt-2 border-t border-gray-700 pt-2">
+                                    <div className="font-bold mb-1">Transaction Hex:</div>
+                                    <div className="break-all">{transactionResult.transactions.commit_tx || 'Not available'}</div>
                                 </div>
                             </div>
                         </div>
 
                         <div>
-                            <h5 className="font-medium text-gray-900 mb-2">Signed Spell Transaction</h5>
-                            <div className="bg-gray-800 text-green-400 p-3 rounded-md overflow-x-auto text-xs font-mono h-48 overflow-y-auto">
-                                <div>TXID: {decodedSignedSpellTx?.txid || 'Unknown'}</div>
-                                <div>Inputs: {decodedSignedSpellTx?.inputs?.length || 0}</div>
-                                <div>Outputs: {decodedSignedSpellTx?.outputs?.length || 0}</div>
-                                <div>Size: {decodedSignedSpellTx?.size || 0} bytes</div>
-                                <div>Has Witness: {decodedSignedSpellTx?.hasWitness ? 'Yes' : 'No'}</div>
+                            <h5 className="font-medium text-gray-900 mb-2">Unsigned Spell Transaction</h5>
+                            <div className="bg-gray-800 text-amber-400 p-3 rounded-md overflow-x-auto text-xs font-mono h-48 overflow-y-auto">
+                                <div>TXID: {decodeTx(transactionResult.transactions.spell_tx)?.txid || 'Unknown'}</div>
+                                <div>Size: {decodeTx(transactionResult.transactions.spell_tx)?.size || 0} bytes</div>
                                 <div className="mt-2 border-t border-gray-700 pt-2">
                                     <div className="font-bold mb-1">Transaction Hex:</div>
-                                    <div className="break-all">{signedSpellTx?.hex || 'Not available'}</div>
+                                    <div className="break-all">{transactionResult.transactions.spell_tx || 'Not available'}</div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                )}
 
-                {!signedCommitTx && !isLoading && transactionResult && (
-                    <div className="text-center py-8">
-                        <p className="text-gray-500">Transactions ready to sign.</p>
-                        <p className="text-gray-400 text-sm mt-2">
-                            Click the "Sign Transactions" button to sign the transactions with your wallet.
-                        </p>
+                        <div className="text-center py-4">
+                            <p className="text-gray-500">Transactions ready to sign.</p>
+                            <p className="text-gray-400 text-sm mt-2">
+                                Click the "Sign Transactions" button to sign the transactions with your wallet.
+                            </p>
+                        </div>
                     </div>
                 )}
 
