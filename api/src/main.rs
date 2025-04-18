@@ -40,7 +40,7 @@ async fn main() {
         .route("/health", get(handlers::health_check))
         .route(
             "/bitcoin-cli/wallet/broadcast",
-            post(handlers::sendrawtransactionbroadcast),
+            post(handlers::submitpackagebroadcast),
         )
         .route(
             "/bitcoin-cli/wallet/broadcast_btc_tx",

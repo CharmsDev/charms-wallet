@@ -31,7 +31,6 @@ export class UTXOService {
             await this.storage.storeUTXOs(utxoMap);
             return utxoMap;
         } catch (error) {
-            console.error('Failed to fetch and store UTXOs:', error);
             return {};
         }
     }

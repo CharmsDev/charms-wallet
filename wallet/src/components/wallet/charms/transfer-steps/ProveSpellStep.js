@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { decodeTx } from '@/lib/bitcoin/txDecoder';
 import { transferCharmService } from '@/services/charms/transfer';
 import { useUTXOs } from '@/stores/utxoStore';
 
@@ -15,7 +14,8 @@ export default function ProveSpellStep({
     setSpellTxHex,
     setTransactionResult,
     commitTxHex,
-    spellTxHex
+    spellTxHex,
+    handleNext
 }) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -80,6 +80,13 @@ export default function ProveSpellStep({
 
             addLogMessage('Transactions created successfully!');
 
+            // Automatically proceed to the next step
+            if (handleNext) {
+                setTimeout(() => {
+                    handleNext();
+                }, 500); // Small delay to ensure state updates are processed
+            }
+
             return result;
         } catch (error) {
             setError(error.message);
@@ -96,14 +103,12 @@ export default function ProveSpellStep({
         }
     };
 
-    // Decode transaction for display
-    const decodedCommitTx = commitTxHex ? decodeTx(commitTxHex) : null;
-    const decodedSpellTx = spellTxHex ? decodeTx(spellTxHex) : null;
-
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
-                <h4 className="font-medium text-gray-900">Prove Spell</h4>
+                <div>
+                    <h4 className="font-medium text-gray-900">Prove Spell</h4>
+                </div>
                 <button
                     onClick={createTransferTransactions}
                     disabled={isLoading || !finalSpell || commitTxHex}
@@ -156,30 +161,7 @@ export default function ProveSpellStep({
                     )}
                 </div>
 
-                {/* Transaction details */}
-                {commitTxHex && spellTxHex && (
-                    <div className="space-y-4">
-                        <div>
-                            <h5 className="font-medium text-gray-900 mb-2">Commit Transaction</h5>
-                            <div className="bg-gray-800 text-green-400 p-3 rounded-md overflow-x-auto text-xs font-mono h-32 overflow-y-auto">
-                                <div>TXID: {decodedCommitTx?.txid || 'Unknown'}</div>
-                                <div>Inputs: {decodedCommitTx?.inputs?.length || 0}</div>
-                                <div>Outputs: {decodedCommitTx?.outputs?.length || 0}</div>
-                                <div>Size: {decodedCommitTx?.size || 0} bytes</div>
-                            </div>
-                        </div>
-
-                        <div>
-                            <h5 className="font-medium text-gray-900 mb-2">Spell Transaction</h5>
-                            <div className="bg-gray-800 text-green-400 p-3 rounded-md overflow-x-auto text-xs font-mono h-32 overflow-y-auto">
-                                <div>TXID: {decodedSpellTx?.txid || 'Unknown'}</div>
-                                <div>Inputs: {decodedSpellTx?.inputs?.length || 0}</div>
-                                <div>Outputs: {decodedSpellTx?.outputs?.length || 0}</div>
-                                <div>Size: {decodedSpellTx?.size || 0} bytes</div>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                {/* Transaction details section removed - automatically proceeding to next step */}
 
                 {!commitTxHex && !isLoading && (
                     <div className="text-center py-8">

@@ -64,7 +64,6 @@ export async function generateTaprootAddress(seedPhrase, index, isChange = false
             // For testnet
             derivationPath = "m/86'/0'/0'";
         }
-        console.log(`Using derivation path: ${derivationPath} for network: ${BITCOIN_NETWORK}`);
         const accountNode = masterNode.derivePath(derivationPath);
 
         // Derive the chain node (0 for receiving addresses, 1 for change addresses)
@@ -86,12 +85,8 @@ export async function generateTaprootAddress(seedPhrase, index, isChange = false
             // This ensures compatibility with the tr() descriptor in Bitcoin Core
         });
 
-        // Log the address for debugging
-        console.log(`Generated Taproot address at index ${index} (isChange: ${isChange}): ${address}`);
-
         return address;
     } catch (error) {
-        console.error("Error generating Taproot address:", error);
         throw error;
     }
 }
@@ -120,7 +115,6 @@ export async function derivePrivateKey(seedPhrase, index, isChange = false) {
             // For testnet
             derivationPath = "m/86'/0'/0'";
         }
-        console.log(`Using derivation path for private key: ${derivationPath} for network: ${BITCOIN_NETWORK}`);
         const accountNode = masterNode.derivePath(derivationPath);
 
         // Derive the chain node (0 for receiving addresses, 1 for change addresses)
@@ -134,7 +128,6 @@ export async function derivePrivateKey(seedPhrase, index, isChange = false) {
 
         return privateKey;
     } catch (error) {
-        console.error("Error deriving private key:", error);
         throw error;
     }
 }
@@ -168,9 +161,6 @@ export async function importPrivateKey(privateKey) {
             // This ensures compatibility with the tr() descriptor in Bitcoin Core
         });
 
-        // Log the address for debugging
-        console.log(`Generated Taproot address from imported private key: ${address}`);
-
         return {
             address,
             privateKey,
@@ -179,7 +169,6 @@ export async function importPrivateKey(privateKey) {
             created: new Date().toISOString()
         };
     } catch (error) {
-        console.error("Error importing private key:", error);
         throw error;
     }
 }
@@ -190,7 +179,6 @@ export async function copyToClipboard(text) {
         await navigator.clipboard.writeText(text);
         return true;
     } catch (err) {
-        console.error("Failed to copy text: ", err);
         return false;
     }
 }
@@ -246,7 +234,6 @@ export async function deriveXpub(seedPhrase) {
             // For testnet
             derivationPath = "m/86'/0'/0'";
         }
-        console.log(`Using derivation path for xpub: ${derivationPath} for network: ${BITCOIN_NETWORK}`);
         const accountNode = masterNode.derivePath(derivationPath);
 
         // Get the extended public key (xpub)
@@ -254,7 +241,6 @@ export async function deriveXpub(seedPhrase) {
 
         return xpub;
     } catch (error) {
-        console.error("Error deriving xpub:", error);
         throw error;
     }
 }

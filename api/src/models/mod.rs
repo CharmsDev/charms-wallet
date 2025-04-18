@@ -40,6 +40,7 @@ pub struct BroadcastTxResponse {
     pub txid: String,
     pub command: String,
     pub node_response: Option<String>,
+    pub txids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

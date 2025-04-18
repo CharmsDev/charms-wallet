@@ -52,7 +52,6 @@ export function verifyTxSignature(txHex) {
 
         return allSigned;
     } catch (error) {
-        console.error('Error verifying transaction:', error);
         return false;
     }
 }
@@ -108,7 +107,6 @@ export function decodeTx(txHex) {
 
         return result;
     } catch (error) {
-        console.error('Error decoding transaction:', error);
         throw error;
     }
 }

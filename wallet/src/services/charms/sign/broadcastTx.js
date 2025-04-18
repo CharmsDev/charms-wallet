@@ -1,10 +1,4 @@
-/**
- * Broadcast Bitcoin transactions
- * @param {Object} signedCommitTx - The signed commit transaction object with hex property
- * @param {Object} signedSpellTx - The signed spell transaction object with hex property
- * @param {Function} logCallback - Optional callback for logging messages
- * @returns {Promise<Object>} The broadcast result
- */
+// Broadcasts Bitcoin transactions
 export async function broadcastTransactions(signedCommitTx, signedSpellTx, logCallback = () => { }) {
     try {
         if (!signedCommitTx || !signedSpellTx) {
@@ -14,19 +8,20 @@ export async function broadcastTransactions(signedCommitTx, signedSpellTx, logCa
         logCallback('Starting transaction broadcast process...');
         logCallback('Broadcasting both transactions together...');
 
-        // API endpoint for broadcasting transactions
+        // API endpoint for broadcasting
         const apiUrl = process.env.NEXT_PUBLIC_WALLET_API_URL || 'http://localhost:3355';
 
-        // Make the API request with both transactions
-        const response = await fetch(`${apiUrl}/wallet/broadcast`, {
+        // Make API request with both transactions
+        const response = await fetch(`${apiUrl}/bitcoin-cli/wallet/broadcast`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                transactions: [
-                    { tx_hex: signedCommitTx.hex },
-                    { tx_hex: signedSpellTx.hex }
+                tx_hex: signedCommitTx.signedTxHex || signedCommitTx.hex,
+                tx_package: [
+                    signedCommitTx.signedTxHex || signedCommitTx.hex,
+                    signedSpellTx.hex
                 ]
             }),
         });
@@ -39,15 +34,40 @@ export async function broadcastTransactions(signedCommitTx, signedSpellTx, logCa
         const result = await response.json();
 
         logCallback(`Transactions broadcast successful!`);
-        if (result.txids && result.txids.length >= 2) {
-            logCallback(`Commit TXID: ${result.txids[0]}`);
-            logCallback(`Spell TXID: ${result.txids[1]}`);
-        }
+        logCallback(`Transaction ID: ${result.txid}`);
 
-        return result;
+        // Extract transaction IDs from response
+        // API returns a single txid (first transaction's ID)
+        let commitTxid = result.txid;
+        let spellTxid = result.txid;
+
+        // Use same txid for both transactions
+        // Production would require blockchain query for actual txids
+
+        // Log detailed information
+        logCallback(`API Response: ${JSON.stringify(result, null, 2)}`);
+
+        // Create structured response
+        const broadcastResult = {
+            commitData: {
+                txid: commitTxid,
+                command: result.command,
+                response: result.node_response
+            },
+            spellData: {
+                txid: spellTxid,
+                command: result.command,
+                response: result.node_response
+            }
+        };
+
+        // Log transaction IDs
+        logCallback(`Commit TXID: ${commitTxid}`);
+        logCallback(`Spell TXID: ${spellTxid}`);
+
+        return broadcastResult;
     } catch (err) {
         logCallback(`Broadcast error: ${err.message}`);
-        console.error('Broadcast error:', err);
         throw new Error(`Broadcast error: ${err.message}`);
     }
 }

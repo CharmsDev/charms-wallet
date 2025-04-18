@@ -19,7 +19,7 @@ const bip32 = BIP32Factory(ecc);
 // Signs a Bitcoin Taproot (P2TR) transaction with derived keys
 export async function signCommitTransaction(unsignedTxHex, logCallback) {
 
-    // SECTION 1: Initialize transaction
+    // Initialize transaction
     if (!unsignedTxHex) {
         throw new Error('Commit transaction hex is required');
     }
@@ -28,10 +28,10 @@ export async function signCommitTransaction(unsignedTxHex, logCallback) {
     const txDetails = parseUnsignedTx(unsignedTxHex);
 
     // Set up logging function
-    const log = message => logCallback ? logCallback(message) : console.log(message);
+    const log = message => logCallback ? logCallback(message) : null;
 
     try {
-        // SECTION 2: Identify UTXO address
+        // Identify UTXO address
         const { utxoTxId: inputTxid, utxoVout: inputVout, utxoSequence } = txDetails;
 
         // Find address for the input UTXO
@@ -39,7 +39,7 @@ export async function signCommitTransaction(unsignedTxHex, logCallback) {
         if (!addressInfo)
             throw new Error(`Could not find address for UTXO: ${inputTxid}:${inputVout}`);
 
-        // SECTION 3: Derive private key
+        // Derive private key
         const path = getDerivationPath(addressInfo);
 
         // Get seed phrase from secure storage
@@ -62,7 +62,7 @@ export async function signCommitTransaction(unsignedTxHex, logCallback) {
         if (!verifyPrivateKeyForAddress(privateKey, addressInfo.address, ECPair))
             throw new Error(`Private key does not correspond to address: ${addressInfo.address}`);
 
-        // SECTION 4: Apply Taproot tweaking
+        // Apply Taproot tweaking
         // Extract X-only public key
         const internalPubkey = toXOnly(child.publicKey);
 
@@ -82,14 +82,14 @@ export async function signCommitTransaction(unsignedTxHex, logCallback) {
         if (!tweakedPrivateKey)
             throw new Error('Tweak resulted in invalid private key');
 
-        // SECTION 5: Create P2TR payment object
+        // Create P2TR payment object
         // Initialize P2TR with internal pubkey
         const p2tr = bitcoin.payments.p2tr({
             internalPubkey,
             network: bitcoin.networks.testnet
         });
 
-        // SECTION 6: Get UTXO value
+        // Get UTXO value
         const matchingUtxos = await utxoService.findUtxosByTxid(inputTxid);
         const matchingUtxo = matchingUtxos.find(utxo => utxo.vout === inputVout);
 
@@ -98,14 +98,14 @@ export async function signCommitTransaction(unsignedTxHex, logCallback) {
 
         const utxoValue = matchingUtxo.value;
 
-        // SECTION 7: Prepare transaction
+        // Prepare transaction
         // Parse transaction from hex
         const tx = bitcoin.Transaction.fromHex(unsignedTxHex);
 
         // Set version 2 for Taproot compatibility
         tx.version = 2;
 
-        // SECTION 8: Generate signature hash
+        // Generate signature hash
         // Compute Taproot sighash for input
         const sighash = tx.hashForWitnessV1(
             0,                  // Input index
@@ -114,7 +114,7 @@ export async function signCommitTransaction(unsignedTxHex, logCallback) {
             bitcoin.Transaction.SIGHASH_DEFAULT  // Sighash type (0)
         );
 
-        // SECTION 9: Create signature
+        // Create signature
         // Sign with Schnorr signature scheme
         const sig = ecc.signSchnorr(sighash, tweakedPrivateKey);
         const signature = Buffer.from(sig);
@@ -122,7 +122,7 @@ export async function signCommitTransaction(unsignedTxHex, logCallback) {
         // Attach signature as witness data
         tx.ins[0].witness = [signature];
 
-        // SECTION 10: Log transaction details
+        // Log transaction details
         log('Transaction signed successfully:');
         log(`- TXID: ${tx.getId()}`);
         log(`- Input: ${inputTxid}:${inputVout}`);
@@ -135,9 +135,8 @@ export async function signCommitTransaction(unsignedTxHex, logCallback) {
             signedTxHex: tx.toHex()
         };
     } catch (error) {
-        // SECTION 11: Handle errors
+        // Handle errors
         // Log and propagate error
-        console.error('Signing error:', error);
         throw error;
     }
 }

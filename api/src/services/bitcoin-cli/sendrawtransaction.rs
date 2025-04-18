@@ -39,5 +39,6 @@ pub fn send_raw_transaction(request: &BroadcastTxRequest) -> Result<BroadcastTxR
         txid,
         command,
         node_response: Some(response_str),
+        txids: None,
     })
 }

@@ -58,5 +58,6 @@ pub fn sign_and_broadcast_transaction(request: &SendHexTxRequest) -> Result<Broa
         txid,
         command: format!("{} && {}", sign_command, broadcast_command),
         node_response: Some(response_str),
+        txids: None,
     })
 }

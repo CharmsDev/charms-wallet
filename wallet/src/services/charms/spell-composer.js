@@ -31,13 +31,7 @@ class CharmsSpellService {
         // Create the app key with $ prefix
         const appKey = `$${charm.id}`;
 
-        // Log composition details for debugging
-        console.log('Composing NFT spell with:', {
-            charm,
-            destinationAddress,
-            appParts: { type, appId, appVk },
-            appKey
-        });
+        // Prepare NFT spell composition
 
         // Validate required data
         if (!type || !appId || !appVk) {
@@ -55,12 +49,7 @@ class CharmsSpellService {
             throw new Error('Destination address is required');
         }
 
-        console.log('Composing NFT spell with values:', {
-            charm_address: charm.address,
-            target_address: targetAddress,
-            transfer_amount: charm.amount.remaining,
-            appKey
-        });
+        // Validate and prepare values
 
         // Validate bitcoin addresses
         if (!destinationAddress.match(/^(bc|tb)1[a-zA-HJ-NP-Z0-9]{8,87}$/)) {
@@ -111,7 +100,6 @@ class CharmsSpellService {
             ]
         }, null, 2);
 
-        console.log('Generated NFT spell:', spell);
         return spell;
     }
 
@@ -133,16 +121,7 @@ class CharmsSpellService {
         const totalAmount = charm.amount.remaining;
         const remainingAmount = totalAmount - transferAmount;
 
-        // Log composition details for debugging
-        console.log('Composing token spell with:', {
-            charm,
-            transferAmount,
-            destinationAddress,
-            totalAmount,
-            remainingAmount,
-            appParts: { type, appId, appVk },
-            appKey
-        });
+        // Prepare token spell composition
 
         // Validate required data
         if (!type || !appId || !appVk) {
@@ -167,13 +146,7 @@ class CharmsSpellService {
             }
         }
 
-        console.log('Composing token spell with values:', {
-            charm_address: charm.address,
-            target_address: targetAddress,
-            transfer_amount: safeTransferAmount,
-            remaining_amount: safeRemainingAmount,
-            appKey
-        });
+        // Validate and prepare values
 
         // Validate bitcoin addresses
         if (transferAmount > 0 && !destinationAddress.match(/^(bc|tb)1[a-zA-HJ-NP-Z0-9]{8,87}$/)) {
@@ -234,7 +207,6 @@ class CharmsSpellService {
             ]
         }, null, 2);
 
-        console.log('Generated token spell:', spell);
         return spell;
     }
 }

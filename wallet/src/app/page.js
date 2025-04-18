@@ -43,7 +43,7 @@ export default function Home() {
             derivationLoading: false
           });
         } catch (error) {
-          console.error('Error deriving wallet info:', error);
+          // Error deriving wallet info
           setWalletInfo(prev => ({ ...prev, derivationLoading: false }));
         }
       }
@@ -57,7 +57,7 @@ export default function Home() {
       await createWallet();
       setCreateSuccess(true);
     } catch (err) {
-      console.error('Error creating wallet:', err);
+      // Error creating wallet
     }
   };
 
@@ -66,7 +66,7 @@ export default function Home() {
       await importWallet(inputSeedPhrase);
       setCreateSuccess(true); // Show success message
     } catch (err) {
-      console.error('Error importing wallet:', err);
+      // Error importing wallet
     }
   };
 

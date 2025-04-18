@@ -8,10 +8,8 @@ export async function createUnsignedTransaction(transactionData) {
         // Select network based on address format
         let network;
         if (transactionData.destinationAddress.startsWith('bcrt')) {
-            console.log('Using regtest network for transaction');
             network = bitcoin.networks.regtest;
         } else {
-            console.log('Using testnet network for transaction');
             network = bitcoin.networks.testnet;
         }
 
@@ -38,11 +36,8 @@ export async function createUnsignedTransaction(transactionData) {
 
         // Set fee rate with minimum relay fee consideration
         const feeRate = transactionData.feeRate || 5;
-        console.log(`Using fee rate: ${feeRate} sat/byte`);
-
         // Calculate fee based on input script types
         const estimatedFee = utxoService.calculateMixedFee(transactionData.utxos, 2, feeRate);
-        console.log(`Estimated fee: ${estimatedFee} satoshis`);
 
         const changeAmount = totalInputValue - amountInSatoshis - estimatedFee;
 
@@ -58,10 +53,8 @@ export async function createUnsignedTransaction(transactionData) {
             // Select network for change output
             let changeNetwork;
             if (changeAddress.startsWith('bcrt')) {
-                console.log(`Using regtest network for change address: ${changeAddress}`);
                 changeNetwork = bitcoin.networks.regtest;
             } else {
-                console.log(`Using testnet network for change address: ${changeAddress}`);
                 changeNetwork = bitcoin.networks.testnet;
             }
             const changeScript = bitcoin.address.toOutputScript(changeAddress, changeNetwork);
@@ -70,7 +63,6 @@ export async function createUnsignedTransaction(transactionData) {
 
         return tx.toHex();
     } catch (error) {
-        console.error('Error creating unsigned transaction:', error);
         throw error;
     }
 }

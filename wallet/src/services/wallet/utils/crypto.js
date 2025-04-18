@@ -30,33 +30,25 @@ export const determineInputType = (scriptPubKey, address) => {
     // This is more reliable as the address might not match the actual script type
 
     if (scriptPubKey.startsWith('5120')) {
-        console.log(`ScriptPubKey ${scriptPubKey} is Taproot, using p2tr`);
         return 'p2tr';
     } else if (scriptPubKey.startsWith('76a9') && scriptPubKey.endsWith('88ac')) {
-        console.log(`ScriptPubKey ${scriptPubKey} is P2PKH, using p2pkh`);
         return 'p2pkh';
     } else if (scriptPubKey.startsWith('a914') && scriptPubKey.endsWith('87')) {
-        console.log(`ScriptPubKey ${scriptPubKey} is P2SH, using p2sh`);
         return 'p2sh';
     } else if (scriptPubKey.startsWith('0014')) {
-        console.log(`ScriptPubKey ${scriptPubKey} is P2WPKH, using p2wpkh`);
         return 'p2wpkh';
     } else if (scriptPubKey.startsWith('0020')) {
-        console.log(`ScriptPubKey ${scriptPubKey} is P2WSH, using p2wsh`);
         return 'p2wsh';
     }
 
     // If scriptPubKey doesn't match any known pattern, check address prefix as fallback
     if (address && (address.startsWith('bc1p') || address.startsWith('tb1p'))) {
-        console.log(`Address ${address} is a Taproot address, using p2tr`);
         return 'p2tr';
     } else if (address && (address.startsWith('bc1') || address.startsWith('tb1'))) {
-        console.log(`Address ${address} is a SegWit address, using p2wpkh`);
         return 'p2wpkh';
     }
 
     // Default to p2pkh for unknown scripts
-    console.log(`Unknown scriptPubKey ${scriptPubKey}, defaulting to p2pkh`);
     return 'p2pkh';
 };
 

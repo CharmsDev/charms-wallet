@@ -8,20 +8,12 @@ export class UTXOApiService {
         try {
             let response;
 
-            // Environment logging
-            console.log('Environment check:');
-            console.log('- Bitcoin network:', config.bitcoin.network);
-            console.log('- Is regtest mode:', config.bitcoin.isRegtest());
-            console.log('- Wallet API base:', config.api.wallet);
-
             // Select API based on network type
             if (config.bitcoin.isRegtest()) {
                 const apiUrl = `${config.api.wallet}/bitcoin-node/utxos/${address}`;
-                console.log(`Using wallet API for regtest: ${apiUrl}`);
                 response = await fetch(apiUrl);
             } else {
                 const mempoolApiUrl = config.bitcoin.getMempoolApiUrl();
-                console.log(`Using mempool API for testnet: ${mempoolApiUrl}/address/${address}/utxo`);
                 response = await fetch(`${mempoolApiUrl}/address/${address}/utxo`);
             }
 
@@ -30,7 +22,6 @@ export class UTXOApiService {
             }
             return await response.json();
         } catch (error) {
-            console.error(`Failed to fetch UTXOs for address ${address}:`, error);
             return [];
         }
     }

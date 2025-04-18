@@ -18,7 +18,7 @@ class BroadcastService {
             apiUrl = `${mempoolApiUrl}/tx`;
             requestBody = txHex; // Just the raw hex for mempool.space
 
-            console.log(`Broadcasting transaction to: ${apiUrl}`);
+            // Broadcasting transaction
 
             const response = await fetch(apiUrl, {
                 method: 'POST',
@@ -45,14 +45,13 @@ class BroadcastService {
             // Format the result consistently
             const txid = typeof result === 'string' ? result : result.txid;
 
-            console.log('Transaction broadcast successfully:', txid);
+            // Transaction broadcast successfully
 
             return {
                 txid,
                 success: true
             };
         } catch (error) {
-            console.error('Error broadcasting transaction:', error);
             throw error;
         }
     }
@@ -71,7 +70,7 @@ class BroadcastService {
             const mempoolApiUrl = config.bitcoin.getMempoolApiUrl();
             apiUrl = `${mempoolApiUrl}/tx/${txid}`;
 
-            console.log(`Getting transaction status from: ${apiUrl}`);
+            // Getting transaction status
 
             const response = await fetch(apiUrl);
 
@@ -101,7 +100,6 @@ class BroadcastService {
                 raw: result // Include the raw result for advanced use cases
             };
         } catch (error) {
-            console.error('Error getting transaction status:', error);
             throw error;
         }
     }

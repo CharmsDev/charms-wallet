@@ -1,5 +1,72 @@
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
 
+// Formats spell object with correct key order for expected format
+
+function formatSpellWithCorrectKeyOrder(spell) {
+    // Ensure spell has required properties
+    const version = spell.version || 2;
+    const apps = spell.apps || {};
+    const ins = spell.ins || [];
+    const outs = spell.outs || [];
+
+    // Format inputs with correct key order
+    const formattedIns = ins.map(input => {
+        const utxo_id = input.utxo_id || '';
+        const charms = input.charms || {};
+
+        // Format charms with correct key order
+        const formattedCharms = {};
+        Object.keys(charms).forEach(charmKey => {
+            const charm = charms[charmKey];
+            formattedCharms[charmKey] = {
+                "ticker": charm.ticker || '',
+                "remaining": charm.remaining || 0
+            };
+        });
+
+        // Return input with correct key order
+        return {
+            "utxo_id": utxo_id,
+            "charms": formattedCharms
+        };
+    });
+
+    // Format outputs with correct key order
+    const formattedOuts = outs.map(output => {
+        const address = output.address || '';
+        const charms = output.charms || {};
+        const sats = output.sats || 0;
+
+        // Format charms with correct key order
+        const formattedCharms = {};
+        Object.keys(charms).forEach(charmKey => {
+            const charm = charms[charmKey];
+            formattedCharms[charmKey] = {
+                "ticker": charm.ticker || '',
+                "remaining": charm.remaining || 0
+            };
+        });
+
+        // Return output with correct key order
+        return {
+            "address": address,
+            "charms": formattedCharms,
+            "sats": sats
+        };
+    });
+
+    // Create formatted spell object
+    const formattedSpell = {
+        "version": version,
+        "apps": apps,
+        "ins": formattedIns,
+        "outs": formattedOuts
+    };
+
+    // Return formatted spell as JSON string
+    return JSON.stringify(formattedSpell);
+}
+
 // Create transfer charm transactions
 export async function createTransferCharmTxs(
     destinationAddress,
@@ -15,9 +82,9 @@ export async function createTransferCharmTxs(
         throw new Error("Invalid spell JSON format");
     }
 
-    // Get the wallet API base URL
+    // Get wallet API base URL
     const walletApiUrl = process.env.NEXT_PUBLIC_WALLET_API_URL || 'http://localhost:3355';
-    const proveApiUrl = process.env.NEXT_PUBLIC_PROVE_API_URL || 'https://prove-t4.charms.dev';
+    const proverApiUrl = process.env.NEXT_PUBLIC_PROVE_API_URL;
 
     // Find the input that contains a charm (RJJ-TODO support multiple charms)
     let txid = null;
@@ -29,7 +96,7 @@ export async function createTransferCharmTxs(
                 if (input.utxo_id) {
                     txid = input.utxo_id.split(':')[0];
                     charmInputFound = true;
-                    console.log(`Found charm input with txid: ${txid}`);
+                    // Found charm input with txid
                     break;
                 }
             }
@@ -39,12 +106,12 @@ export async function createTransferCharmTxs(
         throw new Error("No charm input found in the spell. A charm input is required for transfer.");
     }
 
-    // Call wallet API to get the raw transaction
+    // Call wallet API for raw transaction
     const rawTxUrl = `${walletApiUrl}/bitcoin-cli/transaction/raw/${txid}`;
 
     let prev_txs = [];
     try {
-        console.log(`Fetching raw transaction for txid: ${txid}`);
+        // Fetching raw transaction
         const rawTxResponse = await fetch(rawTxUrl);
 
         if (!rawTxResponse.ok) {
@@ -56,7 +123,7 @@ export async function createTransferCharmTxs(
         if (rawTxData.status === 'success' && rawTxData.transaction) {
             // Use transaction in current format
             prev_txs = [rawTxData.transaction.hex];
-            console.log(`Retrieved raw transaction`, prev_txs);
+            // Retrieved raw transaction
         } else {
             throw new Error(`Invalid response format from raw transaction API`);
         }
@@ -64,7 +131,7 @@ export async function createTransferCharmTxs(
         throw new Error(`Failed to fetch previous transactions: ${error.message}`);
     }
 
-    // Ensure the spell has the required fields
+    // Ensure spell has required fields
     if (!parsedSpell.ins) {
         parsedSpell.ins = [];
     }
@@ -78,77 +145,71 @@ export async function createTransferCharmTxs(
     let error = null;
 
     try {
-        // Encode the spell object in CBOR format
-        //const encodedSpell = cbor.encode(parsedSpell);
-
-        // Create request body for wallet API
-        const requestBody = {
+        // Create request body with exact key order as in prover.js
+        const requestData = {
             spell: parsedSpell,
             binaries: {},
             prev_txs: prev_txs,
             funding_utxo: fundingUtxoId,
             funding_utxo_value: fundingUtxoAmount,
             change_address: destinationAddress,
-            fee_rate: 2.0
+            fee_rate: 2
         };
 
-        // Log the request body for debugging
-        console.log('=== API CALL START ===');
-        console.log('Request URL:', `${proveApiUrl}/spell/prove`);
-        console.log('Request payload:', JSON.stringify(requestBody, null, 2));
-        console.log('=== PAYLOAD END ===');
+        // Format spell object with exact key order
+        const formattedSpell = formatSpellWithCorrectKeyOrder(requestData.spell);
 
-        // Send the request to our wallet API
-        console.log('Sending request to wallet API. This may take up to 10 minutes...');
+        // Format payload string with exact key order
+        const payloadString = `{"spell":${formattedSpell},"binaries":${JSON.stringify(requestData.binaries)},"prev_txs":${JSON.stringify(requestData.prev_txs)},"funding_utxo":"${requestData.funding_utxo}","funding_utxo_value":${requestData.funding_utxo_value},"change_address":"${requestData.change_address}","fee_rate":${requestData.fee_rate}}`;
+
+
+        // Send request to wallet API
         const startTime = new Date();
 
         // Execute API call
-        response = await fetch(`${proveApiUrl}/spell/prove`, {
+        response = await fetch(`${proverApiUrl}/spells/prove`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             },
-            body: JSON.stringify(requestBody)
+            body: payloadString
         });
 
         const endTime = new Date();
         const timeElapsed = (endTime - startTime) / 1000; // in seconds
 
-        console.log('=== API RESPONSE START ===');
-        console.log('Response received after', timeElapsed, 'seconds');
-        console.log('Response status:', response.status);
-        console.log('Response status text:', response.statusText);
+        // API response received
     } catch (e) {
         error = e.message;
     }
 
-    // Check if we have a successful response
+    // Check for successful response
     if (!response) {
         throw new Error(error || "No response received from the server");
     }
 
-    // Get the response data
+    // Get response data
     let responseText;
     try {
         responseText = await response.text();
-        console.log('Response text length:', responseText.length);
-        console.log('Response text:', responseText);
+        // Response text received
     } catch (e) {
-        console.error('Failed to read response:', e);
+        // Failed to read response
         throw new Error(`Failed to read response: ${e.message}`);
     }
 
-    // Parse the response as JSON
+    // Parse response as JSON
     let result;
     let commit_tx;
     let spell_tx;
 
     try {
-        // Parse the response as a JSON array with two hex strings
+        // Parse response as JSON array with two hex strings
         result = JSON.parse(responseText);
-        console.log('Response parsed as JSON');
+        // Response parsed as JSON
 
-        // Response is an array with two transactions [commit_tx, spell_tx]
+        // Response is array with two transactions
         if (Array.isArray(result) && result.length === 2) {
             commit_tx = result[0];
             spell_tx = result[1];
@@ -156,10 +217,9 @@ export async function createTransferCharmTxs(
             throw new Error("Invalid response format: expected array with two transactions");
         }
 
-        console.log('Commit TX:', commit_tx);
-        console.log('Spell TX:', spell_tx);
+        // Transactions received
     } catch (e) {
-        console.error('Failed to parse response as JSON:', e);
+        // Failed to parse response
         throw new Error(`Invalid JSON response: ${e.message}`);
     }
 

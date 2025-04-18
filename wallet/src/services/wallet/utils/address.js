@@ -37,7 +37,6 @@ export async function findAddressForUTXO(txid, vout) {
 
         return null;
     } catch (error) {
-        console.error('Error finding address for UTXO:', error);
         return null;
     }
 }

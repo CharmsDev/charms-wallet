@@ -102,7 +102,6 @@ export async function findAddressForUTXO(txid, vout) {
 
         return null;
     } catch (error) {
-        console.error('Error finding address for UTXO:', error);
         return null;
     }
 }
@@ -144,13 +143,10 @@ export function verifyPrivateKeyForAddress(privateKey, address, ECPair) {
         // Generate address from payment
         const derivedAddress = p2tr.address;
 
-        console.log('Derived address from private key:', derivedAddress);
-        console.log('Expected address:', address);
 
         // Compare addresses
         return derivedAddress === address;
     } catch (error) {
-        console.error('Error verifying private key:', error);
         return false;
     }
 }

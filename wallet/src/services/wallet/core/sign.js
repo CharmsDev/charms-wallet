@@ -5,12 +5,12 @@ import { BIP32Factory } from 'bip32';
 import { ECPairFactory } from 'ecpair';
 import { getAddresses, getSeedPhrase } from '@/services/storage';
 import { utxoService } from '@/services/utxo';
-import { findAddressForUTXO } from '@/services/repository/txUtils';
-import { getDerivationPath } from '@/services/repository/txUtils';
-import { toXOnly } from '@/services/repository/txUtils';
+import { findAddressForUTXO } from '@/services/charms/sign/txUtils';
+import { getDerivationPath } from '@/services/charms/sign/txUtils';
+import { toXOnly } from '@/services/charms/sign/txUtils';
 import { createUnsignedTransaction } from './transaction';
 
-// Determine input type based on scriptPubKey format
+// Determine input type from scriptPubKey format
 function determineInputType(scriptPubKey, address) {
     // Identify script type from prefix
     if (scriptPubKey.startsWith('5120')) {
@@ -28,20 +28,20 @@ function determineInputType(scriptPubKey, address) {
 const bip32 = BIP32Factory(ecc);
 const ECPair = ECPairFactory(ecc);
 
-// Sign Bitcoin transaction with appropriate signature algorithm
+// Sign Bitcoin transaction with appropriate algorithm
 export async function signTransaction(input, logCallback) {
     // Configure logging function
-    const log = message => logCallback ? logCallback(message) : console.log(message);
+    const log = message => logCallback ? logCallback(message) : null;
 
     try {
-        // Check input format (object or hex string)
+        // Check input format
         const isTransactionData = typeof input === 'object' && input !== null;
 
         let unsignedTxHex;
         let transactionData;
 
         if (isTransactionData) {
-            // Process transaction data object
+            // Process transaction data
             transactionData = input;
             log('Transaction data:', JSON.stringify(transactionData, null, 2));
 
@@ -50,7 +50,7 @@ export async function signTransaction(input, logCallback) {
                 throw new Error('No UTXOs provided for transaction');
             }
 
-            // Generate unsigned transaction
+            // Create unsigned transaction
             unsignedTxHex = await createUnsignedTransaction(transactionData);
             log('Created unsigned transaction:', unsignedTxHex.substring(0, 50) + '...');
         } else {
@@ -61,10 +61,10 @@ export async function signTransaction(input, logCallback) {
         // Parse transaction from hex
         const tx = bitcoin.Transaction.fromHex(unsignedTxHex);
 
-        // Set version 2 for Taproot compatibility
+        // Set version 2 for Taproot
         tx.version = 2;
 
-        // Retrieve seed phrase from storage
+        // Retrieve seed phrase
         const seedPhrase = await getSeedPhrase();
         if (!seedPhrase) {
             throw new Error('Seed phrase not found in storage');
@@ -89,7 +89,7 @@ export async function signTransaction(input, logCallback) {
 
         const root = bip32.fromSeed(seed, network);
 
-        // Sign each transaction input
+        // Sign each input
         for (let inputIndex = 0; inputIndex < tx.ins.length; inputIndex++) {
             const input = tx.ins[inputIndex];
             const inputTxid = Buffer.from(input.hash).reverse().toString('hex');
@@ -147,12 +147,12 @@ export async function signTransaction(input, logCallback) {
                 log(`Input type: ${inputType}`);
             }
 
-            // Apply appropriate signing algorithm
+            // Apply signing algorithm for input type
             if (inputType === 'p2tr') {
-                // Taproot signing with Schnorr
+                // Taproot signing (Schnorr)
                 const internalPubkey = toXOnly(child.publicKey);
 
-                // Initialize P2TR payment object
+                // Initialize P2TR payment
                 const p2tr = bitcoin.payments.p2tr({
                     internalPubkey,
                     network: network
@@ -192,7 +192,7 @@ export async function signTransaction(input, logCallback) {
 
                 log(`Signed input ${inputIndex} as Taproot`);
             } else if (inputType === 'p2pkh') {
-                // P2PKH signing with ECDSA
+                // P2PKH signing (ECDSA)
                 const keyPair = ECPair.fromPrivateKey(child.privateKey);
 
                 // Set signature hash type
@@ -241,10 +241,8 @@ export async function signTransaction(input, logCallback) {
 
         log(`Transaction signed. Size: ${txHex.length / 2} bytes, TXID: ${txid}`);
 
-        // Output transaction for testing
-        log(`\n\nFull transaction hex for testing:\n`);
-        log(`bitcoin-cli testmempoolaccept '["${txHex}"]'`);
-        log(`\n`);
+        // Testing command
+        log(`\nTest with: bitcoin-cli testmempoolaccept '["${txHex}"]'\n`);
 
         // Return appropriate response format
         if (isTransactionData) {

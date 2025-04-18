@@ -28,7 +28,6 @@ export async function deriveXpubFromSeedPhrase(seedPhrase, path = "m/86'/0'/0'")
         // Convert the Buffer to a hex string
         const masterFingerprint = Buffer.from(fingerprintBuffer).toString('hex');
 
-        console.log('Fingerprint as hex:', masterFingerprint);
 
         // Derive the account node
         const accountNode = masterNode.derivePath(path);
@@ -55,7 +54,6 @@ export async function deriveXpubFromSeedPhrase(seedPhrase, path = "m/86'/0'/0'")
             path: formattedPath
         };
     } catch (error) {
-        console.error("Error deriving xpub:", error);
         throw error;
     }
 }
@@ -95,7 +93,6 @@ export async function generateDescriptorImportCommand(seedPhrase, path = "m/86'/
             path: formattedPath
         };
     } catch (error) {
-        console.error("Error generating descriptor import command:", error);
         throw error;
     }
 }

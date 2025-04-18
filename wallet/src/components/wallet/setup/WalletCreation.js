@@ -26,7 +26,6 @@ export default function WalletCreation({ isLoading, onCreateWallet, onImportWall
         try {
             await onImportWallet(inputSeedPhrase);
         } catch (err) {
-            console.error('Error importing wallet:', err);
             setImportError(err.message || 'Failed to import wallet');
         }
     };

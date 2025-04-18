@@ -1,6 +1,26 @@
 import { useState } from 'react';
+import { proverService } from '@/services/charms/prover';
 
 export default function Header({ activeSection, setActiveSection }) {
+    const [isProving, setIsProving] = useState(false);
+
+    // RJJ-TMP 
+    const handleProveClick = async () => {
+        try {
+            setIsProving(true);
+            const result = await proverService.triggerProve();
+            if (result.status === "success") {
+                alert("Prove triggered successfully!");
+            } else {
+                alert(`Error: ${result.message}`);
+            }
+        } catch (error) {
+            alert(`Error: ${error.message || "Failed to trigger prove"}`);
+        } finally {
+            setIsProving(false);
+        }
+    };
+
     return (
         <>
             {/* Header section */}
@@ -17,13 +37,20 @@ export default function Header({ activeSection, setActiveSection }) {
                             <span className="ml-2 text-xl font-semibold text-gray-900"></span>
                         </div>
 
-                        {/* Network badge section */}
+                        {/* Network badge and Prove button section */}
                         <div className="flex items-center space-x-3">
                             <span
                                 className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800"
                             >
                                 Testnet4
                             </span>
+                            <button
+                                onClick={handleProveClick}
+                                disabled={isProving}
+                                className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white ${isProving ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                            >
+                                {isProving ? 'Proving...' : 'Prove Spell'}
+                            </button>
                         </div>
                     </div>
                 </div>

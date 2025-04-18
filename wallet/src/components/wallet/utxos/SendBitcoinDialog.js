@@ -10,8 +10,8 @@ import config from '@/config';
 import * as bitcoin from 'bitcoinjs-lib';
 
 export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onSend, formatSats }) {
-    const [destinationAddress, setDestinationAddress] = useState('tb1pjrtlv2pqe3yq07jrx09em956yl2taav5p47jtuveehmrlw9jy4qq4gf4c2');
-    const [amount, setAmount] = useState('0.000014'); // 5000 satoshis
+    const [destinationAddress, setDestinationAddress] = useState('');
+    const [amount, setAmount] = useState('');
     const [showConfirmation, setShowConfirmation] = useState(false);
     const [error, setError] = useState('');
     const [selectedUtxos, setSelectedUtxos] = useState([]);
@@ -69,7 +69,6 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
 
             // Fetch transaction details from API
             const apiUrl = `${config.api.wallet}/bitcoin-rpc/prev-txs/${utxo.txid}`;
-            console.log(`Fetching transaction details from: ${apiUrl}`);
 
             const response = await fetch(apiUrl);
             if (!response.ok) {
@@ -95,10 +94,8 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                 throw new Error(`Could not find scriptPubKey for UTXO: ${utxo.txid}:${utxo.vout}`);
             }
 
-            console.log(`Found scriptPubKey for UTXO ${utxo.txid}:${utxo.vout}: ${output.scriptPubKey}`);
             return output.scriptPubKey;
         } catch (error) {
-            console.error(`Failed to fetch scriptPubKey for UTXO: ${utxo.txid}:${utxo.vout}`, error);
             throw error;
         }
     };
@@ -126,8 +123,7 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                 return;
             }
 
-            // Log transaction inputs
-            console.log('Selected UTXOs for transaction:', selectedUtxos);
+            // Process selected UTXOs for transaction
 
             // Reset error state
             setError('');
@@ -139,17 +135,14 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
             try {
                 for (let i = 0; i < enhancedUtxos.length; i++) {
                     if (!enhancedUtxos[i].scriptPubKey) {
-                        console.log(`Fetching scriptPubKey for UTXO: ${enhancedUtxos[i].txid}:${enhancedUtxos[i].vout}`);
                         const scriptPubKey = await fetchScriptPubKey(enhancedUtxos[i]);
                         enhancedUtxos[i] = {
                             ...enhancedUtxos[i],
                             scriptPubKey
                         };
-                        console.log(`Got scriptPubKey: ${scriptPubKey}`);
                     }
                 }
             } catch (err) {
-                console.error('Error fetching scriptPubKey:', err);
                 setError(`Failed to fetch transaction details: ${err.message}`);
                 return;
             }
@@ -168,17 +161,11 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                 changeAddress: enhancedUtxos[0]?.address || destinationAddress
             };
 
-            console.log('Transaction data prepared:', txData);
-
             // Generate unsigned transaction
-            console.log('Creating unsigned Bitcoin transaction...');
             const unsignedTxHex = await createUnsignedTransaction(txData);
-            console.log('Unsigned transaction created:', unsignedTxHex.substring(0, 50) + '...');
 
             // Sign transaction with wallet keys
-            console.log('Signing transaction locally...');
             const txHex = await signTransaction(txData);
-            console.log('Transaction signed, hex:', txHex.substring(0, 50) + '...');
 
             // Parse for confirmation display
             const decodedTx = decodeTx(txHex);
@@ -194,7 +181,6 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
             // Display confirmation screen
             setShowConfirmation(true);
         } catch (err) {
-            console.error('Error preparing transaction:', err);
             setError(err.message || 'Failed to prepare transaction');
         }
     };
@@ -223,7 +209,6 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
             // Clean up and close
             resetAndClose();
         } catch (err) {
-            console.error('Failed to send transaction:', err);
             setError(err.response?.data?.message || err.message || 'Failed to send transaction');
         } finally {
             setIsSubmitting(false);
@@ -231,8 +216,8 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
     };
 
     const resetAndClose = () => {
-        setDestinationAddress('tb1pjrtlv2pqe3yq07jrx09em956yl2taav5p47jtuveehmrlw9jy4qq4gf4c2');
-        setAmount('0.00005');
+        setDestinationAddress('');
+        setAmount('');
         setShowConfirmation(false);
         setError('');
         setSelectedUtxos([]);
