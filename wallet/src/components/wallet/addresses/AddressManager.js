@@ -85,7 +85,6 @@ export default function AddressManager() {
                 created: new Date().toISOString()
             });
         } catch (error) {
-            console.error('Error generating addresses:', error);
             setAddressError('Failed to generate addresses: ' + error.message);
         }
     };
@@ -107,7 +106,6 @@ export default function AddressManager() {
             }
             setPrivateKeys(keys);
         } catch (error) {
-            console.error('Error deriving private keys:', error);
             setAddressError('Failed to derive private keys: ' + error.message);
         }
     };

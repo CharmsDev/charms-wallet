@@ -44,7 +44,7 @@ export default function WalletDashboard({ seedPhrase, walletInfo, createSuccess 
 
             setShowDeleteDialog(false);
         } catch (error) {
-            console.error('Error deleting wallet:', error);
+            // Error deleting wallet
         }
     };
 

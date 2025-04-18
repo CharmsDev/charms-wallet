@@ -19,7 +19,6 @@ export default function WalletInfo({ seedPhrase }) {
                 const derivedXpub = await deriveXpub(seedPhrase);
                 setXpub(derivedXpub);
             } catch (error) {
-                console.error('Error deriving xpub:', error);
                 setCopyError('Failed to derive xpub: ' + error.message);
             } finally {
                 setLoading(false);

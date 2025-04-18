@@ -51,7 +51,6 @@ export function decodeTx(txHex) {
 
         return result;
     } catch (error) {
-        console.error('Error decoding transaction:', error);
         throw error;
     }
 }

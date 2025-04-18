@@ -18,7 +18,7 @@ class CharmsService {
                     try {
                         return JSON.parse(text); // Then try to parse it
                     } catch (e) {
-                        console.error(`Invalid JSON response for txId ${txId}:`, text);
+                        // Failed to parse JSON
                         return null;
                     }
                 })
@@ -37,7 +37,7 @@ class CharmsService {
                         const appId = id.replace('$', '');
                         const app = data.apps?.[id];
                         if (!app) {
-                            console.error(`App not found for id ${id} in transaction ${txId}`);
+                            // App not found for this ID
                             return;
                         }
 
@@ -48,13 +48,13 @@ class CharmsService {
 
                         const isValidAddress = ownerAddress.startsWith('tb1') || ownerAddress.startsWith('bc1');
                         if (!isValidAddress) {
-                            console.error(`Invalid address format for UTXO ${txId}`);
+                            // Invalid address format
                             return;
                         }
 
                         // Validate app format (should be type/appId/appVk)
                         if (!app.includes('/')) {
-                            console.error(`Invalid app format for id ${id}: ${app}`);
+                            // Invalid app format
                             return;
                         }
 
@@ -95,8 +95,7 @@ class CharmsService {
                             };
                         }
 
-                        // Log the parsed charm data for debugging
-                        console.log(`Parsed charm ${appId}:`, charmAmount);
+                        // Process the parsed charm data
 
                         charms.push({
                             uniqueId: `${txId}-${appId}-${outputIndex}-${JSON.stringify(charmAmount)}`,
@@ -115,7 +114,7 @@ class CharmsService {
 
             return charms;
         } catch (error) {
-            console.error('Error fetching charms:', error);
+            // Error handling
             return [];
         }
     }

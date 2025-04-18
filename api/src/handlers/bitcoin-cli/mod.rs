@@ -5,6 +5,7 @@ mod gettransaction;
 mod listunspent;
 mod sendrawtransaction;
 mod sendrawtransactionbroadcast;
+mod submitpackagebroadcast;
 
 pub use broadcast_btc_tx::broadcast_btc_tx;
 pub use estimatefee::estimatefee;
@@ -13,3 +14,4 @@ pub use gettransaction::gettransaction;
 pub use listunspent::listunspent;
 pub use sendrawtransaction::sendrawtransaction;
 pub use sendrawtransactionbroadcast::sendrawtransactionbroadcast;
+pub use submitpackagebroadcast::submitpackagebroadcast;
