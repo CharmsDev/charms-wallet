@@ -9,8 +9,6 @@ export default function SpellJsonStep({
     setFinalSpell,
     logMessages
 }) {
-    const [editedSpell, setEditedSpell] = useState(finalSpell);
-    const [isEditing, setIsEditing] = useState(false);
     const [highestUtxo, setHighestUtxo] = useState(null);
     const { utxos } = useUTXOs();
 
@@ -37,72 +35,20 @@ export default function SpellJsonStep({
         setHighestUtxo(maxUtxo);
     }, [utxos]);
 
-    // Handle spell JSON edit
-    const handleSpellChange = (e) => {
-        setEditedSpell(e.target.value);
-    };
-
-    // Toggle edit mode
-    const toggleEditMode = () => {
-        if (isEditing) {
-            // Save changes
-            try {
-                // Validate JSON
-                JSON.parse(editedSpell);
-                setFinalSpell(editedSpell);
-                setIsEditing(false);
-            } catch (error) {
-                alert(`Invalid JSON: ${error.message}`);
-            }
-        } else {
-            // Enter edit mode
-            setIsEditing(true);
-        }
-    };
-
-    // Cancel editing
-    const cancelEditing = () => {
-        setEditedSpell(finalSpell);
-        setIsEditing(false);
-    };
 
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h4 className="font-medium text-gray-900">Spell JSON</h4>
-                <div className="space-x-2">
-                    {isEditing && (
-                        <button
-                            onClick={cancelEditing}
-                            className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-                        >
-                            Cancel
-                        </button>
-                    )}
-                    <button
-                        onClick={toggleEditMode}
-                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
-                    >
-                        {isEditing ? 'Save' : 'Edit'}
-                    </button>
-                </div>
             </div>
 
             <div className="bg-gray-50 p-4 rounded-lg">
                 <p className="text-sm text-gray-500 mb-2">
-                    This is the spell that will be used to transfer your charm. You can edit it if needed.
+                    This is the spell that will be used to transfer your charm.
                 </p>
-                {isEditing ? (
-                    <textarea
-                        value={editedSpell}
-                        onChange={handleSpellChange}
-                        className="w-full h-64 font-mono text-sm p-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    />
-                ) : (
-                    <pre className="bg-gray-800 text-green-400 p-4 rounded-md overflow-x-auto text-sm font-mono h-64 overflow-y-auto">
-                        {finalSpell || 'No spell generated yet.'}
-                    </pre>
-                )}
+                <pre className="bg-gray-800 text-green-400 p-4 rounded-md overflow-x-auto text-sm font-mono h-64 overflow-y-auto">
+                    {finalSpell || 'No spell generated yet.'}
+                </pre>
 
                 {/* Funding UTXO Information */}
                 <div className="mt-4 p-3 bg-blue-50 rounded-md border border-blue-100">
@@ -143,7 +89,7 @@ export default function SpellJsonStep({
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                 <h5 className="font-medium text-blue-800 mb-2">Information</h5>
                 <p className="text-sm text-blue-700">
-                    The spell JSON defines how your charm will be transferred. Advanced users can modify this JSON to customize the transfer behavior.
+                    The spell JSON defines how your charm will be transferred.
                 </p>
             </div>
         </div>
