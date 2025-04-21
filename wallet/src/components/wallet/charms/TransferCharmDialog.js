@@ -6,7 +6,6 @@ import { useUTXOs } from '@/stores/utxoStore';
 import { useCharms } from '@/stores/charmsStore';
 import { ProcessedCharm } from '@/types';
 
-// Step components
 import CharmDetailsStep from './transfer-steps/CharmDetailsStep';
 import SpellJsonStep from './transfer-steps/SpellJsonStep';
 import ProveSpellStep from './transfer-steps/ProveSpellStep';
@@ -14,7 +13,6 @@ import SignatureStep from './transfer-steps/SignatureStep';
 import BroadcastStep from './transfer-steps/BroadcastStep';
 
 export default function TransferCharmDialog({ charm, show, onClose }) {
-    // State for the transfer process
     const [currentStep, setCurrentStep] = useState(0);
     const [transferAmount, setTransferAmount] = useState(charm.amount.remaining);
     const [destinationAddress, setDestinationAddress] = useState('');
@@ -27,12 +25,12 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
     const [signedSpellTx, setSignedSpellTx] = useState(null);
     const [transactionResult, setTransactionResult] = useState(null);
 
-    // Hooks
+    // Store hooks
     const { seedPhrase } = useWallet();
     const { utxos } = useUTXOs();
     const { isNFT } = useCharms();
 
-    // Check if the charm is an NFT
+    // NFT detection
     const isNftCharm = isNFT(charm);
 
     // Ensure NFTs always transfer the full amount (RJJ-TODO review how do we apply metadata standard)
@@ -44,32 +42,32 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
         }
     }, [isNftCharm, charm.amount.remaining, transferAmount]);
 
-    // Check if form is valid for creating transactions
-    // For NFTs, we only need a valid destination address since they're always transferred as whole units
+    // Form validation logic
+    // NFTs only require destination address as they transfer as whole units
     const isFormValid = !!destinationAddress?.trim() && (isNftCharm || transferAmount > 0);
 
-    // Add a message to the log
+    // Log message handler
     const addLogMessage = (message) => {
         setLogMessages(prev => [...prev, message]);
     };
 
-    // Handle next step
+    // Next step navigation
     const handleNext = () => {
         if (currentStep < steps.length - 1) {
             setCurrentStep(currentStep + 1);
         }
     };
 
-    // Handle previous step
+    // Previous step navigation
     const handlePrevious = () => {
         if (currentStep > 0) {
             setCurrentStep(currentStep - 1);
         }
     };
 
-    // Handle close
+    // Dialog close handler
     const handleClose = () => {
-        // Reset all state
+        // Reset dialog state
         setCurrentStep(0);
         setTransferAmount(charm.amount.remaining);
         setDestinationAddress('');
@@ -84,7 +82,7 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
         onClose();
     };
 
-    // Define the steps
+    // Dialog step definitions
     const steps = [
         {
             title: 'Charm Details',
@@ -158,13 +156,13 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
         }
     ];
 
-    // If not showing, return null
+    // Hide dialog when not active
     if (!show) return null;
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-                {/* Header */}
+                {/* Dialog header */}
                 <div className="bg-blue-500 text-white px-6 py-4 flex justify-between items-center">
                     <h3 className="text-lg font-semibold">
                         {steps[currentStep].title} - Transfer Charm
@@ -179,12 +177,12 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
                     </button>
                 </div>
 
-                {/* Content */}
+                {/* Dialog content */}
                 <div className="p-6 overflow-y-auto flex-grow">
                     {steps[currentStep].component}
                 </div>
 
-                {/* Footer with navigation buttons */}
+                {/* Navigation footer */}
                 <div className="bg-gray-100 px-6 py-4 flex justify-between">
                     <button
                         onClick={handlePrevious}
