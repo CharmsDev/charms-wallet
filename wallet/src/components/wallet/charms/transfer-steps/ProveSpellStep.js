@@ -22,12 +22,11 @@ export default function ProveSpellStep({
     const [highestUtxo, setHighestUtxo] = useState(null);
     const { utxos } = useUTXOs();
 
-    // Find highest amount UTXO
+    // Find UTXO with highest value
     useEffect(() => {
         let maxUtxo = null;
         let maxValue = 0;
 
-        // Find UTXO with highest value
         Object.entries(utxos).forEach(([address, addressUtxos]) => {
             addressUtxos.forEach(utxo => {
                 if (utxo.value > maxValue) {
@@ -45,7 +44,7 @@ export default function ProveSpellStep({
         setHighestUtxo(maxUtxo);
     }, [utxos]);
 
-    // Create transfer transactions
+    // Generate charm transfer transactions
     const createTransferTransactions = async () => {
         setIsLoading(true);
         setError(null);
@@ -53,34 +52,36 @@ export default function ProveSpellStep({
         try {
             addLogMessage(`Initiating transfer of ${transferAmount} charms to ${destinationAddress}...`);
 
-            // Select funding UTXO based on availability
-            const fundingUtxoId = highestUtxo
-                ? `${highestUtxo.txid}:${highestUtxo.vout}`
-                : `${charm.txid}:${charm.outputIndex}`;
+            // Verify funding UTXO availability
+            if (!highestUtxo) {
+                const errorMsg = "No suitable funding UTXO found. Please ensure you have Bitcoin UTXOs available in your wallet.";
+                setError(errorMsg);
+                addLogMessage(`Error: ${errorMsg}`);
+                setIsLoading(false);
+                return;
+            }
 
-            // Set funding UTXO amount
-            const fundingUtxoAmount = highestUtxo
-                ? highestUtxo.value
-                : charm.amount.remaining;
+            // Select highest value UTXO
+            const fundingUtxo = highestUtxo;
 
-            addLogMessage(`Using funding UTXO: ${fundingUtxoId} with amount: ${fundingUtxoAmount}`);
+            addLogMessage(`Using funding UTXO: ${fundingUtxo.txid}:${fundingUtxo.vout} with amount: ${fundingUtxo.value} sats`);
+            addLogMessage(`Change address will be: ${fundingUtxo.address}`);
 
-            // Create transactions via service
+
+            // Create transactions using service
             const result = await transferCharmService.createTransferCharmTxs(
-                destinationAddress,
-                fundingUtxoAmount,
                 finalSpell,
-                fundingUtxoId
+                fundingUtxo // entire object
             );
 
-            // Store the transaction hexes
+            // Store transaction data
             setCommitTxHex(result.transactions.commit_tx);
             setSpellTxHex(result.transactions.spell_tx);
             setTransactionResult(result);
 
             addLogMessage('Transactions created successfully!');
 
-            // Automatically proceed to the next step
+            // Auto-advance to next step
             if (handleNext) {
                 setTimeout(() => {
                     handleNext();
@@ -92,7 +93,7 @@ export default function ProveSpellStep({
             setError(error.message);
             addLogMessage(`Error creating transactions: ${error.message}`);
 
-            // Check if it's a network error
+            // Check network errors
             if (error.name === 'TypeError' && error.message.includes('fetch')) {
                 addLogMessage('Network error: Check if the API server is running');
             }
@@ -111,8 +112,9 @@ export default function ProveSpellStep({
                 </div>
                 <button
                     onClick={createTransferTransactions}
-                    disabled={isLoading || !finalSpell || commitTxHex}
-                    className={`px-4 py-2 rounded ${isLoading || !finalSpell || commitTxHex
+                    // Disable button when appropriate
+                    disabled={isLoading || !finalSpell || commitTxHex || !highestUtxo}
+                    className={`px-4 py-2 rounded ${isLoading || !finalSpell || commitTxHex || !highestUtxo
                         ? 'bg-gray-300 cursor-not-allowed'
                         : 'bg-blue-500 text-white hover:bg-blue-600'
                         }`}
@@ -133,7 +135,7 @@ export default function ProveSpellStep({
                     This step creates the transactions needed to transfer your charm. Click the button above to generate the transactions.
                 </p>
 
-                {/* Funding UTXO Information */}
+                {/* Funding UTXO Details */}
                 <div className="mb-4 p-3 bg-blue-50 rounded-md border border-blue-100">
                     <h5 className="text-sm font-medium text-blue-800 mb-1">Funding UTXO Information</h5>
                     {highestUtxo ? (
@@ -161,13 +163,17 @@ export default function ProveSpellStep({
                     )}
                 </div>
 
-                {/* Transaction details section removed - automatically proceeding to next step */}
+                {/* auto-proceeding to next step */}
 
                 {!commitTxHex && !isLoading && (
                     <div className="text-center py-8">
-                        <p className="text-gray-500">No transactions created yet.</p>
+                        <p className="text-gray-500">
+                            {highestUtxo ? 'No transactions created yet.' : 'No suitable funding UTXO found.'}
+                        </p>
                         <p className="text-gray-400 text-sm mt-2">
-                            Click the "Create Transactions" button to generate the transactions.
+                            {highestUtxo
+                                ? 'Click the "Create Transactions" button to generate the transactions.'
+                                : 'Ensure you have Bitcoin UTXOs available in your wallet.'}
                         </p>
                     </div>
                 )}
