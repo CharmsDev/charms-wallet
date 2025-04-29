@@ -4,11 +4,11 @@ import { useState } from 'react';
 
 export default function AddressControls({ onGenerateAddress, error }) {
     return (
-        <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium">Your Addresses</h3>
+        <div className="p-6 flex justify-between items-center">
+            <h2 className="text-xl font-bold gradient-text">Your Addresses</h2>
             <button
                 onClick={onGenerateAddress}
-                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-md"
+                className="btn btn-primary"
             >
                 Generate New Address
             </button>

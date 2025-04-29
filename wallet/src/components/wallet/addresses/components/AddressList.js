@@ -11,7 +11,7 @@ export default function AddressList({
 }) {
     if (addresses.length === 0) {
         return (
-            <p className="text-gray-500">No addresses yet. Generate or import an address to get started.</p>
+            <p className="text-dark-400">No addresses yet. Generate or import an address to get started.</p>
         );
     }
 
@@ -19,7 +19,7 @@ export default function AddressList({
     const { addressPairs, customAddresses } = organizeAddresses(addresses);
 
     return (
-        <div className="space-y-4 max-h-[500px] overflow-y-auto">
+        <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
             {/* Address pairs */}
             {Object.entries(addressPairs).map(([index, addrGroup]) => {
                 const externalAddr = addrGroup.find(a => !a.isChange);
