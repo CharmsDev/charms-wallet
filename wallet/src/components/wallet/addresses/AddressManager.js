@@ -118,18 +118,21 @@ export default function AddressManager() {
     }, [addresses, seedPhrase]);
 
     return (
-        <div className="mt-8 space-y-6">
-            {/* Main address container */}
-            <div className="bg-white rounded-lg shadow-md p-4">
+        <div>
+            {/* Title and controls outside the card */}
+            <div>
                 <AddressControls
                     onGenerateAddress={generateNewAddress}
                     error={addressError}
                 />
 
                 {addressError && (
-                    <p className="mb-3 text-sm text-red-600">{addressError}</p>
+                    <p className="px-6 mb-3 text-sm text-red-600">{addressError}</p>
                 )}
+            </div>
 
+            {/* Main address container */}
+            <div className="card p-6 mb-6">
                 <AddressList
                     addresses={addresses}
                     privateKeys={privateKeys}
