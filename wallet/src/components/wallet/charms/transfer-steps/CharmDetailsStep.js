@@ -59,34 +59,44 @@ export default function CharmDetailsStep({
     return (
         <div className="space-y-6">
             {/* Charm Information */}
-            <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="font-medium text-gray-900 mb-2">Charm Details</h4>
+            <div className="glass-effect p-4 rounded-xl">
+                <h4 className="font-bold text-white mb-2">Charm Details</h4>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                        <p className="text-gray-500">Type:</p>
-                        <p className="font-medium">{isNftCharm ? 'NFT' : 'Token'}</p>
+                        <p className="text-dark-400">Type:</p>
+                        <p className="font-medium text-white">
+                            {isNftCharm ? (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-900/30 text-primary-400">
+                                    NFT
+                                </span>
+                            ) : (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-bitcoin-900/30 text-bitcoin-400">
+                                    Token
+                                </span>
+                            )}
+                        </p>
                     </div>
                     <div>
-                        <p className="text-gray-500">ID:</p>
-                        <p className="font-medium font-mono">{charm.id}</p>
+                        <p className="text-dark-400">ID:</p>
+                        <p className="font-medium font-mono text-white">{charm.id}</p>
                     </div>
                     <div>
-                        <p className="text-gray-500">Available Amount:</p>
-                        <p className="font-medium">{charm.amount.remaining} {charm.amount.ticker}</p>
+                        <p className="text-dark-400">Available Amount:</p>
+                        <p className="font-medium text-bitcoin-400">{charm.amount.remaining} {charm.amount.ticker}</p>
                     </div>
                     <div>
-                        <p className="text-gray-500">TXID:</p>
-                        <p className="font-medium font-mono truncate">{charm.txid}</p>
+                        <p className="text-dark-400">TXID:</p>
+                        <p className="font-medium font-mono truncate text-white">{charm.txid}</p>
                     </div>
                 </div>
             </div>
 
             {/* Transfer Form */}
             <div className="space-y-4">
-                <h4 className="font-medium text-gray-900">Transfer Details</h4>
+                <h4 className="font-bold gradient-text">Transfer Details</h4>
 
                 <div>
-                    <label htmlFor="destination-address" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="destination-address" className="block text-sm font-medium text-dark-200 mb-1">
                         Destination Address
                     </label>
                     <input
@@ -95,15 +105,15 @@ export default function CharmDetailsStep({
                         value={destinationAddress}
                         onChange={handleAddressChange}
                         placeholder="Enter Bitcoin address (tb1...)"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        className="w-full px-3 py-2 bg-dark-700 border border-dark-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-xs text-dark-400">
                         Enter a valid Bitcoin testnet address (tb1...)
                     </p>
                 </div>
 
                 <div>
-                    <label htmlFor="transfer-amount" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="transfer-amount" className="block text-sm font-medium text-dark-200 mb-1">
                         Amount to Transfer
                     </label>
                     <div className="flex items-center">
@@ -116,13 +126,13 @@ export default function CharmDetailsStep({
                             min="0.00000001"
                             max={charm.amount.remaining}
                             step="0.00000001"
-                            className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${isNftCharm ? 'bg-gray-100' : ''
+                            className={`w-full px-3 py-2 bg-dark-700 border border-dark-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 ${isNftCharm ? 'opacity-50' : ''
                                 }`}
                         />
-                        <span className="ml-2 text-gray-500">{charm.amount.ticker}</span>
+                        <span className="ml-2 text-bitcoin-400">{charm.amount.ticker}</span>
                     </div>
                     {isNftCharm && (
-                        <p className="mt-1 text-xs text-gray-500">
+                        <p className="mt-1 text-xs text-dark-400">
                             NFTs must be transferred in their entirety.
                         </p>
                     )}
@@ -131,7 +141,7 @@ export default function CharmDetailsStep({
 
             {/* Form validation message */}
             {!isFormValid && (
-                <div className="text-sm text-red-500">
+                <div className="text-sm text-red-400">
                     Please enter a valid destination address and amount to continue.
                 </div>
             )}

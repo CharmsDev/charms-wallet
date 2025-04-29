@@ -228,23 +228,23 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-2xl">
+        <div className="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="card p-6 w-full max-w-2xl">
                 {!showConfirmation ? (
                     <>
-                        <h2 className="text-xl font-semibold mb-4">Send Bitcoin</h2>
+                        <h2 className="text-xl font-bold gradient-text mb-4">Send Bitcoin</h2>
 
                         <div className="mb-4">
-                            <p className="text-sm text-gray-600 mb-2">Total available: <span className="font-semibold">{formatSats(confirmedUtxos.reduce((sum, u) => sum + u.value, 0))} BTC</span></p>
+                            <p className="text-dark-300 mb-2">Total available: <span className="font-bold text-bitcoin-400 bitcoin-glow-text">{formatSats(confirmedUtxos.reduce((sum, u) => sum + u.value, 0))} BTC</span></p>
                         </div>
 
                         <div className="mb-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <label className="block text-sm font-medium text-dark-200 mb-1">
                                 Destination Address
                             </label>
                             <input
                                 type="text"
-                                className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="w-full p-2 bg-dark-700 border border-dark-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                                 value={destinationAddress}
                                 onChange={(e) => setDestinationAddress(e.target.value)}
                                 placeholder="Enter Bitcoin address"
@@ -252,38 +252,38 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                         </div>
 
                         <div className="mb-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <label className="block text-sm font-medium text-dark-200 mb-1">
                                 Amount (BTC)
                             </label>
                             <input
                                 type="text"
-                                className={`w-full p-2 border ${!hasEnoughFunds ? 'border-red-500' : 'border-gray-300'} rounded focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                                className={`w-full p-2 bg-dark-700 border ${!hasEnoughFunds ? 'border-red-500' : 'border-dark-600'} text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500`}
                                 value={amount}
                                 onChange={(e) => setAmount(e.target.value)}
                                 placeholder="0.0"
                             />
                             {!hasEnoughFunds && (
-                                <p className="mt-1 text-sm text-red-600">Insufficient funds</p>
+                                <p className="mt-1 text-sm text-red-400">Insufficient funds</p>
                             )}
                         </div>
 
                         {/* Input UTXOs list */}
                         {selectedUtxos.length > 0 && (
                             <div className="mb-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                <label className="block text-sm font-medium text-dark-200 mb-2">
                                     Source UTXOs ({selectedUtxos.length})
                                 </label>
-                                <div className="max-h-40 overflow-y-auto border border-gray-200 rounded">
+                                <div className="max-h-40 overflow-y-auto border border-dark-600 rounded-lg bg-dark-800">
                                     {selectedUtxos.map((utxo, index) => (
                                         <div
                                             key={`${utxo.txid}-${utxo.vout}`}
-                                            className={`p-2 ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'} border-b border-gray-200 last:border-b-0`}
+                                            className={`p-2 ${index % 2 === 0 ? 'bg-dark-800' : 'bg-dark-750'} border-b border-dark-700 last:border-b-0`}
                                         >
                                             <div className="flex justify-between items-center">
-                                                <div className="font-mono text-xs break-all" title={`${utxo.txid}:${utxo.vout}`}>
+                                                <div className="font-mono text-xs break-all text-dark-300" title={`${utxo.txid}:${utxo.vout}`}>
                                                     {utxo.txid}:{utxo.vout}
                                                 </div>
-                                                <div className="text-sm font-medium ml-2">{utxo.formattedValue}</div>
+                                                <div className="text-sm font-medium ml-2 text-bitcoin-400">{utxo.formattedValue}</div>
                                             </div>
                                         </div>
                                     ))}
@@ -292,20 +292,20 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                         )}
 
                         {error && (
-                            <div className="mb-4 p-2 bg-red-100 text-red-700 rounded">
+                            <div className="error-message">
                                 {error}
                             </div>
                         )}
 
                         <div className="flex justify-end space-x-2">
                             <button
-                                className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                                className="btn btn-secondary"
                                 onClick={resetAndClose}
                             >
                                 Cancel
                             </button>
                             <button
-                                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                                className="btn btn-bitcoin"
                                 onClick={handleSendClick}
                             >
                                 Send Now
@@ -314,32 +314,32 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                     </>
                 ) : (
                     <>
-                        <h2 className="text-xl font-semibold mb-4">Confirm Transaction</h2>
+                        <h2 className="text-xl font-bold gradient-text mb-4">Confirm Transaction</h2>
 
                         {transactionData?.decodedTx && (
                             <div className="mb-4">
-                                <pre className="bg-gray-900 text-white p-4 rounded overflow-auto text-xs font-mono">
+                                <pre className="bg-dark-900 text-dark-200 p-4 rounded-lg overflow-auto text-xs font-mono border border-dark-700">
                                     {JSON.stringify(transactionData.decodedTx, null, 2)}
                                 </pre>
                             </div>
                         )}
 
                         {error && (
-                            <div className="mb-4 p-2 bg-red-100 text-red-700 rounded">
+                            <div className="error-message">
                                 {error}
                             </div>
                         )}
 
                         <div className="flex justify-end space-x-2">
                             <button
-                                className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                                className="btn btn-secondary"
                                 onClick={() => setShowConfirmation(false)}
                                 disabled={isSubmitting}
                             >
                                 No, Cancel
                             </button>
                             <button
-                                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-green-300 disabled:cursor-not-allowed"
+                                className={`btn ${isSubmitting ? 'bg-green-700 opacity-50 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'} text-white`}
                                 onClick={handleConfirmSend}
                                 disabled={isSubmitting}
                             >

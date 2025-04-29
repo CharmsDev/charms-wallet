@@ -70,18 +70,18 @@ export default function UTXOList() {
 
     if (isLoading) {
         return (
-            <div className="p-4">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-semibold">UTXOs</h2>
+            <div>
+                <div className="p-6 flex justify-between items-center">
+                    <h2 className="text-xl font-bold gradient-text">UTXOs</h2>
                     <button
-                        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+                        className="btn btn-primary opacity-50 cursor-not-allowed"
                         disabled={true}
                     >
                         Refreshing...
                     </button>
                 </div>
                 <div className="flex justify-center items-center h-40">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
                 </div>
             </div>
         );
@@ -89,17 +89,17 @@ export default function UTXOList() {
 
     if (error) {
         return (
-            <div className="p-4">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-semibold">UTXOs</h2>
+            <div>
+                <div className="p-6 flex justify-between items-center">
+                    <h2 className="text-xl font-bold gradient-text">UTXOs</h2>
                     <button
-                        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                        className="btn btn-primary"
                         onClick={handleRefresh}
                     >
                         Refresh
                     </button>
                 </div>
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                <div className="error-message">
                     <p>Error: {error}</p>
                 </div>
             </div>
@@ -107,19 +107,19 @@ export default function UTXOList() {
     }
 
     return (
-        <div className="p-4">
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">UTXOs</h2>
+        <div>
+            <div className="p-6 flex justify-between items-center">
+                <h2 className="text-xl font-bold gradient-text">UTXOs</h2>
                 <div className="flex space-x-2">
                     <button
-                        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                        className={`btn ${confirmedUtxos.length === 0 ? 'opacity-50 cursor-not-allowed bg-dark-700' : 'btn-bitcoin'}`}
                         onClick={handleOpenSendDialog}
                         disabled={confirmedUtxos.length === 0}
                     >
                         Send Bitcoin
                     </button>
                     <button
-                        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                        className="btn btn-primary"
                         onClick={handleRefresh}
                     >
                         Refresh
@@ -127,59 +127,59 @@ export default function UTXOList() {
                 </div>
             </div>
 
-            <div className="mb-4 p-3 bg-gray-100 rounded">
+            <div className="mb-4 p-4 card">
                 <p className="text-lg">
-                    Total Balance: <span className="font-semibold">{formatSats(totalBalance)} BTC</span>
+                    Total Balance: <span className="font-bold text-bitcoin-400 bitcoin-glow-text">{formatSats(totalBalance)} BTC</span>
                 </p>
             </div>
 
             {flattenedUtxos.length === 0 ? (
-                <div className="text-center p-8 bg-gray-50 rounded">
-                    <p className="text-gray-500">No UTXOs found. Receive some bitcoin to get started.</p>
+                <div className="text-center p-8 glass-effect rounded-xl">
+                    <p className="text-dark-300">No UTXOs found. Receive some bitcoin to get started.</p>
                 </div>
             ) : (
-                <div className="overflow-x-auto">
-                    <table className="min-w-full bg-white border border-gray-200">
-                        <thead className="bg-gray-100">
+                <div className="overflow-x-auto card">
+                    <table className="min-w-full">
+                        <thead className="bg-dark-700">
                             <tr>
-                                <th className="py-2 px-4 border-b text-left">UTXO</th>
-                                <th className="py-2 px-4 border-b text-left">Address</th>
-                                <th className="py-2 px-4 border-b text-left">Amount & Status</th>
+                                <th className="py-2 px-4 border-b border-dark-600 text-left text-dark-300">UTXO</th>
+                                <th className="py-2 px-4 border-b border-dark-600 text-left text-dark-300">Address</th>
+                                <th className="py-2 px-4 border-b border-dark-600 text-left text-dark-300">Amount & Status</th>
                             </tr>
                         </thead>
                         <tbody>
                             {flattenedUtxos.map((utxo, index) => (
-                                <tr key={`${utxo.txid}-${utxo.vout}`} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
-                                    <td className="py-2 px-4 border-b">
-                                        <div className="font-mono text-xs break-all" title={`${utxo.txid}:${utxo.vout}`}>
+                                <tr key={`${utxo.txid}-${utxo.vout}`} className={index % 2 === 0 ? 'bg-dark-800' : 'bg-dark-750'}>
+                                    <td className="py-2 px-4 border-b border-dark-700">
+                                        <div className="font-mono text-xs break-all text-dark-200" title={`${utxo.txid}:${utxo.vout}`}>
                                             {utxo.txid}:{utxo.vout}
                                         </div>
                                     </td>
-                                    <td className="py-2 px-4 border-b">
+                                    <td className="py-2 px-4 border-b border-dark-700">
                                         <div className="flex flex-col">
-                                            <div className="font-mono text-xs break-all" title={utxo.address}>
+                                            <div className="font-mono text-xs break-all text-dark-200" title={utxo.address}>
                                                 {utxo.address}
                                             </div>
                                             {addresses.find(addr => addr.address === utxo.address)?.index !== undefined && (
-                                                <span className="text-xs text-gray-600 mt-1">
+                                                <span className="text-xs text-dark-400 mt-1">
                                                     Index: {addresses.find(addr => addr.address === utxo.address)?.index}
                                                     {utxo.isChange && (
-                                                        <span className="text-blue-600 ml-2">Change Address</span>
+                                                        <span className="text-primary-400 ml-2">Change Address</span>
                                                     )}
                                                 </span>
                                             )}
                                         </div>
                                     </td>
-                                    <td className="py-2 px-4 border-b">
+                                    <td className="py-2 px-4 border-b border-dark-700">
                                         <div className="flex flex-col">
-                                            <div>{formatSats(utxo.value)} BTC</div>
+                                            <div className="text-bitcoin-400">{formatSats(utxo.value)} BTC</div>
                                             <div className="mt-1">
                                                 {utxo.status.confirmed ? (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400">
                                                         Confirmed
                                                     </span>
                                                 ) : (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-900/30 text-yellow-400">
                                                         Pending
                                                     </span>
                                                 )}

@@ -49,76 +49,70 @@ export default function WalletDashboard({ seedPhrase, walletInfo, createSuccess 
     };
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
-            <div className="w-full max-w-4xl bg-white rounded-lg shadow-md p-8 space-y-8">
-                <h1 className="text-2xl font-bold text-center text-gray-900 mb-6">
-                    Your Wallet
-                </h1>
+        <div>
+            <div className="p-6 flex justify-between items-center">
+                <h2 className="text-xl font-bold gradient-text">Your Wallet</h2>
+                <button
+                    onClick={() => setShowDeleteDialog(true)}
+                    className="btn bg-red-600 hover:bg-red-700 text-white"
+                >
+                    Delete Wallet
+                </button>
+            </div>
 
-                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-                    <p className="text-yellow-800">
-                        <strong>Important:</strong> Keep your seed phrase safe. It's the only way to recover your wallet.
-                    </p>
-                </div>
-
-                <div className="bg-gray-100 p-4 rounded-md">
-                    <div className="grid grid-cols-2 gap-6">
+            <div className="card p-6 mb-6 space-y-6">
+                {/* Wallet Information Box */}
+                <div className="glass-effect p-6 rounded-xl">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {/* Left column: Seed Phrase */}
                         <SeedPhraseDisplay seedPhrase={seedPhrase} onCopy={copyToClipboard} />
 
                         {/* Right column: Wallet Information */}
                         <WalletInfoDisplay walletInfo={walletInfo} onCopy={copyToClipboard} />
                     </div>
+                </div>
 
-                    {/* Bitcoin Core Instructions */}
+                {/* Bitcoin Core Instructions Box */}
+                <div className="glass-effect p-6 rounded-xl mt-6">
+                    <h3 className="text-xl font-bold gradient-text mb-4">Bitcoin Core Integration</h3>
                     <BitcoinCoreInstructions walletInfo={walletInfo} onCopy={copyToClipboard} />
                 </div>
 
                 {/* Copy notification */}
                 {copyNotification && (
-                    <div className="fixed top-4 right-4 bg-green-100 border border-green-400 text-green-700 px-4 py-2 rounded shadow-md z-50">
+                    <div className="fixed top-4 right-4 bg-green-900/70 border border-green-700 text-green-400 px-4 py-2 rounded-lg shadow-md z-50">
                         Copied to clipboard!
                     </div>
                 )}
 
                 {createSuccess && (
-                    <div className="bg-green-50 border-l-4 border-green-400 p-4">
-                        <p className="text-green-800">
+                    <div className="glass-effect border-l-4 border-green-500 p-4">
+                        <p className="text-green-400">
                             Wallet setup successful! Make sure to save your seed phrase.
                         </p>
                     </div>
                 )}
-
-                {/* Delete wallet button */}
-                <div className="mt-8 flex justify-center">
-                    <button
-                        onClick={() => setShowDeleteDialog(true)}
-                        className="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-md transition-colors"
-                    >
-                        Delete Wallet
-                    </button>
-                </div>
             </div>
 
             {/* Delete confirmation dialog */}
             {showDeleteDialog && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 max-w-md w-full">
-                        <h2 className="text-xl font-bold mb-4">Delete Wallet</h2>
-                        <p className="mb-6 text-gray-700">
+                <div className="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50">
+                    <div className="card p-6 max-w-md w-full">
+                        <h2 className="text-xl font-bold gradient-text mb-4">Delete Wallet</h2>
+                        <p className="mb-6 text-dark-200">
                             Are you sure you want to delete your wallet? This action cannot be undone.
                             Make sure you have saved your seed phrase if you want to recover this wallet in the future.
                         </p>
                         <div className="flex justify-end space-x-4">
                             <button
                                 onClick={() => setShowDeleteDialog(false)}
-                                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100"
+                                className="btn btn-secondary"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={handleDeleteWallet}
-                                className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
+                                className="btn bg-red-600 hover:bg-red-700 text-white"
                             >
                                 Delete
                             </button>

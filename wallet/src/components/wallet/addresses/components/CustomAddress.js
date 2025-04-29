@@ -8,7 +8,7 @@ export default function CustomAddress({
     onDelete
 }) {
     return (
-        <div className="bg-gray-50 p-3 rounded-md">
+        <div className="glass-effect p-3 rounded-xl">
             <AddressCard
                 address={address.address}
                 label="Custom"

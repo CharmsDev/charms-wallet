@@ -2,30 +2,143 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Basic reset styles */
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 248, 250, 252;
+  --background-end-rgb: 255, 255, 255;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 2, 6, 23;
+    --background-end-rgb: 15, 23, 42;
+  }
 }
 
-/* Custom utility classes */
-.btn {
-  @apply px-4 py-2 rounded-md transition-colors;
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    color: rgb(var(--foreground-rgb));
+    background: linear-gradient(to bottom,
+        transparent,
+        rgb(var(--background-end-rgb))) rgb(var(--background-start-rgb));
+    @apply bg-dark-950 text-white;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-bold tracking-tight;
+  }
 }
 
-.btn-primary {
-  @apply bg-primary text-white hover:bg-blue-600;
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+
+  .btn-primary {
+    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+  }
+
+  .btn-secondary {
+    @apply bg-dark-800 text-white hover:bg-dark-700 focus:ring-dark-500;
+  }
+
+  .btn-bitcoin {
+    @apply bg-bitcoin-500 text-white hover:bg-bitcoin-600 focus:ring-bitcoin-400;
+  }
+
+  .card {
+    @apply bg-dark-800 border border-dark-700 rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-all;
+  }
+
+  .card-hover {
+    @apply hover:border-primary-600 hover:shadow-glow;
+  }
+
+  .glass-effect {
+    @apply bg-dark-900/70 backdrop-blur-md border border-dark-700/50;
+  }
+
+  .grid-bg {
+    @apply bg-grid-pattern bg-grid-size;
+  }
+
+  .error-message {
+    @apply bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-md;
+  }
+
+  .success-message {
+    @apply bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6 rounded-md;
+  }
+
+  .fixed-header {
+    @apply fixed top-0 left-0 right-0 z-50 glass-effect;
+  }
 }
 
-.error-message {
-  @apply bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-md;
+/* Custom scrollbar for webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
-.success-message {
-  @apply bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6 rounded-md;
+::-webkit-scrollbar-track {
+  @apply bg-dark-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-dark-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-dark-500;
+}
+
+/* Line clamp utility */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Bitcoin-themed glow effects */
+.bitcoin-glow {
+  box-shadow: 0 0 15px rgba(245, 158, 11, 0.3);
+}
+
+.bitcoin-glow-text {
+  text-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+}
+
+/* Animated background for hero sections */
+.hero-bg {
+  background-image:
+    radial-gradient(circle at 25% 25%, rgba(14, 165, 233, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 75% 75%, rgba(245, 158, 11, 0.1) 0%, transparent 50%),
+    linear-gradient(to bottom, rgb(var(--background-start-rgb)), rgb(var(--background-end-rgb)));
+  background-size: 100% 100%;
+}
+
+/* Gradient text */
+.gradient-text {
+  @apply text-transparent bg-clip-text bg-gradient-to-r from-primary-400 to-primary-600;
 }

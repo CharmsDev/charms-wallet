@@ -11,11 +11,11 @@ export default function MainLayout({ children }) {
     const [activeSection, setActiveSection] = useState('wallets');
 
     return (
-        <div className="min-h-screen flex flex-col bg-gray-50 relative">
+        <div className="min-h-screen flex flex-col bg-dark-950 relative">
             <Header activeSection={activeSection} setActiveSection={setActiveSection} />
 
-            {/* Main content section */}
-            <main className="flex-grow py-8">
+            {/* Main content section - added pt-32 to account for fixed header */}
+            <main className="flex-grow py-8 pt-32">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     {/* Wallet section */}
                     <div
@@ -46,7 +46,6 @@ export default function MainLayout({ children }) {
                         className={`transition-opacity duration-200 ${activeSection !== "charms" ? "opacity-0 hidden" : ""
                             }`}
                     >
-                        <h1 className="text-2xl font-bold mb-4">Charms</h1>
                         <CharmsList />
                     </div>
 
@@ -55,8 +54,12 @@ export default function MainLayout({ children }) {
                         className={`transition-opacity duration-200 ${activeSection !== "settings" ? "opacity-0 hidden" : ""
                             }`}
                     >
-                        <h1 className="text-2xl font-bold mb-4">Settings</h1>
-                        <p>Settings section content will go here.</p>
+                        <div className="p-6 flex justify-between items-center">
+                            <h2 className="text-xl font-bold gradient-text">Settings</h2>
+                        </div>
+                        <div className="card p-6">
+                            <p>Settings section content will go here.</p>
+                        </div>
                     </div>
                 </div>
             </main>

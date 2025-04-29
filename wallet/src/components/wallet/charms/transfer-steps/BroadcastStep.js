@@ -70,13 +70,13 @@ export default function BroadcastStep({
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
-                <h4 className="font-medium text-gray-900">Broadcast Transactions</h4>
+                <h4 className="font-bold gradient-text">Broadcast Transactions</h4>
                 <button
                     onClick={handleBroadcast}
                     disabled={isLoading || !signedCommitTx || !signedSpellTx || broadcastResult}
-                    className={`px-4 py-2 rounded ${isLoading || !signedCommitTx || !signedSpellTx || broadcastResult
-                        ? 'bg-gray-300 cursor-not-allowed'
-                        : 'bg-blue-500 text-white hover:bg-blue-600'
+                    className={`px-4 py-2 rounded-lg ${isLoading || !signedCommitTx || !signedSpellTx || broadcastResult
+                        ? 'bg-dark-600 cursor-not-allowed text-dark-400'
+                        : 'bg-primary-500 text-white hover:bg-primary-600'
                         }`}
                 >
                     {isLoading ? 'Broadcasting...' : broadcastResult ? 'Broadcasted' : 'Broadcast Transactions'}
@@ -84,30 +84,30 @@ export default function BroadcastStep({
             </div>
 
             {error && (
-                <div className="bg-red-50 p-4 rounded-lg border border-red-200 text-red-700">
+                <div className="bg-red-900/30 p-4 rounded-lg border border-red-800 text-red-400">
                     <h5 className="font-medium mb-2">Error</h5>
                     <p className="text-sm">{error}</p>
                 </div>
             )}
 
-            <div className="bg-gray-50 p-4 rounded-lg">
+            <div className="glass-effect p-4 rounded-xl">
                 <p className="text-sm text-gray-500 mb-4">
                     This step broadcasts the signed transactions to the Bitcoin network. Click the button above to broadcast the transactions.
                 </p>
 
                 {/* Broadcast result */}
                 {broadcastResult && (
-                    <div className="bg-green-50 p-4 rounded-lg border border-green-200 text-green-700">
+                    <div className="bg-green-900/30 p-4 rounded-lg border border-green-800 text-green-400">
                         <h5 className="font-medium mb-2">Transfer Successful!</h5>
                         <div className="space-y-2 text-sm">
                             <p>Your charm has been successfully transferred.</p>
                             <div>
                                 <p className="font-medium">Commit Transaction ID:</p>
-                                <p className="font-mono break-all">{broadcastResult.commitTxId}</p>
+                                <p className="font-mono break-all text-white">{broadcastResult.commitTxId}</p>
                             </div>
                             <div>
                                 <p className="font-medium">Spell Transaction ID:</p>
-                                <p className="font-mono break-all">{broadcastResult.spellTxId}</p>
+                                <p className="font-mono break-all text-white">{broadcastResult.spellTxId}</p>
                             </div>
                             <p className="mt-4">
                                 You can view these transactions on a Bitcoin testnet explorer.
@@ -118,8 +118,8 @@ export default function BroadcastStep({
 
                 {!signedCommitTx && !signedSpellTx && !isLoading && (
                     <div className="text-center py-8">
-                        <p className="text-gray-500">No signed transactions available to broadcast.</p>
-                        <p className="text-gray-400 text-sm mt-2">
+                        <p className="text-dark-300">No signed transactions available to broadcast.</p>
+                        <p className="text-dark-400 text-sm mt-2">
                             Please go back to the previous step and sign the transactions first.
                         </p>
                     </div>
@@ -127,8 +127,8 @@ export default function BroadcastStep({
 
                 {signedCommitTx && signedSpellTx && !broadcastResult && !isLoading && (
                     <div className="text-center py-8">
-                        <p className="text-gray-500">Transactions ready to broadcast.</p>
-                        <p className="text-gray-400 text-sm mt-2">
+                        <p className="text-dark-300">Transactions ready to broadcast.</p>
+                        <p className="text-dark-400 text-sm mt-2">
                             Click the "Broadcast Transactions" button to send the transactions to the Bitcoin network.
                         </p>
                     </div>
@@ -136,15 +136,15 @@ export default function BroadcastStep({
 
                 {isLoading && (
                     <div className="text-center py-8">
-                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-                        <p className="mt-2 text-gray-600">Broadcasting transactions...</p>
+                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-500"></div>
+                        <p className="mt-2 text-dark-300">Broadcasting transactions...</p>
                     </div>
                 )}
             </div>
 
-            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                <h5 className="font-medium text-blue-800 mb-2">Information</h5>
-                <p className="text-sm text-blue-700">
+            <div className="bg-blue-900/20 p-4 rounded-lg border border-blue-800/50">
+                <h5 className="font-medium text-blue-400 mb-2">Information</h5>
+                <p className="text-sm text-blue-300">
                     Broadcasting the transactions finalizes the transfer of your charm. The commit transaction must be confirmed first, followed by the spell transaction.
                 </p>
             </div>

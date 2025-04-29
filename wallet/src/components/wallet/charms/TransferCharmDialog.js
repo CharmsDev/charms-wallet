@@ -160,11 +160,11 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
     if (!show) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="card w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
                 {/* Dialog header */}
-                <div className="bg-blue-500 text-white px-6 py-4 flex justify-between items-center">
-                    <h3 className="text-lg font-semibold">
+                <div className="bg-primary-600 text-white px-6 py-4 flex justify-between items-center">
+                    <h3 className="text-lg font-bold">
                         {steps[currentStep].title} - Transfer Charm
                     </h3>
                     <button
@@ -183,13 +183,13 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
                 </div>
 
                 {/* Navigation footer */}
-                <div className="bg-gray-100 px-6 py-4 flex justify-between">
+                <div className="bg-dark-800 px-6 py-4 flex justify-between">
                     <button
                         onClick={handlePrevious}
                         disabled={currentStep === 0}
-                        className={`px-4 py-2 rounded ${currentStep === 0
-                            ? 'bg-gray-300 cursor-not-allowed'
-                            : 'bg-blue-500 text-white hover:bg-blue-600'
+                        className={`btn ${currentStep === 0
+                            ? 'bg-dark-700 opacity-50 cursor-not-allowed'
+                            : 'btn-secondary'
                             }`}
                     >
                         Previous
@@ -198,7 +198,7 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
                     <div className="flex space-x-2">
                         <button
                             onClick={handleClose}
-                            className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
+                            className="btn btn-secondary"
                         >
                             Cancel
                         </button>
@@ -209,12 +209,12 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
                                 (currentStep === 0 && !isFormValid) ||
                                 (currentStep === 2 && !commitTxHex) ||
                                 (currentStep === 3 && !signedCommitTx)}
-                            className={`px-4 py-2 rounded ${currentStep === steps.length - 1 ||
+                            className={`btn ${currentStep === steps.length - 1 ||
                                 (currentStep === 0 && !isFormValid) ||
                                 (currentStep === 2 && !commitTxHex) ||
                                 (currentStep === 3 && !signedCommitTx)
-                                ? 'bg-gray-300 cursor-not-allowed'
-                                : 'bg-blue-500 text-white hover:bg-blue-600'
+                                ? 'bg-primary-400 opacity-50 cursor-not-allowed'
+                                : 'btn-primary'
                                 }`}
                         >
                             {currentStep === steps.length - 1 ? 'Finish' : 'Next'}
