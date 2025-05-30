@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense, lazy } from 'react';
 import Header from './Header';
 import Footer from './Footer';
-import AddressManager from '@/components/wallet/addresses/AddressManager';
 import UTXOList from '@/components/wallet/utxos/UTXOList';
 import CharmsList from '@/components/wallet/charms/CharmsList';
+
+// Dynamically import components that use WebAssembly
+const AddressManager = lazy(() => import('@/components/wallet/addresses/AddressManager'));
 
 export default function MainLayout({ children }) {
     const [activeSection, setActiveSection] = useState('wallets');
@@ -30,7 +32,9 @@ export default function MainLayout({ children }) {
                         className={`transition-opacity duration-200 ${activeSection !== "addresses" ? "opacity-0 hidden" : ""
                             }`}
                     >
-                        <AddressManager />
+                        <Suspense fallback={<div>Loading address manager...</div>}>
+                            <AddressManager />
+                        </Suspense>
                     </div>
 
                     {/* UTXOs section */}

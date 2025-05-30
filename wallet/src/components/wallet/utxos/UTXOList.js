@@ -3,20 +3,22 @@
 import { useState, useEffect } from 'react';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useAddresses } from '@/stores/addressesStore';
+import { useBlockchain } from '@/stores/blockchainStore';
 import config from '@/config';
 import SendBitcoinDialog from './SendBitcoinDialog';
 
 export default function UTXOList() {
-    const { utxos, isLoading, error, totalBalance, refreshUTXOs, formatSats } = useUTXOs();
+    const { utxos, isLoading, error, totalBalance, refreshUTXOs, formatValue } = useUTXOs();
     const { addresses } = useAddresses();
+    const { isBitcoin, isCardano } = useBlockchain();
     const [flattenedUtxos, setFlattenedUtxos] = useState([]);
     const [isSendDialogOpen, setIsSendDialogOpen] = useState(false);
     const [confirmedUtxos, setConfirmedUtxos] = useState([]);
 
     // Refresh UTXOs on component mount
     useEffect(() => {
-        // If we're in regtest mode, refresh UTXOs on mount
-        if (config.bitcoin.isRegtest()) {
+        // If we're in regtest mode or using Cardano, refresh UTXOs on mount
+        if (config.bitcoin.isRegtest() || isCardano()) {
             refreshUTXOs();
         }
     }, []);
@@ -29,13 +31,15 @@ export default function UTXOList() {
         Object.entries(utxos).forEach(([address, addressUtxos]) => {
             const addressEntry = addresses.find(addr => addr.address === address);
             const isChange = addressEntry?.isChange || false;
+            const isStaking = addressEntry?.isStaking || false;
 
             addressUtxos.forEach(utxo => {
                 const formattedUtxo = {
                     ...utxo,
                     address,
                     isChange,
-                    formattedValue: formatSats(utxo.value)
+                    isStaking,
+                    formattedValue: formatValue(utxo.value)
                 };
 
                 flattened.push(formattedUtxo);
@@ -48,7 +52,7 @@ export default function UTXOList() {
 
         setFlattenedUtxos(flattened);
         setConfirmedUtxos(confirmed);
-    }, [utxos, addresses, formatSats]);
+    }, [utxos, addresses, formatValue]);
 
     const handleRefresh = async () => {
         await refreshUTXOs();
@@ -111,13 +115,24 @@ export default function UTXOList() {
             <div className="p-6 flex justify-between items-center">
                 <h2 className="text-xl font-bold gradient-text">UTXOs</h2>
                 <div className="flex space-x-2">
-                    <button
-                        className={`btn ${confirmedUtxos.length === 0 ? 'opacity-50 cursor-not-allowed bg-dark-700' : 'btn-bitcoin'}`}
-                        onClick={handleOpenSendDialog}
-                        disabled={confirmedUtxos.length === 0}
-                    >
-                        Send Bitcoin
-                    </button>
+                    {isBitcoin() && (
+                        <button
+                            className={`btn ${confirmedUtxos.length === 0 ? 'opacity-50 cursor-not-allowed bg-dark-700' : 'btn-bitcoin'}`}
+                            onClick={handleOpenSendDialog}
+                            disabled={confirmedUtxos.length === 0}
+                        >
+                            Send Bitcoin
+                        </button>
+                    )}
+                    {isCardano() && (
+                        <button
+                            className={`btn ${confirmedUtxos.length === 0 ? 'opacity-50 cursor-not-allowed bg-dark-700' : 'btn-cardano'}`}
+                            onClick={handleOpenSendDialog}
+                            disabled={confirmedUtxos.length === 0}
+                        >
+                            Send ADA
+                        </button>
+                    )}
                     <button
                         className="btn btn-primary"
                         onClick={handleRefresh}
@@ -129,7 +144,10 @@ export default function UTXOList() {
 
             <div className="mb-4 p-4 card">
                 <p className="text-lg">
-                    Total Balance: <span className="font-bold text-bitcoin-400 bitcoin-glow-text">{formatSats(totalBalance)} BTC</span>
+                    Total Balance:
+                    <span className={`font-bold ${isBitcoin() ? 'text-bitcoin-400 bitcoin-glow-text' : 'text-cardano-400 cardano-glow-text'}`}>
+                        {formatValue(totalBalance)}
+                    </span>
                 </p>
             </div>
 
@@ -163,8 +181,11 @@ export default function UTXOList() {
                                             {addresses.find(addr => addr.address === utxo.address)?.index !== undefined && (
                                                 <span className="text-xs text-dark-400 mt-1">
                                                     Index: {addresses.find(addr => addr.address === utxo.address)?.index}
-                                                    {utxo.isChange && (
+                                                    {isBitcoin() && utxo.isChange && (
                                                         <span className="text-primary-400 ml-2">Change Address</span>
+                                                    )}
+                                                    {isCardano() && utxo.isStaking && (
+                                                        <span className="text-cardano-400 ml-2">Staking Address</span>
                                                     )}
                                                 </span>
                                             )}
@@ -172,7 +193,9 @@ export default function UTXOList() {
                                     </td>
                                     <td className="py-2 px-4 border-b border-dark-700">
                                         <div className="flex flex-col">
-                                            <div className="text-bitcoin-400">{formatSats(utxo.value)} BTC</div>
+                                            <div className={isBitcoin() ? "text-bitcoin-400" : "text-cardano-400"}>
+                                                {utxo.formattedValue}
+                                            </div>
                                             <div className="mt-1">
                                                 {utxo.status.confirmed ? (
                                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400">
@@ -193,14 +216,16 @@ export default function UTXOList() {
                 </div>
             )}
 
-            {/* Send Bitcoin Dialog */}
-            <SendBitcoinDialog
-                isOpen={isSendDialogOpen}
-                onClose={() => setIsSendDialogOpen(false)}
-                confirmedUtxos={confirmedUtxos}
-                onSend={handleSendBitcoin}
-                formatSats={formatSats}
-            />
+            {/* Send Bitcoin Dialog - only shown for Bitcoin */}
+            {isBitcoin() && (
+                <SendBitcoinDialog
+                    isOpen={isSendDialogOpen}
+                    onClose={() => setIsSendDialogOpen(false)}
+                    confirmedUtxos={confirmedUtxos}
+                    onSend={handleSendBitcoin}
+                    formatValue={formatValue}
+                />
+            )}
         </div>
     );
 }
