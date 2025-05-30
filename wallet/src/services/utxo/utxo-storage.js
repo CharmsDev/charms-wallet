@@ -1,47 +1,48 @@
 // UTXO Storage Service for localStorage operations
 
 import { getUTXOs, saveUTXOs } from '@/services/storage';
+import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
 
 export class UTXOStorageService {
     // Retrieve UTXOs from localStorage
-    async getStoredUTXOs() {
-        return await getUTXOs();
+    async getStoredUTXOs(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
+        return await getUTXOs(blockchain, network);
     }
 
     // Save UTXOs to localStorage
-    async storeUTXOs(utxoMap) {
-        await saveUTXOs(utxoMap);
+    async storeUTXOs(utxoMap, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
+        await saveUTXOs(utxoMap, blockchain, network);
     }
 
     // Add or update UTXOs for a specific address
-    async updateAddressUTXOs(address, utxos) {
-        const storedUTXOs = await this.getStoredUTXOs();
+    async updateAddressUTXOs(address, utxos, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
+        const storedUTXOs = await this.getStoredUTXOs(blockchain, network);
 
         // Set UTXOs for the address
         storedUTXOs[address] = utxos;
 
         // Persist changes
-        await this.storeUTXOs(storedUTXOs);
+        await this.storeUTXOs(storedUTXOs, blockchain, network);
 
         return storedUTXOs;
     }
 
     // Remove all UTXOs for a specific address
-    async removeAddressUTXOs(address) {
-        const storedUTXOs = await this.getStoredUTXOs();
+    async removeAddressUTXOs(address, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
+        const storedUTXOs = await this.getStoredUTXOs(blockchain, network);
 
         // Delete address entry
         delete storedUTXOs[address];
 
         // Persist changes
-        await this.storeUTXOs(storedUTXOs);
+        await this.storeUTXOs(storedUTXOs, blockchain, network);
 
         return storedUTXOs;
     }
 
     // Remove specific UTXOs identified by txid and vout
-    async removeSpecificUTXOs(utxosToRemove) {
-        const storedUTXOs = await this.getStoredUTXOs();
+    async removeSpecificUTXOs(utxosToRemove, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
+        const storedUTXOs = await this.getStoredUTXOs(blockchain, network);
 
         // Create lookup set of UTXOs to remove
         const utxoIdsToRemove = new Set(
@@ -61,7 +62,7 @@ export class UTXOStorageService {
         });
 
         // Persist changes
-        await this.storeUTXOs(storedUTXOs);
+        await this.storeUTXOs(storedUTXOs, blockchain, network);
 
         return storedUTXOs;
     }
