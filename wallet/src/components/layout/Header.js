@@ -157,15 +157,7 @@ export default function Header({ activeSection, setActiveSection }) {
                         >
                             Charms
                         </button>
-                        <button
-                            className={`py-4 px-1 inline-flex items-center border-b-2 ${activeSection === 'settings'
-                                ? 'border-primary-500 text-primary-400'
-                                : 'border-transparent text-dark-300 hover:border-dark-500 hover:text-dark-200'
-                                }`}
-                            onClick={() => setActiveSection("settings")}
-                        >
-                            Settings
-                        </button>
+
                     </div>
                 </div>
             </nav>
