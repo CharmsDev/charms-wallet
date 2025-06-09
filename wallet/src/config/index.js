@@ -7,7 +7,7 @@ const config = {
     // API endpoints
     api: {
         wallet: process.env.NEXT_PUBLIC_WALLET_API_URL || 'https://api-wallet-test.charms.dev',
-        charms: process.env.NEXT_PUBLIC_CHARMS_API_URL || 'https://api-wallet-test.charms.dev',
+        charms: process.env.NEXT_PUBLIC_CHARMS_API_URL || 'https://api-t4.charms.dev',
         cardano: process.env.NEXT_PUBLIC_CARDANO_API_URL || 'https://cardano-preprod.blockfrost.io/api/v0',
     },
 
