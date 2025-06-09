@@ -115,6 +115,7 @@ export default function UTXOList() {
             <div className="p-6 flex justify-between items-center">
                 <h2 className="text-xl font-bold gradient-text">UTXOs</h2>
                 <div className="flex space-x-2">
+                    {/* Send buttons commented out for mobile view
                     {isBitcoin() && (
                         <button
                             className={`btn ${confirmedUtxos.length === 0 ? 'opacity-50 cursor-not-allowed bg-dark-700' : 'btn-bitcoin'}`}
@@ -133,6 +134,7 @@ export default function UTXOList() {
                             Send ADA
                         </button>
                     )}
+                    */}
                     <button
                         className="btn btn-primary"
                         onClick={handleRefresh}

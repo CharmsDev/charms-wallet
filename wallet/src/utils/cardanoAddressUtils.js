@@ -2,12 +2,13 @@
 
 import { generateCardanoAddress, deriveCardanoPrivateKey, validateCardanoAddress, getCardanoDerivationPath } from '@/lib/cardano/cardanoSimple';
 import { NETWORKS } from '@/stores/blockchainStore';
+import config from '@/config';
 
 // Generates a new Cardano address using the specified derivation path
 export async function generateCardanoAddressFromSeed(seedPhrase, index, isStaking = false) {
     try {
-        // Get the network from environment variable or use testnet by default
-        const network = process.env.NEXT_PUBLIC_CARDANO_NETWORK || NETWORKS.CARDANO.TESTNET;
+        // Get the network from config
+        const network = config.cardano.network;
 
         // Generate the address
         const address = await generateCardanoAddress(seedPhrase, index, network);

@@ -1,4 +1,5 @@
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
+import config from '@/config';
 
 function formatSpellWithCorrectKeyOrder(spell) {
     // Set default
@@ -89,8 +90,6 @@ export async function createTransferCharmTxs(
     }
 
     // API endpoints
-    const walletApiUrl = process.env.NEXT_PUBLIC_WALLET_API_URL || 'http://localhost:3355';
-    const proverApiUrl = process.env.NEXT_PUBLIC_PROVE_API_URL;
 
     // Find the input that contains a charm (RJJ-TODO support multiple charms)
     let txid = null;
@@ -113,7 +112,7 @@ export async function createTransferCharmTxs(
     }
 
     // Fetch raw transaction data (prev tx)
-    const rawTxUrl = `${walletApiUrl}/bitcoin-cli/transaction/raw/${txid}`;
+    const rawTxUrl = `${config.api.wallet}/bitcoin-cli/transaction/raw/${txid}`;
 
     let prev_txs = [];
     try {
@@ -171,7 +170,7 @@ export async function createTransferCharmTxs(
         const startTime = new Date();
 
         // Send request to prover API
-        response = await fetch(`${proverApiUrl}/spells/prove`, {
+        response = await fetch(`${config.api.prover}/spells/prove`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

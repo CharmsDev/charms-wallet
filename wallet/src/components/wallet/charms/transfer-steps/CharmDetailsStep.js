@@ -86,7 +86,7 @@ export default function CharmDetailsStep({
                     </div>
                     <div>
                         <p className="text-dark-400">TXID:</p>
-                        <p className="font-medium font-mono truncate text-white">{charm.txid}</p>
+                        <p className="font-medium font-mono text-white break-all">{charm.txid}</p>
                     </div>
                 </div>
             </div>

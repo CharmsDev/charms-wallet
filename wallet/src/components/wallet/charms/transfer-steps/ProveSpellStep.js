@@ -140,9 +140,9 @@ export default function ProveSpellStep({
                     <h5 className="text-sm font-medium text-blue-400 mb-1">Funding UTXO Information</h5>
                     {highestUtxo ? (
                         <div className="text-xs font-mono">
-                            <div className="flex justify-between items-center mb-1">
+                            <div className="mb-1">
                                 <span className="text-blue-400">UTXO ID:</span>
-                                <span className="text-white">{highestUtxo.txid}:{highestUtxo.vout}</span>
+                                <div className="text-white break-all mt-1">{highestUtxo.txid}:{highestUtxo.vout}</div>
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-blue-400">Amount:</span>
@@ -151,9 +151,9 @@ export default function ProveSpellStep({
                         </div>
                     ) : (
                         <div className="text-xs font-mono">
-                            <div className="flex justify-between items-center mb-1">
+                            <div className="mb-1">
                                 <span className="text-blue-400">UTXO ID:</span>
-                                <span className="text-white">{charm.txid}:{charm.outputIndex}</span>
+                                <div className="text-white break-all mt-1">{charm.txid}:{charm.outputIndex}</div>
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-blue-400">Amount:</span>

@@ -24,7 +24,7 @@ export default function CharmsList() {
         <div>
             {/* Title and controls outside the card */}
             <div className="p-6 flex items-center">
-                <h2 className="text-xl font-bold gradient-text mr-6">My Charms</h2>
+                <h2 className="text-xl font-bold gradient-text mr-6 hidden md:block">My Charms</h2>
 
                 {/* Filter tabs */}
                 <div className="flex space-x-2 mr-auto">
