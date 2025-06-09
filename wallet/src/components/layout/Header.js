@@ -73,10 +73,9 @@ export default function Header({ activeSection, setActiveSection }) {
                         <div className="flex items-center">
                             <img
                                 src="https://charms.dev/_astro/logo-charms-dark.Ceshk2t3.png"
-                                alt="Charms Logo"
+                                alt="Charms Wallet"
                                 className="h-8"
                             />
-                            <span className="ml-2 text-xl font-bold tracking-tight gradient-text">Wallet</span>
                         </div>
 
                         {/* Blockchain and Network selection */}

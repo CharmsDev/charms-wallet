@@ -27,7 +27,7 @@ export default function AddressCard({
 
             <div className="flex items-center justify-between">
                 <div className="flex-1">
-                    <div className="font-mono text-sm truncate text-white">
+                    <div className="font-mono text-sm break-all text-white">
                         {address}
                     </div>
                     <span className="text-xs text-dark-300">{label}</span>
@@ -53,7 +53,7 @@ export default function AddressCard({
             {privateKey && (
                 <div className="mt-1 bg-dark-800 p-2 rounded-lg border border-dark-700">
                     <div className="flex items-center justify-between">
-                        <div className="font-mono text-sm truncate text-red-400">
+                        <div className="font-mono text-sm break-all text-red-400">
                             {privateKey}
                         </div>
                         <button
