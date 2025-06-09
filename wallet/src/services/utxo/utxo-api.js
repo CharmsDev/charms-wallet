@@ -26,15 +26,10 @@ export class UTXOApiService {
 
             // Select API based on network type
             if (config.bitcoin.isRegtest()) {
-                const apiUrl = `${config.api.wallet}/bitcoin-node/utxos/${address}`;
-                response = await fetch(apiUrl);
-            } else if (network === NETWORKS.BITCOIN.MAINNET) {
-                // Use mempool.space mainnet API
-                response = await fetch(`https://mempool.space/api/address/${address}/utxo`);
+                response = await fetch(`${config.api.wallet}/bitcoin-node/utxos/${address}`);
             } else {
-                // Use mempool.space testnet API
-                const mempoolApiUrl = config.bitcoin.getMempoolApiUrl();
-                response = await fetch(`${mempoolApiUrl}/address/${address}/utxo`);
+                // Use mempool.space API based on network
+                response = await fetch(`${config.bitcoin.getMempoolApiUrl()}/address/${address}/utxo`);
             }
 
             if (!response.ok) {
@@ -50,23 +45,10 @@ export class UTXOApiService {
     // Fetch Cardano UTXOs for a single address
     async getCardanoAddressUTXOs(address, network) {
         try {
-            let baseUrl;
-
-            // Select API based on network
-            if (network === NETWORKS.CARDANO.MAINNET) {
-                baseUrl = 'https://cardano-mainnet.blockfrost.io/api/v0';
-            } else {
-                // Default to preprod testnet
-                baseUrl = 'https://cardano-preprod.blockfrost.io/api/v0';
-            }
-
             // Use Blockfrost API to get UTXOs
-            // Note: In a real implementation, you would need to provide a project ID
-            const projectId = process.env.NEXT_PUBLIC_BLOCKFROST_PROJECT_ID || 'testnetProjectId';
-
-            const response = await fetch(`${baseUrl}/addresses/${address}/utxos`, {
+            const response = await fetch(`${config.cardano.getBlockfrostApiUrl()}/addresses/${address}/utxos`, {
                 headers: {
-                    'project_id': projectId
+                    'project_id': config.cardano.blockfrostProjectId
                 }
             });
 

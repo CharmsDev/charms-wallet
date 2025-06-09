@@ -5,14 +5,14 @@ import * as ecc from 'tiny-secp256k1';
 import { ECPairFactory } from 'ecpair';
 import * as bip39 from 'bip39';
 import { BIP32Factory } from 'bip32';
+import config from '@/config';
 
 // Initialize libraries
 bitcoin.initEccLib(ecc);
 const ECPair = ECPairFactory(ecc);
 const bip32 = BIP32Factory(ecc);
 
-// Get the network from environment variable
-const BITCOIN_NETWORK = process.env.NEXT_PUBLIC_BITCOIN_NETWORK || 'testnet';
+// Get the network from config
 
 // Create a regtest network configuration (based on testnet but with different prefix)
 const regtestNetwork = {
@@ -20,14 +20,14 @@ const regtestNetwork = {
     bech32: 'bcrt'
 };
 
-// Get the appropriate network based on the environment variable
+// Get the appropriate network based on the config
 function getNetwork() {
-    return BITCOIN_NETWORK === 'regtest' ? regtestNetwork : bitcoin.networks.testnet;
+    return config.bitcoin.isRegtest() ? regtestNetwork : bitcoin.networks.testnet;
 }
 
 // Validates a Bitcoin address based on the current network
 export function validateAddress(address) {
-    if (BITCOIN_NETWORK === 'regtest') {
+    if (config.bitcoin.isRegtest()) {
         // Check both taproot and segwit patterns for regtest
         const p2wpkhPattern = /^bcrt1q[a-z0-9]{38,39}$/;
         const p2trPattern = /^bcrt1p[a-z0-9]{58,59}$/;
@@ -55,9 +55,9 @@ export async function generateTaprootAddress(seedPhrase, index, isChange = false
         // Derive the account node using BIP86 path for taproot
         // For regtest, Bitcoin Core might use a different derivation path
         let derivationPath;
-        if (BITCOIN_NETWORK === 'mainnet') {
+        if (config.bitcoin.isMainnet()) {
             derivationPath = "m/86'/0'/0'";
-        } else if (BITCOIN_NETWORK === 'regtest') {
+        } else if (config.bitcoin.isRegtest()) {
             // Try using the same derivation path as mainnet for regtest
             derivationPath = "m/86'/0'/0'";
         } else {
@@ -106,9 +106,9 @@ export async function derivePrivateKey(seedPhrase, index, isChange = false) {
         // Derive the account node using BIP86 path for taproot
         // For regtest, Bitcoin Core might use a different derivation path
         let derivationPath;
-        if (BITCOIN_NETWORK === 'mainnet') {
+        if (config.bitcoin.isMainnet()) {
             derivationPath = "m/86'/0'/0'";
-        } else if (BITCOIN_NETWORK === 'regtest') {
+        } else if (config.bitcoin.isRegtest()) {
             // Try using the same derivation path as mainnet for regtest
             derivationPath = "m/86'/0'/0'";
         } else {
@@ -225,9 +225,9 @@ export async function deriveXpub(seedPhrase) {
         // Derive the account node using BIP86 path for taproot
         // For regtest, Bitcoin Core might use a different derivation path
         let derivationPath;
-        if (BITCOIN_NETWORK === 'mainnet') {
+        if (config.bitcoin.isMainnet()) {
             derivationPath = "m/86'/0'/0'";
-        } else if (BITCOIN_NETWORK === 'regtest') {
+        } else if (config.bitcoin.isRegtest()) {
             // Try using the same derivation path as mainnet for regtest
             derivationPath = "m/86'/0'/0'";
         } else {
