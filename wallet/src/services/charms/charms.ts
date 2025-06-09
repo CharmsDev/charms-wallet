@@ -1,8 +1,7 @@
 import { ProcessedCharm, UTXO, UTXOMap } from '@/types';
+import config from '@/config';
 
 class CharmsService {
-    private readonly CHARMS_API_BASE = process.env.NEXT_PUBLIC_CHARMS_API_URL || 'https://api-wallet-test.charms.dev';
-
     async getCharmsByUTXOs(utxos: UTXOMap): Promise<ProcessedCharm[]> {
         try {
             // Get all unique transaction IDs
@@ -11,7 +10,7 @@ class CharmsService {
             // Make all requests in parallel
             const responses = await Promise.all(
                 txIds.map(async txId => {
-                    const response = await fetch(`${this.CHARMS_API_BASE}/spells/${txId}`);
+                    const response = await fetch(`${config.api.charms}/spells/${txId}`);
                     if (!response.ok) return null;
                     const text = await response.text(); // Get response as text first
                     if (!text) return null; // If empty response, return null

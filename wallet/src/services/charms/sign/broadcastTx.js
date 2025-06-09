@@ -1,3 +1,5 @@
+import config from '@/config';
+
 // Broadcasts Bitcoin transactions
 export async function broadcastTransactions(signedCommitTx, signedSpellTx, logCallback = () => { }) {
     try {
@@ -8,11 +10,8 @@ export async function broadcastTransactions(signedCommitTx, signedSpellTx, logCa
         logCallback('Starting transaction broadcast process...');
         logCallback('Broadcasting both transactions together...');
 
-        // API endpoint for broadcasting
-        const apiUrl = process.env.NEXT_PUBLIC_WALLET_API_URL || 'http://localhost:3355';
-
         // Make API request with both transactions
-        const response = await fetch(`${apiUrl}/bitcoin-cli/wallet/broadcast`, {
+        const response = await fetch(`${config.api.wallet}/bitcoin-cli/wallet/broadcast`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
