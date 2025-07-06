@@ -7,18 +7,20 @@ export default function AddressPair({
     externalAddr,
     changeAddr,
     privateKeys,
-    onDelete
+    onCollapse
 }) {
     return (
-        <div className="glass-effect p-4 rounded-xl">
-            <div className="flex justify-between items-center mb-2">
-                <span className="font-medium text-sm text-primary-400">Address Pair - Index: {index}</span>
-                <button
-                    onClick={onDelete}
-                    className="px-3 py-1 text-xs text-white bg-red-600 hover:bg-red-700 rounded-full"
-                >
-                    Delete Pair
-                </button>
+        <div className="bg-gray-800 p-3 rounded-lg">
+            <div className="flex justify-between items-center mb-3">
+                <span className="font-bold text-gray-400">Index: {index}</span>
+                <div>
+                    <button
+                        onClick={onCollapse}
+                        className="px-3 py-1 text-xs text-white bg-gray-600 hover:bg-gray-700 rounded-full"
+                    >
+                        Collapse
+                    </button>
+                </div>
             </div>
 
             {/* Receiving address */}
@@ -26,8 +28,7 @@ export default function AddressPair({
                 <div className="mb-2">
                     <AddressCard
                         address={externalAddr.address}
-                        label="Receiving Address"
-                        borderColor="border-primary-500"
+                        label="Receiving"
                         privateKey={privateKeys[externalAddr.address]}
                     />
                 </div>
@@ -37,8 +38,7 @@ export default function AddressPair({
             {changeAddr && (
                 <AddressCard
                     address={changeAddr.address}
-                    label="Change Address"
-                    borderColor="border-bitcoin-500"
+                    label="Change"
                     privateKey={privateKeys[changeAddr.address]}
                 />
             )}

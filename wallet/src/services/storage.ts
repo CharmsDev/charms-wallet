@@ -77,11 +77,11 @@ export const addAddress = async (address: AddressEntry, blockchain?: string, net
     return newAddresses;
 };
 
-export const deleteAddress = async (addressToDelete: string, blockchain?: string, network?: string): Promise<AddressEntry[]> => {
-    const addresses = await getAddresses(blockchain, network);
-    const newAddresses = addresses.filter(addr => addr.address !== addressToDelete);
-    await saveAddresses(newAddresses, blockchain, network);
-    return newAddresses;
+export const addMultipleAddresses = async (newAddresses: AddressEntry[], blockchain?: string, network?: string): Promise<AddressEntry[]> => {
+    const existingAddresses = await getAddresses(blockchain, network);
+    const combinedAddresses = [...existingAddresses, ...newAddresses];
+    await saveAddresses(combinedAddresses, blockchain, network);
+    return combinedAddresses;
 };
 
 export const clearAddresses = async (blockchain?: string, network?: string): Promise<void> => {

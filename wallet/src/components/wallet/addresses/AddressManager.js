@@ -1,60 +1,28 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAddresses } from '@/stores/addressesStore';
 import { useWallet } from '@/stores/walletStore';
 import { useBlockchain } from '@/stores/blockchainStore';
+import { useUTXOs } from '@/stores/utxoStore';
 import { generateTaprootAddress, derivePrivateKey, organizeAddresses } from '@/utils/addressUtils';
 import { generateCardanoAddressFromSeed, deriveCardanoPrivateKeyFromSeed, organizeCardanoAddresses } from '@/utils/cardanoAddressUtils';
 
 // Import components
 import AddressControls from './components/AddressControls';
 import AddressList from './components/AddressList';
-import DeleteConfirmationDialog from './components/DeleteConfirmationDialog';
 
 export default function AddressManager() {
-    const { addresses, addAddress, deleteAddress } = useAddresses();
+    const { addresses, addAddress } = useAddresses();
     const { seedPhrase } = useWallet();
     const { activeBlockchain, isBitcoin, isCardano } = useBlockchain();
+    const { utxos } = useUTXOs();
 
+    const [filter, setFilter] = useState('all'); // 'all' or 'in-use'
+    const [visibleCount, setVisibleCount] = useState(16);
     const [addressError, setAddressError] = useState('');
-    const [showConfirmDelete, setShowConfirmDelete] = useState(false);
-    const [addressToDelete, setAddressToDelete] = useState(null);
     const [privateKeys, setPrivateKeys] = useState({});
     const [addressType, setAddressType] = useState('payment'); // 'payment' or 'staking' for Cardano
-
-    // Set address for deletion
-    const handleDeleteClick = (address) => {
-        setAddressToDelete(address);
-        setShowConfirmDelete(true);
-    };
-
-    // Delete selected addresses
-    const confirmDelete = () => {
-        if (addressToDelete) {
-            const addressEntry = addresses.find(addr => addr.address === addressToDelete);
-            if (addressEntry && addressEntry.index >= 0) {
-                // Delete both addresses with the same index
-                const addressesToDelete = addresses.filter(addr =>
-                    addr.index === addressEntry.index
-                );
-                addressesToDelete.forEach(addr => {
-                    deleteAddress(addr.address);
-                });
-            } else {
-                // Delete single custom address
-                deleteAddress(addressToDelete);
-            }
-            setAddressToDelete(null);
-            setShowConfirmDelete(false);
-        }
-    };
-
-    // Cancel deletion
-    const cancelDelete = () => {
-        setAddressToDelete(null);
-        setShowConfirmDelete(false);
-    };
 
     // Generate new address based on active blockchain
     const generateNewAddress = async () => {
@@ -163,6 +131,23 @@ export default function AddressManager() {
         }
     }, [addresses, seedPhrase]);
 
+    const filteredAddresses = useMemo(() => {
+        if (filter === 'in-use') {
+            return addresses.filter(addr => utxos[addr.address] && utxos[addr.address].length > 0);
+        }
+        return addresses;
+    }, [addresses, filter, utxos]);
+
+    const visibleAddresses = useMemo(() => {
+        return filteredAddresses.slice(0, visibleCount);
+    }, [filteredAddresses, visibleCount]);
+
+    const handleShowMore = () => {
+        setVisibleCount(prevCount => prevCount + 8);
+    };
+
+    const canGenerateMore = filteredAddresses.length <= visibleCount;
+
     return (
         <div>
             {/* Title and controls outside the card */}
@@ -173,6 +158,9 @@ export default function AddressManager() {
                     isCardano={isCardano()}
                     addressType={addressType}
                     onToggleAddressType={toggleAddressType}
+                    filter={filter}
+                    onFilterChange={setFilter}
+                    canGenerateMore={canGenerateMore}
                 />
 
                 {addressError && (
@@ -181,23 +169,23 @@ export default function AddressManager() {
             </div>
 
             {/* Main address container */}
-            <div className="card p-6 mb-6">
+            <div className="card mb-6">
                 <AddressList
-                    addresses={addresses}
+                    addresses={visibleAddresses}
                     privateKeys={privateKeys}
-                    onDeleteClick={handleDeleteClick}
                     isCardano={isCardano()}
                 />
+                <div className="p-4 text-center">
+                    <p className="text-sm text-gray-400 mb-3">
+                        Showing {visibleAddresses.length} of {filteredAddresses.length} addresses
+                    </p>
+                    {filteredAddresses.length > visibleCount && (
+                        <button onClick={handleShowMore} className="btn btn-secondary">
+                            Show More
+                        </button>
+                    )}
+                </div>
             </div>
-
-            {/* Delete confirmation dialog */}
-            <DeleteConfirmationDialog
-                isOpen={showConfirmDelete}
-                addressToDelete={addressToDelete}
-                addresses={addresses}
-                onConfirm={confirmDelete}
-                onCancel={cancelDelete}
-            />
         </div>
     );
 }

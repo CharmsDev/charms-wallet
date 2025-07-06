@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect } from 'react';
-import { getAddresses, addAddress as addStorageAddress, deleteAddress as deleteStorageAddress, clearAddresses as clearStorageAddresses } from '@/services/storage';
+import { getAddresses, addAddress as addStorageAddress, addMultipleAddresses as addMultipleStorageAddresses, clearAddresses as clearStorageAddresses } from '@/services/storage';
 import { useBlockchain } from '@/stores/blockchainStore';
 
 // Create context
@@ -57,15 +57,19 @@ export function AddressesProvider({ children }) {
         }
     };
 
-    // Delete an address
-    const deleteAddress = async (addressToDelete) => {
+    // Add multiple new addresses
+    const addMultipleAddresses = async (newAddresses) => {
         try {
-            const newAddresses = await deleteStorageAddress(addressToDelete, activeBlockchain, activeNetwork);
-            setAddresses(newAddresses);
-            return newAddresses;
+            const addressesWithBlockchain = newAddresses.map(addr => ({
+                ...addr,
+                blockchain: activeBlockchain
+            }));
+
+            const updatedAddresses = await addMultipleStorageAddresses(addressesWithBlockchain, activeBlockchain, activeNetwork);
+            setAddresses(updatedAddresses);
+            return updatedAddresses;
         } catch (error) {
-            // Error deleting address
-            console.error('Error deleting address:', error);
+            console.error('Error adding multiple addresses:', error);
             return addresses;
         }
     };
@@ -85,7 +89,7 @@ export function AddressesProvider({ children }) {
     const value = {
         addresses,
         addAddress,
-        deleteAddress,
+        addMultipleAddresses,
         loadAddresses,
         clearAddresses
     };

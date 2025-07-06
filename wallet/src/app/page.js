@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useWallet } from '@/stores/walletStore';
+import { useAddresses } from '@/stores/addressesStore';
+import { generateInitialBitcoinAddresses } from '@/utils/addressUtils';
 import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
 import WalletCreation from '@/components/wallet/setup/WalletCreation';
@@ -12,6 +14,7 @@ bitcoin.initEccLib(ecc);
 
 export default function Home() {
   const { hasWallet, seedPhrase, isLoading, error, createWallet, importWallet } = useWallet();
+  const { addresses, addMultipleAddresses } = useAddresses();
   const [createSuccess, setCreateSuccess] = useState(false);
   const [walletInfo, setWalletInfo] = useState({
     xpub: '',
@@ -21,36 +24,31 @@ export default function Home() {
     derivationLoading: false
   });
 
-  // Derive wallet info on seed phrase
+  // Derive wallet info and generate initial addresses
   useEffect(() => {
-    const deriveWalletInfo = async () => {
+    const setupWallet = async () => {
       if (hasWallet && seedPhrase) {
         try {
           setWalletInfo(prev => ({ ...prev, derivationLoading: true }));
-
-          // Import deriveXpubFromSeedPhrase from descriptorUtils
           const { deriveXpubFromSeedPhrase } = await import('@/utils/descriptorUtils');
-
-          // Derive wallet info from seed phrase
           const { xpub, xpriv, fingerprint, path } = await deriveXpubFromSeedPhrase(seedPhrase);
+          setWalletInfo({ xpub, xpriv, fingerprint, path, derivationLoading: false });
 
-          // Set wallet info
-          setWalletInfo({
-            xpub,
-            xpriv,
-            fingerprint,
-            path,
-            derivationLoading: false
-          });
+          if (addresses.length === 0) {
+            const initialAddresses = await generateInitialBitcoinAddresses(seedPhrase);
+            console.log('Saving addresses to storage...');
+            await addMultipleAddresses(initialAddresses);
+            console.log('Addresses saved.');
+          }
         } catch (error) {
-          // Error deriving wallet info
+          console.error("Failed to setup wallet:", error);
           setWalletInfo(prev => ({ ...prev, derivationLoading: false }));
         }
       }
     };
 
-    deriveWalletInfo();
-  }, [hasWallet, seedPhrase]);
+    setupWallet();
+  }, [hasWallet, seedPhrase, addresses.length, addMultipleAddresses]);
 
   const handleCreateWallet = async () => {
     try {

@@ -183,6 +183,32 @@ export async function copyToClipboard(text) {
     }
 }
 
+// Generates the initial set of Bitcoin Taproot addresses
+export async function generateInitialBitcoinAddresses(seedPhrase) {
+    console.log('Starting generation of 256 address pairs...');
+    const addresses = [];
+    for (let i = 0; i < 256; i++) {
+        console.log(`Generating index ${i}...`);
+        const externalAddress = await generateTaprootAddress(seedPhrase, i, false);
+        addresses.push({
+            address: externalAddress,
+            index: i,
+            isChange: false,
+            created: new Date().toISOString()
+        });
+
+        const changeAddress = await generateTaprootAddress(seedPhrase, i, true);
+        addresses.push({
+            address: changeAddress,
+            index: i,
+            isChange: true,
+            created: new Date().toISOString()
+        });
+    }
+    console.log('Finished generating addresses.');
+    return addresses;
+}
+
 /**
  * Group addresses into pairs and custom addresses
  * @param {Array} addresses - Array of address objects
