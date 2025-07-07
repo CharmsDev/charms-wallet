@@ -31,9 +31,9 @@ export default function Home() {
   // Load wallet info when wallet exists and is not initializing
   useEffect(() => {
     if (hasWallet && seedPhrase && !isInitializing && !derivationLoading) {
-      loadWalletInfo(seedPhrase);
+      loadWalletInfo(seedPhrase, activeBlockchain, activeNetwork);
     }
-  }, [hasWallet, seedPhrase, isInitializing, derivationLoading, loadWalletInfo]);
+  }, [hasWallet, seedPhrase, isInitializing, derivationLoading, loadWalletInfo, activeBlockchain, activeNetwork]);
 
   const handleCreateWallet = async () => {
     try {

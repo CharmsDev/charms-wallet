@@ -19,7 +19,7 @@ export default function WalletDashboard({ seedPhrase, walletInfo, derivationLoad
         generationProgress,
         clearAddresses
     } = useAddresses();
-    const { utxos, loadUTXOs } = useUTXOs();
+    const { utxos, loadUTXOs, clearUTXOs } = useUTXOs();
     const { charms, loadCharms } = useCharms();
 
     // Copy text with notification
@@ -38,17 +38,14 @@ export default function WalletDashboard({ seedPhrase, walletInfo, derivationLoad
             // Clear in-memory state in all stores
             await clearWallet();
             await clearAddresses();
+            clearUTXOs();
 
-            // Reset UTXOs and Charms state
-            // Since these stores don't have explicit clear functions,
-            // we'll force a reload which will result in empty states
-            // since the addresses have been cleared
-            await loadUTXOs();
+            // Reset Charms state by loading with empty UTXOs
             await loadCharms();
 
             setShowDeleteDialog(false);
         } catch (error) {
-            // Error deleting wallet
+            console.error('Error deleting wallet:', error);
         }
     };
 

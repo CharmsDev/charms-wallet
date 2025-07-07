@@ -5,8 +5,19 @@ import { isNFT, isToken, getCharmDisplayName } from './utils/charm-utils';
 let charmsJs: any = null;
 
 async function getCharmsJs() {
-    console.log('[CHARMS] Charms functionality temporarily disabled');
-    return null;
+    if (charmsJs) {
+        return charmsJs;
+    }
+
+    try {
+        console.log('[CHARMS] Loading charms-js library...');
+        charmsJs = await import('charms-js');
+        console.log('[CHARMS] charms-js library loaded successfully');
+        return charmsJs;
+    } catch (error) {
+        console.error('[CHARMS] Failed to load charms-js library:', error);
+        return null;
+    }
 }
 
 /**

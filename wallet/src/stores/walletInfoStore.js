@@ -16,8 +16,8 @@ const useWalletInfoStore = create((set, get) => ({
     initialized: false,
 
     // Load wallet info from storage or derive it if not available
-    loadWalletInfo: async (seedPhrase) => {
-        console.log('🔑 [WALLET_INFO] loadWalletInfo called');
+    loadWalletInfo: async (seedPhrase, blockchain, network) => {
+        console.log(`🔑 [WALLET_INFO] loadWalletInfo called for ${blockchain}-${network}`);
         const startTime = performance.now();
         const state = get();
 
@@ -39,7 +39,7 @@ const useWalletInfoStore = create((set, get) => ({
         try {
             console.log('💾 [WALLET_INFO] Checking storage for existing wallet info...');
             const storageStartTime = performance.now();
-            let info = await getWalletInfo();
+            let info = await getWalletInfo(blockchain, network);
             console.log(`💾 [WALLET_INFO] Storage check completed in ${(performance.now() - storageStartTime).toFixed(2)}ms, found: ${!!info}`);
 
             if (!info) {
@@ -50,7 +50,7 @@ const useWalletInfoStore = create((set, get) => ({
 
                 console.log('💾 [WALLET_INFO] Saving derived wallet info...');
                 const saveStartTime = performance.now();
-                await saveWalletInfo(info);
+                await saveWalletInfo(info, blockchain, network);
                 console.log(`💾 [WALLET_INFO] Save completed in ${(performance.now() - saveStartTime).toFixed(2)}ms`);
             } else {
                 console.log('✅ [WALLET_INFO] Using stored wallet info');

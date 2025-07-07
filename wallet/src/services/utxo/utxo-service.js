@@ -72,8 +72,8 @@ export class UTXOService {
                     if (utxos && utxos.length > 0) {
                         utxoMap[address] = utxos;
 
-                        // Store immediately when UTXOs are found
-                        await this.storage.storeUTXOs({ [address]: utxos }, blockchain, network);
+                        // Store immediately when UTXOs are found - but merge with existing data
+                        await this.storage.updateAddressUTXOs(address, utxos, blockchain, network);
 
                         // Call progress callback if provided
                         if (onProgress) {
@@ -128,6 +128,10 @@ export class UTXOService {
                     }
                 }
             }
+
+            // Store the complete UTXO map at the end to ensure consistency
+            console.log(`[UTXO SERVICE] Storing final UTXO map with ${Object.keys(utxoMap).length} addresses`);
+            await this.storage.storeUTXOs(utxoMap, blockchain, network);
 
             return utxoMap;
         } catch (error) {

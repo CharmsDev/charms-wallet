@@ -4,24 +4,50 @@ import { useState, useEffect } from 'react';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
+import { useWallet } from '@/stores/walletStore';
 import config from '@/config';
 import SendBitcoinDialog from './SendBitcoinDialog';
 
 export default function UTXOList() {
-    const { utxos, isLoading, error, totalBalance, refreshProgress, refreshUTXOs, formatValue } = useUTXOs();
-    const { addresses } = useAddresses();
-    const { isBitcoin, isCardano } = useBlockchain();
+    const {
+        utxos,
+        isLoading,
+        error,
+        totalBalance,
+        refreshProgress,
+        loadUTXOs,
+        refreshUTXOs,
+        formatValue,
+        initialized
+    } = useUTXOs();
+    const { addresses, loadAddresses } = useAddresses();
+    const { activeBlockchain, activeNetwork, isBitcoin, isCardano } = useBlockchain();
+    const { seedPhrase } = useWallet();
     const [flattenedUtxos, setFlattenedUtxos] = useState([]);
     const [isSendDialogOpen, setIsSendDialogOpen] = useState(false);
     const [confirmedUtxos, setConfirmedUtxos] = useState([]);
 
-    // Refresh UTXOs on component mount
+    // Load addresses when component mounts - CRITICAL for UTXO loading to work
     useEffect(() => {
-        // If we're in regtest mode or using Cardano, refresh UTXOs on mount
-        if (config.bitcoin.isRegtest() || isCardano()) {
-            refreshUTXOs();
+        if (seedPhrase && activeBlockchain && activeNetwork) {
+            loadAddresses(seedPhrase, activeBlockchain, activeNetwork);
         }
-    }, []);
+    }, [seedPhrase, activeBlockchain, activeNetwork, loadAddresses]);
+
+    // Load UTXOs from localStorage when addresses are available
+    useEffect(() => {
+        if (addresses.length > 0) {
+            loadUTXOs(activeBlockchain, activeNetwork);
+        }
+    }, [addresses, activeBlockchain, activeNetwork, loadUTXOs]);
+
+    // Auto-refresh UTXOs on component mount for regtest/cardano
+    useEffect(() => {
+        // Only auto-refresh if we have addresses and UTXOs are already loaded
+        if (addresses.length > 0 && initialized && (config.bitcoin.isRegtest() || isCardano())) {
+            refreshUTXOs(activeBlockchain, activeNetwork);
+        }
+    }, [addresses, initialized, activeBlockchain, activeNetwork, refreshUTXOs, isCardano]);
 
     // Flatten UTXOs, add isChange flag, and filter confirmed UTXOs
     useEffect(() => {
@@ -55,7 +81,7 @@ export default function UTXOList() {
     }, [utxos, addresses, formatValue]);
 
     const handleRefresh = async () => {
-        await refreshUTXOs();
+        await refreshUTXOs(activeBlockchain, activeNetwork);
     };
 
     const handleOpenSendDialog = () => {
@@ -69,7 +95,7 @@ export default function UTXOList() {
 
         // Transaction has been sent successfully
         // Just refresh UTXOs to show updated balances
-        refreshUTXOs();
+        refreshUTXOs(activeBlockchain, activeNetwork);
     };
 
 
@@ -77,7 +103,7 @@ export default function UTXOList() {
         return (
             <div>
                 <div className="p-6 flex justify-between items-center">
-                    <h2 className="text-xl font-bold gradient-text">UTXOs</h2>
+                    <h2 className="text-xl font-bold gradient-text">Your UTXOs</h2>
                     <button
                         className="btn btn-primary"
                         onClick={handleRefresh}
@@ -105,7 +131,7 @@ export default function UTXOList() {
     return (
         <div>
             <div className="p-6 flex justify-between items-center">
-                <h2 className="text-xl font-bold gradient-text">UTXOs</h2>
+                <h2 className="text-xl font-bold gradient-text">Your UTXOs</h2>
                 <div className="flex space-x-2">
                     {/* Send buttons commented out for mobile view
                     {isBitcoin() && (

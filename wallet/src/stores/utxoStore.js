@@ -1,129 +1,183 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect } from 'react';
+import { create } from 'zustand';
 import { utxoService } from '@/services/utxo';
-import { useAddresses } from './addressesStore';
-import { useBlockchain } from './blockchainStore';
+import { BLOCKCHAINS, NETWORKS } from './blockchainStore';
 
-const UTXOContext = createContext();
+const useUTXOStore = create((set, get) => ({
+    utxos: {},
+    isLoading: false,
+    error: null,
+    totalBalance: 0,
+    refreshProgress: { processed: 0, total: 0, isRefreshing: false },
+    initialized: false,
 
-export const useUTXOs = () => {
-    const context = useContext(UTXOContext);
-    if (!context) {
-        throw new Error('useUTXOs must be used within a UTXOProvider');
-    }
-    return context;
-};
+    // Load UTXOs from localStorage
+    loadUTXOs: async (blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
+        const state = get();
 
-export function UTXOProvider({ children }) {
-    const [utxos, setUTXOs] = useState({});
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [totalBalance, setTotalBalance] = useState(0);
-    const [refreshProgress, setRefreshProgress] = useState({ processed: 0, total: 0, isRefreshing: false });
-    const { addresses } = useAddresses();
-    const { activeBlockchain, activeNetwork, isBitcoin, isCardano } = useBlockchain();
-
-    // Trigger UTXO loading when addresses change or blockchain/network changes
-    useEffect(() => {
-        if (addresses.length > 0) {
-            loadUTXOs();
+        // Prevent multiple simultaneous loads
+        if (state.isLoading) {
+            return;
         }
-    }, [addresses, activeBlockchain, activeNetwork]);
 
+        set({ isLoading: true, error: null });
 
-    // Recalculate balance when UTXOs change
-    useEffect(() => {
-        const balance = utxoService.calculateTotalBalance(utxos);
-        setTotalBalance(balance);
-    }, [utxos]);
-
-    const loadUTXOs = async () => {
         try {
-            setIsLoading(true);
-            setError(null);
-            const storedUTXOs = await utxoService.getStoredUTXOs(activeBlockchain, activeNetwork);
-            setUTXOs(storedUTXOs);
+            console.log(`[UTXO STORE] Loading UTXOs for ${blockchain}-${network}`);
+
+            const storedUTXOs = await utxoService.getStoredUTXOs(blockchain, network);
+            const balance = utxoService.calculateTotalBalance(storedUTXOs);
+
+            set({
+                utxos: storedUTXOs,
+                totalBalance: balance,
+                isLoading: false,
+                initialized: true
+            });
+
+            console.log(`[UTXO STORE] Loaded ${Object.keys(storedUTXOs).length} addresses with UTXOs, balance: ${balance}`);
         } catch (error) {
             console.error('Failed to load UTXOs:', error);
-            setError('Failed to load UTXOs');
-            setUTXOs({});
-        } finally {
-            setIsLoading(false);
+            set({
+                error: 'Failed to load UTXOs',
+                utxos: {},
+                totalBalance: 0,
+                isLoading: false,
+                initialized: true
+            });
         }
-    };
+    },
 
-    const refreshUTXOs = async () => {
+    // Refresh UTXOs from API and store them
+    refreshUTXOs: async (blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
+        const state = get();
+
+        if (state.refreshProgress.isRefreshing) {
+            return;
+        }
+
         try {
-            setError(null);
-            setRefreshProgress({ processed: 0, total: 0, isRefreshing: true });
+            set({
+                error: null,
+                refreshProgress: { processed: 0, total: 0, isRefreshing: true }
+            });
+
+            console.log(`[UTXO STORE] Refreshing UTXOs for ${blockchain}-${network}`);
 
             // Progress callback to update UTXOs dynamically
             const onProgress = (progressData) => {
-                setRefreshProgress({
-                    processed: progressData.processed,
-                    total: progressData.total,
-                    isRefreshing: true
+                set({
+                    refreshProgress: {
+                        processed: progressData.processed,
+                        total: progressData.total,
+                        isRefreshing: true
+                    }
                 });
 
                 // Update UTXOs immediately when new ones are found
                 if (progressData.hasUtxos && progressData.utxos.length > 0) {
-                    setUTXOs(prevUTXOs => ({
-                        ...prevUTXOs,
+                    const currentState = get();
+                    const updatedUTXOs = {
+                        ...currentState.utxos,
                         [progressData.address]: progressData.utxos
-                    }));
+                    };
+                    const newBalance = utxoService.calculateTotalBalance(updatedUTXOs);
+
+                    set({
+                        utxos: updatedUTXOs,
+                        totalBalance: newBalance
+                    });
                 }
             };
 
             const fetchedUTXOs = await utxoService.fetchAndStoreAllUTXOsSequential(
-                activeBlockchain,
-                activeNetwork,
+                blockchain,
+                network,
                 onProgress
             );
 
-            setUTXOs(fetchedUTXOs);
+            const finalBalance = utxoService.calculateTotalBalance(fetchedUTXOs);
+
+            set({
+                utxos: fetchedUTXOs,
+                totalBalance: finalBalance,
+                refreshProgress: { processed: 0, total: 0, isRefreshing: false }
+            });
+
+            console.log(`[UTXO STORE] Refresh completed, final balance: ${finalBalance}`);
 
         } catch (error) {
             console.error('Failed to refresh UTXOs:', error);
-            setError('Failed to refresh UTXOs: ' + error.message);
-        } finally {
-            setRefreshProgress({ processed: 0, total: 0, isRefreshing: false });
+            set({
+                error: 'Failed to refresh UTXOs: ' + error.message,
+                refreshProgress: { processed: 0, total: 0, isRefreshing: false }
+            });
         }
-    };
+    },
 
-    const getAddressUTXOs = async (address) => {
+    // Get UTXOs for a specific address
+    getAddressUTXOs: async (address, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
-            return await utxoService.getAddressUTXOs(address, activeBlockchain, activeNetwork);
+            return await utxoService.getAddressUTXOs(address, blockchain, network);
         } catch (error) {
             console.error('Failed to get address UTXOs:', error);
             return [];
         }
-    };
+    },
+
+    // Update UTXOs after a transaction
+    updateAfterTransaction: async (spentUtxos, newUtxos = {}, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
+        try {
+            const updatedUTXOs = await utxoService.updateAfterTransaction(spentUtxos, newUtxos, blockchain, network);
+            const newBalance = utxoService.calculateTotalBalance(updatedUTXOs);
+
+            set({
+                utxos: updatedUTXOs,
+                totalBalance: newBalance
+            });
+
+            return updatedUTXOs;
+        } catch (error) {
+            console.error('Failed to update UTXOs after transaction:', error);
+            throw error;
+        }
+    },
 
     // Format value based on blockchain
-    const formatValue = (value) => {
-        if (isBitcoin()) {
+    formatValue: (value, blockchain = BLOCKCHAINS.BITCOIN) => {
+        if (blockchain === BLOCKCHAINS.BITCOIN) {
             return utxoService.formatSats(value);
-        } else if (isCardano()) {
+        } else if (blockchain === BLOCKCHAINS.CARDANO) {
             // Format ADA (1 ADA = 1,000,000 lovelace)
             return (value / 1000000).toFixed(6) + ' ADA';
         }
         return value.toString();
-    };
+    },
 
-    const value = {
-        utxos,
-        isLoading,
-        error,
-        totalBalance,
-        refreshProgress,
-        loadUTXOs,
-        refreshUTXOs,
-        getAddressUTXOs,
-        formatValue,
-        activeBlockchain,
-        activeNetwork
-    };
+    // Clear UTXOs
+    clearUTXOs: () => {
+        set({
+            utxos: {},
+            totalBalance: 0,
+            error: null,
+            refreshProgress: { processed: 0, total: 0, isRefreshing: false },
+            initialized: false
+        });
+    },
 
-    return <UTXOContext.Provider value={value}>{children}</UTXOContext.Provider>;
+    // Reset error state
+    clearError: () => {
+        set({ error: null });
+    }
+}));
+
+export const useUTXOs = () => {
+    const state = useUTXOStore();
+    return state;
+};
+
+// For backward compatibility, export a provider that doesn't do anything
+export function UTXOProvider({ children }) {
+    return children;
 }
