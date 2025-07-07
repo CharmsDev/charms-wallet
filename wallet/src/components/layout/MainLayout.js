@@ -3,18 +3,25 @@
 import { useState, Suspense, lazy } from 'react';
 import Header from './Header';
 import Footer from './Footer';
-import UTXOList from '@/components/wallet/utxos/UTXOList';
-import CharmsList from '@/components/wallet/charms/CharmsList';
 
-// Dynamically import components that use WebAssembly
-const AddressManager = lazy(() => import('@/components/wallet/addresses/AddressManager'));
+// Import AddressManager and UTXOList directly for instant loading, lazy load others
+import AddressManager from '@/components/wallet/addresses/AddressManager';
+import UTXOList from '@/components/wallet/utxos/UTXOList';
+const CharmsList = lazy(() => import('@/components/wallet/charms/CharmsList'));
 
 export default function MainLayout({ children }) {
     const [activeSection, setActiveSection] = useState('wallets');
+    const [loadedSections, setLoadedSections] = useState(new Set(['wallets']));
+
+    // Track which sections have been loaded
+    const handleSectionChange = (section) => {
+        setActiveSection(section);
+        setLoadedSections(prev => new Set([...prev, section]));
+    };
 
     return (
         <div className="min-h-screen flex flex-col bg-dark-950 relative">
-            <Header activeSection={activeSection} setActiveSection={setActiveSection} />
+            <Header activeSection={activeSection} setActiveSection={handleSectionChange} />
 
             {/* Main content section - added pt-32 to account for fixed header */}
             <main className="flex-grow py-8 pt-32">
@@ -27,31 +34,37 @@ export default function MainLayout({ children }) {
                         {children}
                     </div>
 
-                    {/* Addresses section */}
-                    <div
-                        className={`transition-opacity duration-200 ${activeSection !== "addresses" ? "opacity-0 hidden" : ""
-                            }`}
-                    >
-                        <Suspense fallback={<div>Loading address manager...</div>}>
+                    {/* Addresses section - instant loading */}
+                    {loadedSections.has('addresses') && (
+                        <div
+                            className={`transition-opacity duration-200 ${activeSection !== "addresses" ? "opacity-0 hidden" : ""
+                                }`}
+                        >
                             <AddressManager />
-                        </Suspense>
-                    </div>
+                        </div>
+                    )}
 
-                    {/* UTXOs section */}
-                    <div
-                        className={`transition-opacity duration-200 ${activeSection !== "utxos" ? "opacity-0 hidden" : ""
-                            }`}
-                    >
-                        <UTXOList />
-                    </div>
+                    {/* UTXOs section - instant loading */}
+                    {loadedSections.has('utxos') && (
+                        <div
+                            className={`transition-opacity duration-200 ${activeSection !== "utxos" ? "opacity-0 hidden" : ""
+                                }`}
+                        >
+                            <UTXOList />
+                        </div>
+                    )}
 
-                    {/* Charms section */}
-                    <div
-                        className={`transition-opacity duration-200 ${activeSection !== "charms" ? "opacity-0 hidden" : ""
-                            }`}
-                    >
-                        <CharmsList />
-                    </div>
+                    {/* Charms section - lazy loaded */}
+                    {loadedSections.has('charms') && (
+                        <div
+                            className={`transition-opacity duration-200 ${activeSection !== "charms" ? "opacity-0 hidden" : ""
+                                }`}
+                        >
+                            <Suspense fallback={<div className="card p-6">Loading charms...</div>}>
+                                <CharmsList />
+                            </Suspense>
+                        </div>
+                    )}
 
                     {/* Settings section */}
                     <div

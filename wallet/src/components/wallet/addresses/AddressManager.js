@@ -1,60 +1,43 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAddresses } from '@/stores/addressesStore';
 import { useWallet } from '@/stores/walletStore';
 import { useBlockchain } from '@/stores/blockchainStore';
+import { useUTXOs } from '@/stores/utxoStore';
 import { generateTaprootAddress, derivePrivateKey, organizeAddresses } from '@/utils/addressUtils';
 import { generateCardanoAddressFromSeed, deriveCardanoPrivateKeyFromSeed, organizeCardanoAddresses } from '@/utils/cardanoAddressUtils';
 
 // Import components
 import AddressControls from './components/AddressControls';
 import AddressList from './components/AddressList';
-import DeleteConfirmationDialog from './components/DeleteConfirmationDialog';
 
 export default function AddressManager() {
-    const { addresses, addAddress, deleteAddress } = useAddresses();
+    const {
+        addresses,
+        addAddress,
+        generateMoreAddresses,
+        isGenerating,
+        generationProgress,
+        loadAddresses,
+        loading
+    } = useAddresses();
     const { seedPhrase } = useWallet();
-    const { activeBlockchain, isBitcoin, isCardano } = useBlockchain();
+    const { activeBlockchain, activeNetwork, isBitcoin, isCardano } = useBlockchain();
+    const { utxos } = useUTXOs();
 
+    const [filter, setFilter] = useState('all'); // 'all' or 'in-use'
+    const [visibleCount, setVisibleCount] = useState(16);
     const [addressError, setAddressError] = useState('');
-    const [showConfirmDelete, setShowConfirmDelete] = useState(false);
-    const [addressToDelete, setAddressToDelete] = useState(null);
     const [privateKeys, setPrivateKeys] = useState({});
     const [addressType, setAddressType] = useState('payment'); // 'payment' or 'staking' for Cardano
 
-    // Set address for deletion
-    const handleDeleteClick = (address) => {
-        setAddressToDelete(address);
-        setShowConfirmDelete(true);
-    };
-
-    // Delete selected addresses
-    const confirmDelete = () => {
-        if (addressToDelete) {
-            const addressEntry = addresses.find(addr => addr.address === addressToDelete);
-            if (addressEntry && addressEntry.index >= 0) {
-                // Delete both addresses with the same index
-                const addressesToDelete = addresses.filter(addr =>
-                    addr.index === addressEntry.index
-                );
-                addressesToDelete.forEach(addr => {
-                    deleteAddress(addr.address);
-                });
-            } else {
-                // Delete single custom address
-                deleteAddress(addressToDelete);
-            }
-            setAddressToDelete(null);
-            setShowConfirmDelete(false);
+    // Load addresses when component mounts
+    useEffect(() => {
+        if (seedPhrase && activeBlockchain && activeNetwork) {
+            loadAddresses(seedPhrase, activeBlockchain, activeNetwork);
         }
-    };
-
-    // Cancel deletion
-    const cancelDelete = () => {
-        setAddressToDelete(null);
-        setShowConfirmDelete(false);
-    };
+    }, [seedPhrase, activeBlockchain, activeNetwork, loadAddresses]);
 
     // Generate new address based on active blockchain
     const generateNewAddress = async () => {
@@ -66,40 +49,14 @@ export default function AddressManager() {
             }
 
             if (isBitcoin()) {
-                await generateBitcoinAddress();
+                // Use the optimized store function for Bitcoin
+                await generateMoreAddresses(seedPhrase, activeBlockchain, activeNetwork, 5);
             } else if (isCardano()) {
                 await generateCardanoAddress();
             }
         } catch (error) {
             setAddressError('Failed to generate addresses: ' + error.message);
         }
-    };
-
-    // Generate Bitcoin addresses (external and change)
-    const generateBitcoinAddress = async () => {
-        // Calculate next indices
-        const externalAddresses = addresses.filter(addr => addr.index >= 0 && !addr.isChange);
-        const nextExternalIndex = externalAddresses.length;
-        const changeAddresses = addresses.filter(addr => addr.index >= 0 && addr.isChange);
-        const nextChangeIndex = changeAddresses.length;
-
-        // Generate addresses
-        const newExternalAddress = await generateTaprootAddress(seedPhrase, nextExternalIndex, false);
-        const newChangeAddress = await generateTaprootAddress(seedPhrase, nextChangeIndex, true);
-
-        // Store addresses
-        await addAddress({
-            address: newExternalAddress,
-            index: nextExternalIndex,
-            isChange: false,
-            created: new Date().toISOString()
-        });
-        await addAddress({
-            address: newChangeAddress,
-            index: nextChangeIndex,
-            isChange: true,
-            created: new Date().toISOString()
-        });
     };
 
     // Generate Cardano address (payment or staking)
@@ -156,48 +113,128 @@ export default function AddressManager() {
         }
     };
 
-    // Derive private keys when addresses change
-    useEffect(() => {
-        if (addresses.length > 0 && seedPhrase) {
-            deriveAllPrivateKeys();
+    // Derive private keys on-demand for specific addresses
+    const derivePrivateKeysForAddresses = async (externalAddr, changeAddr) => {
+        try {
+            if (!seedPhrase) {
+                setAddressError('No wallet found');
+                return;
+            }
+
+            const newKeys = { ...privateKeys };
+
+            // Derive external address private key
+            if (externalAddr && externalAddr.index >= 0) {
+                let privKey;
+                if (isBitcoin()) {
+                    privKey = await derivePrivateKey(seedPhrase, externalAddr.index, externalAddr.isChange);
+                } else if (isCardano()) {
+                    privKey = await deriveCardanoPrivateKeyFromSeed(seedPhrase, externalAddr.index, externalAddr.isStaking);
+                }
+                newKeys[externalAddr.address] = privKey;
+            }
+
+            // Derive change address private key
+            if (changeAddr && changeAddr.index >= 0) {
+                let privKey;
+                if (isBitcoin()) {
+                    privKey = await derivePrivateKey(seedPhrase, changeAddr.index, changeAddr.isChange);
+                } else if (isCardano()) {
+                    privKey = await deriveCardanoPrivateKeyFromSeed(seedPhrase, changeAddr.index, changeAddr.isStaking);
+                }
+                newKeys[changeAddr.address] = privKey;
+            }
+
+            setPrivateKeys(newKeys);
+        } catch (error) {
+            setAddressError('Failed to derive private keys: ' + error.message);
         }
-    }, [addresses, seedPhrase]);
+    };
+
+    const filteredAddresses = useMemo(() => {
+        if (filter === 'in-use') {
+            // For "in-use" filter, only show address pairs where at least one address has UTXOs
+            const { addressPairs } = organizeAddresses(addresses);
+            const filteredPairs = [];
+
+            Object.entries(addressPairs).forEach(([index, addrGroup]) => {
+                const externalAddr = addrGroup.find(a => !a.isChange);
+                const changeAddr = addrGroup.find(a => a.isChange);
+
+                const externalInUse = externalAddr && utxos && utxos[externalAddr.address] && utxos[externalAddr.address].length > 0;
+                const changeInUse = changeAddr && utxos && utxos[changeAddr.address] && utxos[changeAddr.address].length > 0;
+
+                // Include this pair if either address is in use
+                if (externalInUse || changeInUse) {
+                    filteredPairs.push(...addrGroup);
+                }
+            });
+
+            return filteredPairs;
+        }
+        return addresses;
+    }, [addresses, filter, utxos]);
+
+    const visibleAddresses = useMemo(() => {
+        return filteredAddresses.slice(0, visibleCount);
+    }, [filteredAddresses, visibleCount]);
+
+    const handleShowMore = () => {
+        setVisibleCount(prevCount => prevCount + 8);
+    };
+
+    const canGenerateMore = filteredAddresses.length <= visibleCount && !loading;
 
     return (
         <div>
-            {/* Title and controls outside the card */}
-            <div>
-                <AddressControls
-                    onGenerateAddress={generateNewAddress}
-                    error={addressError}
-                    isCardano={isCardano()}
-                    addressType={addressType}
-                    onToggleAddressType={toggleAddressType}
-                />
+            {/* Title and controls - always visible */}
+            <AddressControls
+                onGenerateAddress={generateNewAddress}
+                error={addressError}
+                isCardano={isCardano()}
+                addressType={addressType}
+                onToggleAddressType={toggleAddressType}
+                filter={filter}
+                onFilterChange={setFilter}
+                canGenerateMore={canGenerateMore}
+                isGenerating={isGenerating}
+                generationProgress={generationProgress}
+            />
 
-                {addressError && (
-                    <p className="px-6 mb-3 text-sm text-red-600">{addressError}</p>
-                )}
-            </div>
+            {addressError && (
+                <p className="px-6 mb-3 text-sm text-red-600">{addressError}</p>
+            )}
 
             {/* Main address container */}
-            <div className="card p-6 mb-6">
-                <AddressList
-                    addresses={addresses}
-                    privateKeys={privateKeys}
-                    onDeleteClick={handleDeleteClick}
-                    isCardano={isCardano()}
-                />
+            <div className="card mb-6">
+                {loading ? (
+                    <div className="p-8 text-center">
+                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-400 mb-4"></div>
+                        <p className="text-gray-400">Loading addresses...</p>
+                    </div>
+                ) : (
+                    <>
+                        <AddressList
+                            addresses={visibleAddresses}
+                            privateKeys={privateKeys}
+                            isCardano={isCardano()}
+                            onDerivePrivateKey={derivePrivateKeysForAddresses}
+                            utxos={utxos}
+                            filter={filter}
+                        />
+                        <div className="p-4 text-center">
+                            <p className="text-sm text-gray-400 mb-3">
+                                Showing {visibleAddresses.length} of {filteredAddresses.length} addresses
+                            </p>
+                            {filteredAddresses.length > visibleCount && (
+                                <button onClick={handleShowMore} className="btn btn-secondary">
+                                    Show More
+                                </button>
+                            )}
+                        </div>
+                    </>
+                )}
             </div>
-
-            {/* Delete confirmation dialog */}
-            <DeleteConfirmationDialog
-                isOpen={showConfirmDelete}
-                addressToDelete={addressToDelete}
-                addresses={addresses}
-                onConfirm={confirmDelete}
-                onCancel={cancelDelete}
-            />
         </div>
     );
 }

@@ -14,6 +14,12 @@ const nextConfig = {
             crypto: require.resolve('crypto-browserify'),
             fs: false,
             path: false,
+            os: false,
+            net: false,
+            tls: false,
+            child_process: false,
+            snarkjs: false,
+            cbor: false,
         };
 
         const webpack = require('next/dist/compiled/webpack/webpack-lib');

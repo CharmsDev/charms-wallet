@@ -31,53 +31,52 @@ export default function WalletCreation({ isLoading, onCreateWallet, onImportWall
     };
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
-            <div className="w-full max-w-md bg-white rounded-lg shadow-md p-8 space-y-8">
-                <h1 className="text-2xl font-bold text-center text-gray-900 mb-6">
+        <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex flex-col items-center justify-center px-4 z-50">
+            <div className="w-full max-w-md card p-8 space-y-8">
+                <h1 className="text-2xl font-bold text-center gradient-text mb-6">
                     Bitcoin Wallet
                 </h1>
-
                 {/* Create wallet button */}
                 <div className="flex justify-center">
                     <button
                         onClick={onCreateWallet}
                         disabled={isLoading}
-                        className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 px-4 rounded-md transition-colors"
+                        className="btn btn-primary w-full py-3"
                     >
                         {isLoading ? 'Creating...' : 'Create New Wallet'}
                     </button>
                 </div>
 
                 <div className="relative flex items-center">
-                    <div className="flex-grow border-t border-gray-300"></div>
-                    <span className="flex-shrink mx-4 text-gray-600">or</span>
-                    <div className="flex-grow border-t border-gray-300"></div>
+                    <div className="flex-grow border-t border-dark-600"></div>
+                    <span className="flex-shrink mx-4 text-gray-400">or</span>
+                    <div className="flex-grow border-t border-dark-600"></div>
                 </div>
 
                 {/* Import wallet section */}
                 <div className="space-y-4">
                     <div>
-                        <label htmlFor="seedPhrase" className="block text-sm font-medium text-gray-700 mb-1">
+                        <label htmlFor="seedPhrase" className="block text-sm font-medium text-gray-300 mb-1">
                             Enter Seed Phrase
                         </label>
                         <textarea
                             id="seedPhrase"
                             rows="3"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                             placeholder="Enter your 12 or 24 word seed phrase separated by spaces"
                             value={inputSeedPhrase}
                             onChange={(e) => setInputSeedPhrase(e.target.value)}
                         ></textarea>
                     </div>
                     {importError && (
-                        <div className="text-red-500 text-sm mt-1">
+                        <div className="text-red-400 text-sm mt-1">
                             {importError}
                         </div>
                     )}
                     <button
                         onClick={handleImportWallet}
                         disabled={isLoading}
-                        className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-3 px-4 rounded-md transition-colors"
+                        className="btn btn-secondary w-full py-3"
                     >
                         {isLoading ? 'Importing...' : 'Import Wallet'}
                     </button>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import SeedPhraseDisplay from './SeedPhraseDisplay';
 import WalletInfoDisplay from './WalletInfoDisplay';
 import BitcoinCoreInstructions from './BitcoinCoreInstructions';
@@ -10,12 +10,16 @@ import { useUTXOs } from '@/stores/utxoStore';
 import { useCharms } from '@/stores/charmsStore';
 import { clearAllWalletData } from '@/services/storage';
 
-export default function WalletDashboard({ seedPhrase, walletInfo, createSuccess }) {
+export default function WalletDashboard({ seedPhrase, walletInfo, derivationLoading, createSuccess }) {
     const [copyNotification, setCopyNotification] = useState(false);
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
     const { clearWallet } = useWallet();
-    const { clearAddresses } = useAddresses();
-    const { utxos, loadUTXOs } = useUTXOs();
+    const {
+        isGenerating: isGeneratingAddresses,
+        generationProgress,
+        clearAddresses
+    } = useAddresses();
+    const { utxos, loadUTXOs, clearUTXOs } = useUTXOs();
     const { charms, loadCharms } = useCharms();
 
     // Copy text with notification
@@ -34,17 +38,14 @@ export default function WalletDashboard({ seedPhrase, walletInfo, createSuccess 
             // Clear in-memory state in all stores
             await clearWallet();
             await clearAddresses();
+            clearUTXOs();
 
-            // Reset UTXOs and Charms state
-            // Since these stores don't have explicit clear functions,
-            // we'll force a reload which will result in empty states
-            // since the addresses have been cleared
-            await loadUTXOs();
+            // Reset Charms state by loading with empty UTXOs
             await loadCharms();
 
             setShowDeleteDialog(false);
         } catch (error) {
-            // Error deleting wallet
+            console.error('Error deleting wallet:', error);
         }
     };
 
@@ -61,22 +62,54 @@ export default function WalletDashboard({ seedPhrase, walletInfo, createSuccess 
             </div>
 
             <div className="card p-6 mb-6 space-y-6">
-                {/* Wallet Information Box */}
-                <div className="glass-effect p-6 rounded-xl">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Left column: Seed Phrase */}
-                        <SeedPhraseDisplay seedPhrase={seedPhrase} onCopy={copyToClipboard} />
-
-                        {/* Right column: Wallet Information */}
-                        <WalletInfoDisplay walletInfo={walletInfo} onCopy={copyToClipboard} />
+                {derivationLoading || isGeneratingAddresses ? (
+                    <div className="flex flex-col justify-center items-center p-8 space-y-4">
+                        <div className="text-center">
+                            <p className="text-lg mb-2">
+                                {derivationLoading ? 'Deriving wallet information...' : 'Generating initial addresses...'}
+                            </p>
+                            {isGeneratingAddresses && generationProgress.total > 0 && (
+                                <div className="w-full max-w-md mx-auto">
+                                    <div className="flex justify-between text-sm text-dark-400 mb-1">
+                                        <span>Progress</span>
+                                        <span>{generationProgress.current}/{generationProgress.total}</span>
+                                    </div>
+                                    <div className="w-full bg-dark-700 rounded-full h-2">
+                                        <div
+                                            className="bg-primary-500 h-2 rounded-full transition-all duration-300"
+                                            style={{
+                                                width: `${(generationProgress.current / generationProgress.total) * 100}%`
+                                            }}
+                                        ></div>
+                                    </div>
+                                    <p className="text-xs text-dark-500 mt-1">
+                                        Generating address pairs for your wallet...
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
                     </div>
-                </div>
+                ) : (
+                    <>
+                        {/* Wallet Information Box */}
+                        <div className="glass-effect p-6 rounded-xl">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Left column: Seed Phrase */}
+                                <SeedPhraseDisplay seedPhrase={seedPhrase} onCopy={copyToClipboard} />
 
-                {/* Bitcoin Core Instructions Box */}
-                <div className="glass-effect p-6 rounded-xl mt-6">
-                    <h3 className="text-xl font-bold gradient-text mb-4">Bitcoin Core Integration</h3>
-                    <BitcoinCoreInstructions walletInfo={walletInfo} onCopy={copyToClipboard} />
-                </div>
+                                {/* Right column: Wallet Information */}
+                                <WalletInfoDisplay walletInfo={walletInfo} onCopy={copyToClipboard} />
+                            </div>
+                        </div>
+
+                        {/* Bitcoin Core Instructions Box */}
+                        <div className="glass-effect p-6 rounded-xl mt-6">
+                            <h3 className="text-xl font-bold gradient-text mb-4">Bitcoin Core Integration</h3>
+                            <BitcoinCoreInstructions walletInfo={walletInfo} onCopy={copyToClipboard} />
+                        </div>
+                    </>
+                )}
 
                 {/* Copy notification */}
                 {copyNotification && (

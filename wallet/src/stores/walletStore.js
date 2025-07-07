@@ -22,6 +22,9 @@ export function WalletProvider({ children }) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [hasWallet, setHasWallet] = useState(false);
+    const [isInitializing, setIsInitializing] = useState(false);
+    const [initializationStep, setInitializationStep] = useState('');
+    const [initializationProgress, setInitializationProgress] = useState({ current: 0, total: 0 });
 
     // Check/load wallet on mount
     useEffect(() => {
@@ -82,6 +85,85 @@ export function WalletProvider({ children }) {
         }
     };
 
+    // Initialize wallet completely (create/import + generate all addresses)
+    const initializeWalletComplete = async (seedPhraseInput = null, isImport = false, blockchain = 'bitcoin', network = 'testnet') => {
+        try {
+            setIsInitializing(true);
+            setError(null);
+
+            // Step 1: Create or validate seed phrase
+            setInitializationStep(isImport ? 'Validating seed phrase...' : 'Creating wallet...');
+            let finalSeedPhrase;
+
+            if (isImport) {
+                finalSeedPhrase = await importSeedPhrase(seedPhraseInput);
+            } else {
+                finalSeedPhrase = await generateSeedPhrase();
+            }
+
+            setSeedPhrase(finalSeedPhrase);
+
+            // Step 2: Derive wallet information
+            setInitializationStep('Deriving wallet information...');
+            await new Promise(resolve => setTimeout(resolve, 500)); // Small delay for UX
+
+            // Step 3: Generate all addresses
+            setInitializationStep('Generating addresses...');
+            setInitializationProgress({ current: 0, total: 512 });
+
+            // Import the address generation function dynamically to avoid circular imports
+            const { generateInitialBitcoinAddresses } = await import('@/utils/addressUtils');
+            const { saveAddresses } = await import('@/services/storage');
+
+            return new Promise((resolve, reject) => {
+                generateInitialBitcoinAddresses(
+                    finalSeedPhrase,
+                    // Progress callback
+                    (current, total) => {
+                        const addressCount = current * 2; // Each index generates 2 addresses
+                        setInitializationProgress({ current: addressCount, total: total * 2 });
+                        setInitializationStep(`Generating addresses... ${addressCount}/${total * 2}`);
+                    },
+                    // Complete callback
+                    async (generatedAddresses) => {
+                        try {
+                            setInitializationStep('Saving addresses...');
+
+                            // Add blockchain info to addresses
+                            const addressesWithBlockchain = generatedAddresses.map(addr => ({
+                                ...addr,
+                                blockchain: blockchain
+                            }));
+
+                            // Save to storage with the correct blockchain and network
+                            await saveAddresses(addressesWithBlockchain, blockchain, network);
+
+                            // Step 4: Finalize
+                            setInitializationStep('Finalizing wallet setup...');
+                            await new Promise(resolve => setTimeout(resolve, 500));
+
+                            setHasWallet(true);
+                            setIsInitializing(false);
+                            setInitializationStep('');
+                            setInitializationProgress({ current: 0, total: 0 });
+
+                            resolve(finalSeedPhrase);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    }
+                );
+            });
+
+        } catch (err) {
+            setError('Failed to initialize wallet: ' + err.message);
+            setIsInitializing(false);
+            setInitializationStep('');
+            setInitializationProgress({ current: 0, total: 0 });
+            throw err;
+        }
+    };
+
     // Context value
     const value = {
         seedPhrase,
@@ -90,7 +172,11 @@ export function WalletProvider({ children }) {
         error,
         createWallet,
         importWallet,
-        clearWallet
+        clearWallet,
+        isInitializing,
+        initializationStep,
+        initializationProgress,
+        initializeWalletComplete
     };
 
     return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

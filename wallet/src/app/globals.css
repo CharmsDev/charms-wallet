@@ -51,7 +51,7 @@
   }
 
   .btn-secondary {
-    @apply bg-dark-800 text-white hover:bg-dark-700 focus:ring-dark-500;
+    @apply bg-dark-800 text-white border border-gray-400 hover:bg-dark-700 hover:border-gray-300 focus:ring-dark-500;
   }
 
   .btn-bitcoin {
