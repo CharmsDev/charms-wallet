@@ -64,6 +64,7 @@ export async function generateTaprootAddress(seedPhrase, index, isChange = false
             // For testnet
             derivationPath = "m/86'/0'/0'";
         }
+
         const accountNode = masterNode.derivePath(derivationPath);
 
         // Derive the chain node (0 for receiving addresses, 1 for change addresses)
@@ -87,6 +88,7 @@ export async function generateTaprootAddress(seedPhrase, index, isChange = false
 
         return address;
     } catch (error) {
+        console.error(`Error generating address for index ${index}:`, error);
         throw error;
     }
 }
@@ -183,30 +185,53 @@ export async function copyToClipboard(text) {
     }
 }
 
-// Generates the initial set of Bitcoin Taproot addresses
-export async function generateInitialBitcoinAddresses(seedPhrase) {
-    console.log('Starting generation of 256 address pairs...');
+// Generates the initial set of Bitcoin Taproot addresses in a non-blocking way
+export function generateInitialBitcoinAddresses(seedPhrase, onProgress, onComplete) {
+    let i = 0;
     const addresses = [];
-    for (let i = 0; i < 256; i++) {
-        console.log(`Generating index ${i}...`);
-        const externalAddress = await generateTaprootAddress(seedPhrase, i, false);
-        addresses.push({
-            address: externalAddress,
-            index: i,
-            isChange: false,
-            created: new Date().toISOString()
-        });
+    const chunkSize = 10; // Process 10 indexes at a time
+    const totalPairs = 256; // This will generate 512 addresses total (256 external + 256 change)
 
-        const changeAddress = await generateTaprootAddress(seedPhrase, i, true);
-        addresses.push({
-            address: changeAddress,
-            index: i,
-            isChange: true,
-            created: new Date().toISOString()
-        });
+    function generateChunk() {
+        const limit = Math.min(i + chunkSize, totalPairs);
+        (async () => {
+            for (; i < limit; i++) {
+                const externalAddress = await generateTaprootAddress(seedPhrase, i, false);
+                addresses.push({
+                    address: externalAddress,
+                    index: i,
+                    isChange: false,
+                    created: new Date().toISOString()
+                });
+
+                const changeAddress = await generateTaprootAddress(seedPhrase, i, true);
+                addresses.push({
+                    address: changeAddress,
+                    index: i,
+                    isChange: true,
+                    created: new Date().toISOString()
+                });
+
+                // Report progress
+                if (onProgress) {
+                    onProgress(i + 1, totalPairs);
+                }
+            }
+
+            if (i < totalPairs) {
+                // Schedule the next chunk
+                setTimeout(generateChunk, 0);
+            } else {
+                // All done
+                if (onComplete) {
+                    onComplete(addresses);
+                }
+            }
+        })();
     }
-    console.log('Finished generating addresses.');
-    return addresses;
+
+    // Start the first chunk
+    generateChunk();
 }
 
 /**

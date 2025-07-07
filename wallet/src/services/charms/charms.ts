@@ -5,22 +5,8 @@ import { isNFT, isToken, getCharmDisplayName } from './utils/charm-utils';
 let charmsJs: any = null;
 
 async function getCharmsJs() {
-    if (charmsJs) return charmsJs;
-
-    try {
-        // Import charms-js dynamically for both browser and server environments
-        const charmsModule = await import('charms-js');
-        console.log('[CHARMS] Raw charms module:', charmsModule);
-        console.log('[CHARMS] Default export:', charmsModule.default);
-        console.log('[CHARMS] Named exports:', Object.keys(charmsModule));
-
-        // Try to use default export if available, otherwise use the module itself
-        charmsJs = charmsModule.default || charmsModule;
-        return charmsJs;
-    } catch (error) {
-        console.error('Failed to load charms-js:', error);
-        return null;
-    }
+    console.log('[CHARMS] Charms functionality temporarily disabled');
+    return null;
 }
 
 /**

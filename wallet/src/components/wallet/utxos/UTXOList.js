@@ -8,7 +8,7 @@ import config from '@/config';
 import SendBitcoinDialog from './SendBitcoinDialog';
 
 export default function UTXOList() {
-    const { utxos, isLoading, error, totalBalance, refreshUTXOs, formatValue } = useUTXOs();
+    const { utxos, isLoading, error, totalBalance, refreshProgress, refreshUTXOs, formatValue } = useUTXOs();
     const { addresses } = useAddresses();
     const { isBitcoin, isCardano } = useBlockchain();
     const [flattenedUtxos, setFlattenedUtxos] = useState([]);
@@ -72,24 +72,6 @@ export default function UTXOList() {
         refreshUTXOs();
     };
 
-    if (isLoading) {
-        return (
-            <div>
-                <div className="p-6 flex justify-between items-center">
-                    <h2 className="text-xl font-bold gradient-text">UTXOs</h2>
-                    <button
-                        className="btn btn-primary opacity-50 cursor-not-allowed"
-                        disabled={true}
-                    >
-                        Refreshing...
-                    </button>
-                </div>
-                <div className="flex justify-center items-center h-40">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
-                </div>
-            </div>
-        );
-    }
 
     if (error) {
         return (
@@ -99,8 +81,18 @@ export default function UTXOList() {
                     <button
                         className="btn btn-primary"
                         onClick={handleRefresh}
+                        disabled={refreshProgress.isRefreshing}
                     >
-                        Refresh
+                        {refreshProgress.isRefreshing ? (
+                            <div className="flex items-center space-x-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                <span>
+                                    {refreshProgress.processed}/{refreshProgress.total}
+                                </span>
+                            </div>
+                        ) : (
+                            'Refresh'
+                        )}
                     </button>
                 </div>
                 <div className="error-message">
@@ -138,8 +130,18 @@ export default function UTXOList() {
                     <button
                         className="btn btn-primary"
                         onClick={handleRefresh}
+                        disabled={refreshProgress.isRefreshing}
                     >
-                        Refresh
+                        {refreshProgress.isRefreshing ? (
+                            <div className="flex items-center space-x-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                <span>
+                                    {refreshProgress.processed}/{refreshProgress.total}
+                                </span>
+                            </div>
+                        ) : (
+                            'Refresh'
+                        )}
                     </button>
                 </div>
             </div>
@@ -153,70 +155,77 @@ export default function UTXOList() {
                 </p>
             </div>
 
-            {flattenedUtxos.length === 0 ? (
-                <div className="text-center p-8 glass-effect rounded-xl">
-                    <p className="text-dark-300">No UTXOs found. Receive some bitcoin to get started.</p>
-                </div>
-            ) : (
-                <div className="overflow-x-auto card">
-                    <table className="min-w-full">
-                        <thead className="bg-dark-700">
-                            <tr>
-                                <th className="py-2 px-4 border-b border-dark-600 text-left text-dark-300">UTXO</th>
-                                <th className="py-2 px-4 border-b border-dark-600 text-left text-dark-300">Address</th>
-                                <th className="py-2 px-4 border-b border-dark-600 text-left text-dark-300">Amount & Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {flattenedUtxos.map((utxo, index) => (
-                                <tr key={`${utxo.txid}-${utxo.vout}`} className={index % 2 === 0 ? 'bg-dark-800' : 'bg-dark-750'}>
-                                    <td className="py-2 px-4 border-b border-dark-700">
-                                        <div className="font-mono text-xs break-all text-dark-200" title={`${utxo.txid}:${utxo.vout}`}>
-                                            {utxo.txid}:{utxo.vout}
-                                        </div>
-                                    </td>
-                                    <td className="py-2 px-4 border-b border-dark-700">
-                                        <div className="flex flex-col">
-                                            <div className="font-mono text-xs break-all text-dark-200" title={utxo.address}>
-                                                {utxo.address}
+            <div className="card">
+                {isLoading ? (
+                    <div className="p-8 text-center">
+                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-400 mb-4"></div>
+                        <p className="text-gray-400">Loading UTXOs...</p>
+                    </div>
+                ) : flattenedUtxos.length === 0 ? (
+                    <div className="text-center p-8">
+                        <p className="text-dark-300">No UTXOs found. Receive some bitcoin to get started.</p>
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full">
+                            <thead className="bg-dark-700">
+                                <tr>
+                                    <th className="py-2 px-4 border-b border-dark-600 text-left text-dark-300">UTXO</th>
+                                    <th className="py-2 px-4 border-b border-dark-600 text-left text-dark-300">Address</th>
+                                    <th className="py-2 px-4 border-b border-dark-600 text-left text-dark-300">Amount & Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {flattenedUtxos.map((utxo, index) => (
+                                    <tr key={`${utxo.txid}-${utxo.vout}`} className={index % 2 === 0 ? 'bg-dark-800' : 'bg-dark-750'}>
+                                        <td className="py-2 px-4 border-b border-dark-700">
+                                            <div className="font-mono text-xs break-all text-dark-200" title={`${utxo.txid}:${utxo.vout}`}>
+                                                {utxo.txid}:{utxo.vout}
                                             </div>
-                                            {addresses.find(addr => addr.address === utxo.address)?.index !== undefined && (
-                                                <span className="text-xs text-dark-400 mt-1">
-                                                    Index: {addresses.find(addr => addr.address === utxo.address)?.index}
-                                                    {isBitcoin() && utxo.isChange && (
-                                                        <span className="text-primary-400 ml-2">Change Address</span>
-                                                    )}
-                                                    {isCardano() && utxo.isStaking && (
-                                                        <span className="text-cardano-400 ml-2">Staking Address</span>
-                                                    )}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </td>
-                                    <td className="py-2 px-4 border-b border-dark-700">
-                                        <div className="flex flex-col">
-                                            <div className={isBitcoin() ? "text-bitcoin-400" : "text-cardano-400"}>
-                                                {utxo.formattedValue}
-                                            </div>
-                                            <div className="mt-1">
-                                                {utxo.status.confirmed ? (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400">
-                                                        Confirmed
-                                                    </span>
-                                                ) : (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-900/30 text-yellow-400">
-                                                        Pending
+                                        </td>
+                                        <td className="py-2 px-4 border-b border-dark-700">
+                                            <div className="flex flex-col">
+                                                <div className="font-mono text-xs break-all text-dark-200" title={utxo.address}>
+                                                    {utxo.address}
+                                                </div>
+                                                {addresses.find(addr => addr.address === utxo.address)?.index !== undefined && (
+                                                    <span className="text-xs text-dark-400 mt-1">
+                                                        Index: {addresses.find(addr => addr.address === utxo.address)?.index}
+                                                        {isBitcoin() && utxo.isChange && (
+                                                            <span className="text-primary-400 ml-2">Change Address</span>
+                                                        )}
+                                                        {isCardano() && utxo.isStaking && (
+                                                            <span className="text-cardano-400 ml-2">Staking Address</span>
+                                                        )}
                                                     </span>
                                                 )}
                                             </div>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
+                                        </td>
+                                        <td className="py-2 px-4 border-b border-dark-700">
+                                            <div className="flex flex-col">
+                                                <div className={isBitcoin() ? "text-bitcoin-400" : "text-cardano-400"}>
+                                                    {utxo.formattedValue}
+                                                </div>
+                                                <div className="mt-1">
+                                                    {utxo.status.confirmed ? (
+                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400">
+                                                            Confirmed
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-900/30 text-yellow-400">
+                                                            Pending
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
 
             {/* Send Bitcoin Dialog - only shown for Bitcoin */}
             {isBitcoin() && (

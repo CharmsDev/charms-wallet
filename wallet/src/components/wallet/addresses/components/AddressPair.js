@@ -7,13 +7,17 @@ export default function AddressPair({
     externalAddr,
     changeAddr,
     privateKeys,
-    onCollapse
+    onCollapse,
+    isDerivingKeys
 }) {
     return (
         <div className="bg-gray-800 p-3 rounded-lg">
             <div className="flex justify-between items-center mb-3">
                 <span className="font-bold text-gray-400">Index: {index}</span>
-                <div>
+                <div className="flex items-center gap-2">
+                    {isDerivingKeys && (
+                        <span className="text-xs text-yellow-400">Deriving keys...</span>
+                    )}
                     <button
                         onClick={onCollapse}
                         className="px-3 py-1 text-xs text-white bg-gray-600 hover:bg-gray-700 rounded-full"

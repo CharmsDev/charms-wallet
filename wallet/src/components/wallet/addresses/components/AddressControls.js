@@ -7,7 +7,9 @@ export default function AddressControls({
     onToggleAddressType,
     filter,
     onFilterChange,
-    canGenerateMore
+    canGenerateMore,
+    isGenerating,
+    generationProgress
 }) {
     return (
         <div className="p-6 flex justify-between items-center">
@@ -54,10 +56,17 @@ export default function AddressControls({
                 )}
                 <button
                     onClick={onGenerateAddress}
-                    className={`btn ${isCardano ? 'btn-cardano' : 'btn-primary'} ${!canGenerateMore ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    disabled={!canGenerateMore}
+                    className={`btn ${isCardano ? 'btn-cardano' : 'btn-primary'} ${!canGenerateMore || isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    disabled={!canGenerateMore || isGenerating}
                 >
-                    Generate New Address
+                    {isGenerating ? (
+                        <div className="flex items-center space-x-2">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            <span>Generating...</span>
+                        </div>
+                    ) : (
+                        'Generate New Address'
+                    )}
                 </button>
             </div>
         </div>

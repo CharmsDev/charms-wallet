@@ -20,6 +20,7 @@ export function UTXOProvider({ children }) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [totalBalance, setTotalBalance] = useState(0);
+    const [refreshProgress, setRefreshProgress] = useState({ processed: 0, total: 0, isRefreshing: false });
     const { addresses } = useAddresses();
     const { activeBlockchain, activeNetwork, isBitcoin, isCardano } = useBlockchain();
 
@@ -29,6 +30,7 @@ export function UTXOProvider({ children }) {
             loadUTXOs();
         }
     }, [addresses, activeBlockchain, activeNetwork]);
+
 
     // Recalculate balance when UTXOs change
     useEffect(() => {
@@ -53,15 +55,39 @@ export function UTXOProvider({ children }) {
 
     const refreshUTXOs = async () => {
         try {
-            setIsLoading(true);
             setError(null);
-            const fetchedUTXOs = await utxoService.fetchAndStoreAllUTXOs(activeBlockchain, activeNetwork);
+            setRefreshProgress({ processed: 0, total: 0, isRefreshing: true });
+
+            // Progress callback to update UTXOs dynamically
+            const onProgress = (progressData) => {
+                setRefreshProgress({
+                    processed: progressData.processed,
+                    total: progressData.total,
+                    isRefreshing: true
+                });
+
+                // Update UTXOs immediately when new ones are found
+                if (progressData.hasUtxos && progressData.utxos.length > 0) {
+                    setUTXOs(prevUTXOs => ({
+                        ...prevUTXOs,
+                        [progressData.address]: progressData.utxos
+                    }));
+                }
+            };
+
+            const fetchedUTXOs = await utxoService.fetchAndStoreAllUTXOsSequential(
+                activeBlockchain,
+                activeNetwork,
+                onProgress
+            );
+
             setUTXOs(fetchedUTXOs);
+
         } catch (error) {
             console.error('Failed to refresh UTXOs:', error);
-            setError('Failed to refresh UTXOs');
+            setError('Failed to refresh UTXOs: ' + error.message);
         } finally {
-            setIsLoading(false);
+            setRefreshProgress({ processed: 0, total: 0, isRefreshing: false });
         }
     };
 
@@ -90,6 +116,7 @@ export function UTXOProvider({ children }) {
         isLoading,
         error,
         totalBalance,
+        refreshProgress,
         loadUTXOs,
         refreshUTXOs,
         getAddressUTXOs,

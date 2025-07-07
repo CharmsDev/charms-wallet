@@ -4,6 +4,7 @@ import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
 // Local storage keys
 export const STORAGE_KEYS = {
     SEED_PHRASE: 'seedPhrase',
+    WALLET_INFO: 'wallet_info',
     WALLET_ADDRESSES: 'wallet_addresses',
     UTXOS: 'wallet_utxos',
     ACTIVE_BLOCKCHAIN: 'active_blockchain',
@@ -58,16 +59,47 @@ export const clearSeedPhrase = async (): Promise<void> => {
     localStorage.removeItem(STORAGE_KEYS.SEED_PHRASE);
 };
 
+// Wallet info storage
+export const saveWalletInfo = async (walletInfo: any, blockchain?: string, network?: string): Promise<void> => {
+    console.log(`💾 [STORAGE] Saving wallet info for ${blockchain}-${network}`);
+    const startTime = performance.now();
+    const storageKey = getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
+    localStorage.setItem(storageKey, JSON.stringify(walletInfo));
+    console.log(`💾 [STORAGE] Wallet info saved in ${(performance.now() - startTime).toFixed(2)}ms`);
+};
+
+export const getWalletInfo = async (blockchain?: string, network?: string): Promise<any | null> => {
+    console.log(`💾 [STORAGE] Loading wallet info for ${blockchain}-${network}`);
+    const startTime = performance.now();
+    const storageKey = getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
+    const stored = localStorage.getItem(storageKey);
+    const result = stored ? JSON.parse(stored) : null;
+    console.log(`💾 [STORAGE] Wallet info loaded in ${(performance.now() - startTime).toFixed(2)}ms, found: ${!!result}`);
+    return result;
+};
+
+export const clearWalletInfo = async (blockchain?: string, network?: string): Promise<void> => {
+    const storageKey = getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
+    localStorage.removeItem(storageKey);
+};
+
 // Address storage
 export const saveAddresses = async (addresses: AddressEntry[], blockchain?: string, network?: string): Promise<void> => {
+    console.log(`💾 [STORAGE] Saving ${addresses.length} addresses for ${blockchain}-${network}`);
+    const startTime = performance.now();
     const storageKey = getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
     localStorage.setItem(storageKey, JSON.stringify(addresses));
+    console.log(`💾 [STORAGE] Addresses saved in ${(performance.now() - startTime).toFixed(2)}ms`);
 };
 
 export const getAddresses = async (blockchain?: string, network?: string): Promise<AddressEntry[]> => {
+    console.log(`💾 [STORAGE] Loading addresses for ${blockchain}-${network}`);
+    const startTime = performance.now();
     const storageKey = getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
     const stored = localStorage.getItem(storageKey);
-    return stored ? JSON.parse(stored) : [];
+    const result = stored ? JSON.parse(stored) : [];
+    console.log(`💾 [STORAGE] Addresses loaded in ${(performance.now() - startTime).toFixed(2)}ms, found ${result.length} addresses`);
+    return result;
 };
 
 export const addAddress = async (address: AddressEntry, blockchain?: string, network?: string): Promise<AddressEntry[]> => {
@@ -108,6 +140,7 @@ export const clearUTXOs = async (blockchain?: string, network?: string): Promise
 
 // Clear all wallet data for a specific blockchain and network
 export const clearBlockchainWalletData = async (blockchain?: string, network?: string): Promise<void> => {
+    await clearWalletInfo(blockchain, network);
     await clearAddresses(blockchain, network);
     await clearUTXOs(blockchain, network);
 };

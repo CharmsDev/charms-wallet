@@ -9,7 +9,10 @@ import CardanoAddress from './CardanoAddress';
 export default function AddressList({
     addresses,
     privateKeys,
-    isCardano
+    isCardano,
+    onDerivePrivateKey,
+    utxos,
+    filter
 }) {
     if (addresses.length === 0) {
         return (
@@ -46,6 +49,9 @@ export default function AddressList({
                                 externalAddr={externalAddr}
                                 changeAddr={changeAddr}
                                 privateKeys={privateKeys}
+                                onDerivePrivateKey={onDerivePrivateKey}
+                                utxos={utxos}
+                                filter={filter}
                             />
                         );
                     })}
