@@ -61,21 +61,14 @@ export const clearSeedPhrase = async (): Promise<void> => {
 
 // Wallet info storage
 export const saveWalletInfo = async (walletInfo: any, blockchain?: string, network?: string): Promise<void> => {
-    console.log(`💾 [STORAGE] Saving wallet info for ${blockchain}-${network}`);
-    const startTime = performance.now();
     const storageKey = getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
     localStorage.setItem(storageKey, JSON.stringify(walletInfo));
-    console.log(`💾 [STORAGE] Wallet info saved in ${(performance.now() - startTime).toFixed(2)}ms`);
 };
 
 export const getWalletInfo = async (blockchain?: string, network?: string): Promise<any | null> => {
-    console.log(`💾 [STORAGE] Loading wallet info for ${blockchain}-${network}`);
-    const startTime = performance.now();
     const storageKey = getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
     const stored = localStorage.getItem(storageKey);
-    const result = stored ? JSON.parse(stored) : null;
-    console.log(`💾 [STORAGE] Wallet info loaded in ${(performance.now() - startTime).toFixed(2)}ms, found: ${!!result}`);
-    return result;
+    return stored ? JSON.parse(stored) : null;
 };
 
 export const clearWalletInfo = async (blockchain?: string, network?: string): Promise<void> => {
@@ -85,21 +78,14 @@ export const clearWalletInfo = async (blockchain?: string, network?: string): Pr
 
 // Address storage
 export const saveAddresses = async (addresses: AddressEntry[], blockchain?: string, network?: string): Promise<void> => {
-    console.log(`💾 [STORAGE] Saving ${addresses.length} addresses for ${blockchain}-${network}`);
-    const startTime = performance.now();
     const storageKey = getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
     localStorage.setItem(storageKey, JSON.stringify(addresses));
-    console.log(`💾 [STORAGE] Addresses saved in ${(performance.now() - startTime).toFixed(2)}ms`);
 };
 
 export const getAddresses = async (blockchain?: string, network?: string): Promise<AddressEntry[]> => {
-    console.log(`💾 [STORAGE] Loading addresses for ${blockchain}-${network}`);
-    const startTime = performance.now();
     const storageKey = getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
     const stored = localStorage.getItem(storageKey);
-    const result = stored ? JSON.parse(stored) : [];
-    console.log(`💾 [STORAGE] Addresses loaded in ${(performance.now() - startTime).toFixed(2)}ms, found ${result.length} addresses`);
-    return result;
+    return stored ? JSON.parse(stored) : [];
 };
 
 export const addAddress = async (address: AddressEntry, blockchain?: string, network?: string): Promise<AddressEntry[]> => {

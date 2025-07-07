@@ -49,7 +49,7 @@ export default function UTXOList() {
         }
     }, [addresses, initialized, activeBlockchain, activeNetwork, refreshUTXOs, isCardano]);
 
-    // Flatten UTXOs, add isChange flag, and filter confirmed UTXOs
+    // Flatten UTXOs, add isChange flag, filter confirmed UTXOs, and sort by address index
     useEffect(() => {
         const flattened = [];
         const confirmed = [];
@@ -58,6 +58,7 @@ export default function UTXOList() {
             const addressEntry = addresses.find(addr => addr.address === address);
             const isChange = addressEntry?.isChange || false;
             const isStaking = addressEntry?.isStaking || false;
+            const addressIndex = addressEntry?.index ?? 999999; // Put unknown addresses at the end
 
             addressUtxos.forEach(utxo => {
                 const formattedUtxo = {
@@ -65,6 +66,7 @@ export default function UTXOList() {
                     address,
                     isChange,
                     isStaking,
+                    addressIndex,
                     formattedValue: formatValue(utxo.value)
                 };
 
@@ -76,8 +78,32 @@ export default function UTXOList() {
             });
         });
 
-        setFlattenedUtxos(flattened);
-        setConfirmedUtxos(confirmed);
+        // Sort by address index (ascending), then by isChange (external addresses first), then by txid
+        const sortedFlattened = flattened.sort((a, b) => {
+            // Primary sort: by address index
+            if (a.addressIndex !== b.addressIndex) {
+                return a.addressIndex - b.addressIndex;
+            }
+            // Secondary sort: external addresses (isChange=false) before change addresses (isChange=true)
+            if (a.isChange !== b.isChange) {
+                return a.isChange ? 1 : -1;
+            }
+            // Tertiary sort: by transaction ID for consistency
+            return a.txid.localeCompare(b.txid);
+        });
+
+        const sortedConfirmed = confirmed.sort((a, b) => {
+            if (a.addressIndex !== b.addressIndex) {
+                return a.addressIndex - b.addressIndex;
+            }
+            if (a.isChange !== b.isChange) {
+                return a.isChange ? 1 : -1;
+            }
+            return a.txid.localeCompare(b.txid);
+        });
+
+        setFlattenedUtxos(sortedFlattened);
+        setConfirmedUtxos(sortedConfirmed);
     }, [utxos, addresses, formatValue]);
 
     const handleRefresh = async () => {
