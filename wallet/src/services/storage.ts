@@ -4,6 +4,7 @@ import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
 // Local storage keys
 export const STORAGE_KEYS = {
     SEED_PHRASE: 'seedPhrase',
+    WALLET_INFO: 'wallet_info',
     WALLET_ADDRESSES: 'wallet_addresses',
     UTXOS: 'wallet_utxos',
     ACTIVE_BLOCKCHAIN: 'active_blockchain',
@@ -58,6 +59,23 @@ export const clearSeedPhrase = async (): Promise<void> => {
     localStorage.removeItem(STORAGE_KEYS.SEED_PHRASE);
 };
 
+// Wallet info storage
+export const saveWalletInfo = async (walletInfo: any, blockchain?: string, network?: string): Promise<void> => {
+    const storageKey = getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
+    localStorage.setItem(storageKey, JSON.stringify(walletInfo));
+};
+
+export const getWalletInfo = async (blockchain?: string, network?: string): Promise<any | null> => {
+    const storageKey = getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
+    const stored = localStorage.getItem(storageKey);
+    return stored ? JSON.parse(stored) : null;
+};
+
+export const clearWalletInfo = async (blockchain?: string, network?: string): Promise<void> => {
+    const storageKey = getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
+    localStorage.removeItem(storageKey);
+};
+
 // Address storage
 export const saveAddresses = async (addresses: AddressEntry[], blockchain?: string, network?: string): Promise<void> => {
     const storageKey = getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
@@ -77,11 +95,11 @@ export const addAddress = async (address: AddressEntry, blockchain?: string, net
     return newAddresses;
 };
 
-export const deleteAddress = async (addressToDelete: string, blockchain?: string, network?: string): Promise<AddressEntry[]> => {
-    const addresses = await getAddresses(blockchain, network);
-    const newAddresses = addresses.filter(addr => addr.address !== addressToDelete);
-    await saveAddresses(newAddresses, blockchain, network);
-    return newAddresses;
+export const addMultipleAddresses = async (newAddresses: AddressEntry[], blockchain?: string, network?: string): Promise<AddressEntry[]> => {
+    const existingAddresses = await getAddresses(blockchain, network);
+    const combinedAddresses = [...existingAddresses, ...newAddresses];
+    await saveAddresses(combinedAddresses, blockchain, network);
+    return combinedAddresses;
 };
 
 export const clearAddresses = async (blockchain?: string, network?: string): Promise<void> => {
@@ -108,6 +126,7 @@ export const clearUTXOs = async (blockchain?: string, network?: string): Promise
 
 // Clear all wallet data for a specific blockchain and network
 export const clearBlockchainWalletData = async (blockchain?: string, network?: string): Promise<void> => {
+    await clearWalletInfo(blockchain, network);
     await clearAddresses(blockchain, network);
     await clearUTXOs(blockchain, network);
 };

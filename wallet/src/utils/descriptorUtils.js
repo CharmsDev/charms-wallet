@@ -1,17 +1,15 @@
 'use client';
 
 import * as bitcoin from 'bitcoinjs-lib';
-import * as bip39 from 'bip39';
 import * as ecc from 'tiny-secp256k1';
+import * as bip39 from 'bip39';
 import { BIP32Factory } from 'bip32';
+import config from '@/config';
 
-// Initialize bitcoinjs-lib with ECC
+// Initialize libraries
 bitcoin.initEccLib(ecc);
-
-// Initialize BIP32
 const bip32 = BIP32Factory(ecc);
 
-// Derives the extended keys from a seed phrase for testnet
 export async function deriveXpubFromSeedPhrase(seedPhrase, path = "m/86'/0'/0'") {
     try {
         // Convert seed phrase to seed
@@ -21,13 +19,8 @@ export async function deriveXpubFromSeedPhrase(seedPhrase, path = "m/86'/0'/0'")
         const masterNode = bip32.fromSeed(seed, bitcoin.networks.testnet);
 
         // Get master key fingerprint (hex)
-
-        // Get the fingerprint as a Buffer
-        const fingerprintBuffer = masterNode.fingerprint;
-
-        // Convert the Buffer to a hex string
+        const fingerprintBuffer = bitcoin.crypto.hash160(masterNode.publicKey).slice(0, 4);
         const masterFingerprint = Buffer.from(fingerprintBuffer).toString('hex');
-
 
         // Derive the account node
         const accountNode = masterNode.derivePath(path);
@@ -38,61 +31,47 @@ export async function deriveXpubFromSeedPhrase(seedPhrase, path = "m/86'/0'/0'")
         // Get the xpriv (for testnet, this will be a tprv)
         const xpriv = accountNode.toBase58();
 
-        // Format the derivation path for the descriptor
-        const pathParts = path.split('/').slice(1);
-        const formattedPath = pathParts.map(part => {
-            if (part.endsWith("'")) {
-                return part.replace("'", "h");
-            }
-            return part;
-        }).join('/');
-
-        return {
+        const result = {
             xpub,
             xpriv,
-            fingerprint: masterFingerprint,
-            path: formattedPath
+            masterFingerprint,
+            path
         };
+
+        return result;
     } catch (error) {
+        console.error('Error deriving xpub from seed phrase:', error);
         throw error;
     }
 }
 
-// Generate descriptor wallet import command
-export async function generateDescriptorImportCommand(seedPhrase, path = "m/86'/0'/0'") {
+export function createTaprootDescriptor(xpub, masterFingerprint, path = "m/86'/0'/0'") {
+    // For taproot descriptors, we use tr() with the xpub
+    // The format is: tr([fingerprint/path]xpub/0/*)
+    // This creates a descriptor for external addresses (receiving)
+
+    const externalDescriptor = `tr([${masterFingerprint}${path}]${xpub}/0/*)`;
+    const changeDescriptor = `tr([${masterFingerprint}${path}]${xpub}/1/*)`;
+
+    return {
+        external: externalDescriptor,
+        change: changeDescriptor
+    };
+}
+
+export async function generateDescriptorsFromSeedPhrase(seedPhrase) {
     try {
-        const { xpub, xpriv, fingerprint, path: formattedPath } = await deriveXpubFromSeedPhrase(seedPhrase, path);
-
-        // Create the descriptor string for testnet using taproot (tr) with private key
-        const descriptor = `tr([${fingerprint}/${formattedPath}]${xpriv}/*)`;
-
-        // Create the import command
-        const command = `bitcoin-cli importdescriptors '[
-  {
-    "desc": "${descriptor}/0/*",
-    "active": true,
-    "timestamp": "now",
-    "internal": false,
-    "range": [0, 1000]
-  },
-  {
-    "desc": "${descriptor}/1/*",
-    "active": true,
-    "timestamp": "now",
-    "internal": true,
-    "range": [0, 1000]
-  }
-]'`;
+        const { xpub, masterFingerprint, path } = await deriveXpubFromSeedPhrase(seedPhrase);
+        const descriptors = createTaprootDescriptor(xpub, masterFingerprint, path);
 
         return {
-            command,
-            descriptor,
             xpub,
-            xpriv,
-            fingerprint,
-            path: formattedPath
+            masterFingerprint,
+            path,
+            descriptors
         };
     } catch (error) {
+        console.error('Error generating descriptors:', error);
         throw error;
     }
 }

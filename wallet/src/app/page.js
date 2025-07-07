@@ -2,81 +2,82 @@
 
 import { useState, useEffect } from 'react';
 import { useWallet } from '@/stores/walletStore';
+import { useWalletInfo } from '@/stores/walletInfoStore';
+import { useBlockchain } from '@/stores/blockchainStore';
 import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
 import WalletCreation from '@/components/wallet/setup/WalletCreation';
 import WalletDashboard from '@/components/wallet/setup/WalletDashboard';
+import WalletInitialization from '@/components/wallet/setup/WalletInitialization';
 
 // Initialize bitcoinjs-lib with ECC
 bitcoin.initEccLib(ecc);
 
 export default function Home() {
-  const { hasWallet, seedPhrase, isLoading, error, createWallet, importWallet } = useWallet();
-  const [createSuccess, setCreateSuccess] = useState(false);
-  const [walletInfo, setWalletInfo] = useState({
-    xpub: '',
-    xpriv: '',
-    fingerprint: '',
-    path: '86h/0h/0h',
-    derivationLoading: false
-  });
+  const {
+    hasWallet,
+    seedPhrase,
+    isLoading,
+    error,
+    isInitializing,
+    initializationStep,
+    initializationProgress,
+    initializeWalletComplete
+  } = useWallet();
+  const { walletInfo, derivationLoading, loadWalletInfo } = useWalletInfo();
+  const { activeBlockchain, activeNetwork } = useBlockchain();
+  const [initializationComplete, setInitializationComplete] = useState(false);
 
-  // Derive wallet info on seed phrase
+  // Load wallet info when wallet exists and is not initializing
   useEffect(() => {
-    const deriveWalletInfo = async () => {
-      if (hasWallet && seedPhrase) {
-        try {
-          setWalletInfo(prev => ({ ...prev, derivationLoading: true }));
-
-          // Import deriveXpubFromSeedPhrase from descriptorUtils
-          const { deriveXpubFromSeedPhrase } = await import('@/utils/descriptorUtils');
-
-          // Derive wallet info from seed phrase
-          const { xpub, xpriv, fingerprint, path } = await deriveXpubFromSeedPhrase(seedPhrase);
-
-          // Set wallet info
-          setWalletInfo({
-            xpub,
-            xpriv,
-            fingerprint,
-            path,
-            derivationLoading: false
-          });
-        } catch (error) {
-          // Error deriving wallet info
-          setWalletInfo(prev => ({ ...prev, derivationLoading: false }));
-        }
-      }
-    };
-
-    deriveWalletInfo();
-  }, [hasWallet, seedPhrase]);
+    if (hasWallet && seedPhrase && !isInitializing && !derivationLoading) {
+      loadWalletInfo(seedPhrase, activeBlockchain, activeNetwork);
+    }
+  }, [hasWallet, seedPhrase, isInitializing, derivationLoading, loadWalletInfo, activeBlockchain, activeNetwork]);
 
   const handleCreateWallet = async () => {
     try {
-      await createWallet();
-      setCreateSuccess(true);
+      await initializeWalletComplete(null, false, activeBlockchain, activeNetwork);
     } catch (err) {
-      // Error creating wallet
+      console.error('Error creating wallet:', err);
     }
   };
 
   const handleImportWallet = async (inputSeedPhrase) => {
     try {
-      await importWallet(inputSeedPhrase);
-      setCreateSuccess(true); // Show success message
+      await initializeWalletComplete(inputSeedPhrase, true, activeBlockchain, activeNetwork);
     } catch (err) {
-      // Error importing wallet
+      console.error('Error importing wallet:', err);
     }
   };
 
-  // Show wallet dashboard if available
-  if (hasWallet && seedPhrase) {
+  const handleInitializationComplete = () => {
+    setInitializationComplete(true);
+    // Small delay for smooth transition
+    setTimeout(() => {
+      setInitializationComplete(false);
+    }, 500);
+  };
+
+  // Show initialization screen
+  if (isInitializing) {
+    return (
+      <WalletInitialization
+        initializationStep={initializationStep}
+        initializationProgress={initializationProgress}
+        onComplete={handleInitializationComplete}
+      />
+    );
+  }
+
+  // Show wallet dashboard if available and not initializing
+  if (hasWallet && seedPhrase && !isInitializing) {
     return (
       <WalletDashboard
         seedPhrase={seedPhrase}
         walletInfo={walletInfo}
-        createSuccess={createSuccess}
+        derivationLoading={derivationLoading}
+        createSuccess={initializationComplete}
       />
     );
   }

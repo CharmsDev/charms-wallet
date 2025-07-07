@@ -1,135 +1,218 @@
-import { ProcessedCharm, UTXO, UTXOMap } from '@/types';
-import config from '@/config';
+import { ProcessedCharm, UTXOMap } from '@/types';
+import { fetchTransaction } from './utils/transaction-fetcher';
+import { isNFT, isToken, getCharmDisplayName } from './utils/charm-utils';
+// Dynamic import for charms-js to handle browser compatibility
+let charmsJs: any = null;
 
+async function getCharmsJs() {
+    if (charmsJs) {
+        return charmsJs;
+    }
+
+    try {
+        console.log('[CHARMS] Loading charms-js library...');
+        charmsJs = await import('charms-js');
+        console.log('[CHARMS] charms-js library loaded successfully');
+        return charmsJs;
+    } catch (error) {
+        console.error('[CHARMS] Failed to load charms-js library:', error);
+        return null;
+    }
+}
+
+/**
+ * Helper function to find the owner address for a transaction from the UTXOs
+ */
+function findOwnerAddress(utxos: UTXOMap, txId: string): string {
+    return Object.entries(utxos).find(([addr, utxoList]) =>
+        utxoList.some(utxo => utxo.txid === txId)
+    )?.[0] || '';
+}
+
+/**
+ * Service for handling Charms functionality
+ * This is a facade that orchestrates the various modules
+ */
 class CharmsService {
+    /**
+     * Gets all charms from the provided UTXOs
+     */
     async getCharmsByUTXOs(utxos: UTXOMap): Promise<ProcessedCharm[]> {
         try {
+            console.log('[CHARMS] Starting charm detection process...');
+
+            // Load charms-js dynamically
+            const charms = await getCharmsJs();
+            if (!charms) {
+                console.error('[CHARMS] Failed to load charms-js library');
+                return [];
+            }
+
+            console.log('[CHARMS] charms-js library loaded successfully');
+            console.log('[CHARMS] Available functions in charms-js:', Object.keys(charms));
+
+            // Use the correct API functions from charms-js v1.1.1
+            const { decodeTransaction, hasCharmsData } = charms;
+
+            if (!decodeTransaction) {
+                console.error('[CHARMS] decodeTransaction function not found in charms-js');
+                console.log('[CHARMS] Available functions:', Object.keys(charms));
+                return [];
+            }
+
+            if (!hasCharmsData) {
+                console.error('[CHARMS] hasCharmsData function not found in charms-js');
+                return [];
+            }
+
             // Get all unique transaction IDs
             const txIds = Array.from(new Set(Object.values(utxos).flat().map(utxo => utxo.txid)));
+            console.log(`[CHARMS] Found ${txIds.length} unique transactions to check`);
 
-            // Make all requests in parallel
-            const responses = await Promise.all(
-                txIds.map(async txId => {
-                    const response = await fetch(`${config.api.charms}/spells/${txId}`);
-                    if (!response.ok) return null;
-                    const text = await response.text(); // Get response as text first
-                    if (!text) return null; // If empty response, return null
-                    try {
-                        return JSON.parse(text); // Then try to parse it
-                    } catch (e) {
-                        // Failed to parse JSON
-                        return null;
-                    }
-                })
+            if (txIds.length === 0) {
+                console.log('[CHARMS] No transactions found in UTXOs');
+                return [];
+            }
+
+            // Fetch all transactions in parallel
+            const transactions = await Promise.all(
+                txIds.map(txId => fetchTransaction(txId))
             );
 
-            // Process all responses
-            const charms: ProcessedCharm[] = [];
-            responses.forEach((data, index) => {
-                if (!data || !data.outs) return;
+            const successfulFetches = transactions.filter(tx => tx !== null).length;
+            console.log(`[CHARMS] Processing ${txIds.length} transactions, fetched ${successfulFetches} successfully`);
+
+            if (successfulFetches === 0) {
+                console.warn('[CHARMS] No transactions could be fetched');
+                return [];
+            }
+
+            // Process all transactions
+            const charmsArray: ProcessedCharm[] = [];
+
+            for (let index = 0; index < transactions.length; index++) {
+                const tx = transactions[index];
+                if (!tx) {
+                    continue;
+                }
 
                 const txId = txIds[index];
-                data.outs.forEach((out: any, outputIndex: number) => {
-                    if (!out.charms) return;
+                const txHex = tx.toHex();
 
-                    Object.entries(out.charms).forEach(([id, amount]) => {
-                        const appId = id.replace('$', '');
-                        const app = data.apps?.[id];
-                        if (!app) {
-                            // App not found for this ID
-                            return;
-                        }
+                // Check if transaction has charms data
+                if (!hasCharmsData(txHex)) {
+                    continue;
+                }
 
-                        // Find the address that owns this UTXO
-                        const ownerAddress = Object.entries(utxos).find(([addr, utxoList]) =>
-                            utxoList.some(utxo => utxo.txid === txId)
-                        )?.[0] || '';
+                // Find the owner address for this transaction
+                const ownerAddress = findOwnerAddress(utxos, txId);
+                if (!ownerAddress) {
+                    continue;
+                }
 
-                        const isValidAddress = ownerAddress.startsWith('tb1') || ownerAddress.startsWith('bc1');
-                        if (!isValidAddress) {
-                            // Invalid address format
-                            return;
-                        }
+                // Decode and extract charms from the transaction (async call)
+                const charmsResult = await decodeTransaction(txHex);
 
-                        // Validate app format (should be type/appId/appVk)
-                        if (!app.includes('/')) {
-                            // Invalid app format
-                            return;
-                        }
+                console.log(`[CHARMS] Decode result for tx ${txId.substring(0, 8)}:`, charmsResult);
 
-                        // Parse charm data based on the format
-                        // The amount can be either a number or an object with metadata
-                        let charmAmount;
+                // Check if decoding was successful
+                if (!charmsResult) {
+                    console.log(`[CHARMS] No result returned for transaction ${txId.substring(0, 8)} (verification likely failed)`);
+                    continue;
+                }
 
-                        if (typeof amount === 'object' && amount !== null) {
-                            // New format with metadata
-                            charmAmount = {
-                                ticker: 'ticker' in amount && typeof amount.ticker === 'string'
-                                    ? amount.ticker
-                                    : `CHARM-${appId}`,
-                                remaining: 'remaining' in amount && typeof amount.remaining === 'number'
-                                    ? amount.remaining
-                                    : 0,
-                                name: 'name' in amount && typeof amount.name === 'string'
-                                    ? amount.name
-                                    : undefined,
-                                description: 'description' in amount && typeof amount.description === 'string'
-                                    ? amount.description
-                                    : undefined,
-                                image: 'image' in amount && typeof amount.image === 'string'
-                                    ? amount.image
-                                    : undefined,
-                                image_hash: 'image_hash' in amount && typeof amount.image_hash === 'string'
-                                    ? amount.image_hash
-                                    : undefined,
-                                url: 'url' in amount && typeof amount.url === 'string'
-                                    ? amount.url
-                                    : undefined
-                            };
+                if ('error' in charmsResult) {
+                    console.log(`[CHARMS] Error decoding transaction ${txId.substring(0, 8)}: ${charmsResult.error}`);
+                    continue;
+                }
+
+                // Check if result is an array
+                if (!Array.isArray(charmsResult)) {
+                    console.log(`[CHARMS] Unexpected result type for transaction ${txId.substring(0, 8)}:`, typeof charmsResult, charmsResult);
+                    continue;
+                }
+
+                console.log(`[CHARMS] Found ${charmsResult.length} charms in tx ${txId.substring(0, 8)}`);
+
+                // Get all wallet addresses from UTXOs
+                const walletAddresses = new Set(Object.keys(utxos));
+
+                // Process each decoded charm
+                for (const charmInstance of charmsResult) {
+                    // Determine the charm's address
+                    // Use the address from the CharmInstance
+                    const charmAddress = charmInstance.address !== 'unknown' ? charmInstance.address : ownerAddress;
+
+                    console.log(`[CHARMS] Charm ${charmInstance.appId} output ${charmInstance.utxo.index}: SDK address="${charmInstance.address}", final address="${charmAddress}"`);
+
+                    // Check if the charm's address belongs to the wallet
+                    const belongsToWallet = walletAddresses.has(charmAddress);
+
+                    // Only process charms that belong to the wallet
+                    if (belongsToWallet) {
+                        // Determine the ticker and remaining values based on the charm data
+                        let ticker: string;
+                        let remaining: number;
+
+                        // Check if the charm has a value property (token amount)
+                        if (charmInstance.value !== undefined) {
+                            // For tokens with a value property
+                            ticker = charmInstance.ticker || 'CHARMS-TOKEN';
+                            remaining = charmInstance.value;
                         } else {
-                            // Old format (just a number)
-                            charmAmount = {
-                                ticker: `CHARM-${appId}`,
-                                remaining: typeof amount === 'number' ? amount : 0
-                            };
+                            // For NFTs or tokens with ticker/remaining properties
+                            ticker = charmInstance.ticker || 'CHARMS-NFT';
+                            remaining = charmInstance.remaining || 1;
                         }
 
-                        // Process the parsed charm data
-
-                        charms.push({
-                            uniqueId: `${txId}-${appId}-${outputIndex}-${JSON.stringify(charmAmount)}`,
-                            id: appId,
-                            amount: charmAmount,
-                            app,
-                            outputIndex,
+                        // Create a ProcessedCharm object from the CharmInstance
+                        const charm: ProcessedCharm = {
+                            uniqueId: `${txId}-${charmInstance.appId}-${charmInstance.utxo.index}-${JSON.stringify({
+                                ticker: ticker,
+                                remaining: remaining
+                            })}`,
+                            id: charmInstance.appId,
+                            amount: {
+                                ticker: ticker,
+                                remaining: remaining,
+                                name: charmInstance.name,
+                                description: charmInstance.description,
+                                image: charmInstance.image,
+                                image_hash: charmInstance.image_hash,
+                                url: charmInstance.url
+                            },
+                            app: charmInstance.app || '',
+                            outputIndex: charmInstance.utxo.index,
                             txid: txId,
-                            address: ownerAddress,
+                            address: charmAddress,
                             commitTxId: null,
                             spellTxId: null
-                        });
-                    });
-                });
-            });
+                        };
 
-            return charms;
+                        charmsArray.push(charm);
+                        console.log(`[CHARMS] Added ${ticker} (${remaining}) to wallet`);
+                    }
+                }
+            }
+
+            return charmsArray;
         } catch (error) {
-            // Error handling
+            console.error('Error getting charms by UTXOs:', error);
             return [];
         }
     }
 
-    // Helper method to determine if a charm is an NFT
+    // Expose utility methods
     isNFT(charm: ProcessedCharm): boolean {
-        return charm.app.startsWith("n/");
+        return isNFT(charm);
     }
 
-    // Helper method to get a display name for a charm
+    isToken(charm: ProcessedCharm): boolean {
+        return isToken(charm);
+    }
+
     getCharmDisplayName(charm: ProcessedCharm): string {
-        if (this.isNFT(charm)) {
-            return `NFT: ${charm.id}`;
-        } else {
-            return `${charm.amount.ticker || `CHARM-${charm.id}`}`;
-        }
+        return getCharmDisplayName(charm);
     }
 }
 
