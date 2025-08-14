@@ -11,6 +11,15 @@ export class UTXOService {
     constructor() {
         this.api = utxoApiService;
         this.storage = utxoStorageService;
+        this.cancelRequested = false;
+    }
+
+    cancelOperations() {
+        this.cancelRequested = true;
+    }
+
+    resetCancelFlag() {
+        this.cancelRequested = false;
     }
 
     // Fetch UTXOs for a single address
@@ -49,6 +58,9 @@ export class UTXOService {
     // Sequential UTXO refresh with rate limiting to avoid API blocks
     async fetchAndStoreAllUTXOsSequential(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, onProgress = null) {
         try {
+            // Reset cancel flag at start
+            this.resetCancelFlag();
+
             const addressEntries = await getAddresses(blockchain, network);
 
             // Filter addresses for the current blockchain
@@ -65,6 +77,11 @@ export class UTXOService {
 
             // Process addresses sequentially with delays
             for (const address of filteredAddresses) {
+                // Check for cancellation before processing each address
+                if (this.cancelRequested) {
+                    console.log('[UTXO SERVICE] Operation cancelled by user');
+                    return utxoMap; // Return partial results
+                }
                 try {
                     // Fetch UTXOs for single address
                     const utxos = await this.getAddressUTXOs(address, blockchain, network);

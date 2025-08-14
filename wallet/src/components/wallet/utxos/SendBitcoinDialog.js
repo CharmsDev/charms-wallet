@@ -1,187 +1,108 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { createUnsignedTransaction } from '@/services/wallet/core/transaction';
-import { signTransaction } from '@/services/wallet/core/sign';
-import { broadcastService } from '@/services/wallet/broadcast-service';
-import { utxoService } from '@/services/utxo';
+import { TransactionOrchestrator } from '@/services/wallet/transaction-orchestrator';
+import { UtxoSelector } from '@/services/wallet/utxo-selector';
 import { decodeTx } from '@/utils/txDecoder';
 import config from '@/config';
-import * as bitcoin from 'bitcoinjs-lib';
 
-export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onSend, formatSats }) {
+export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onSend, formatValue }) {
     const [destinationAddress, setDestinationAddress] = useState('');
     const [amount, setAmount] = useState('');
     const [showConfirmation, setShowConfirmation] = useState(false);
+    const [showSuccess, setShowSuccess] = useState(false);
+    const [showPreparing, setShowPreparing] = useState(false);
     const [error, setError] = useState('');
     const [selectedUtxos, setSelectedUtxos] = useState([]);
     const [totalSelected, setTotalSelected] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [txId, setTxId] = useState(null);
-    const [feeRate, setFeeRate] = useState(1); // Default fee rate in sats/byte
+    const [feeRate, setFeeRate] = useState(5);
     const [transactionData, setTransactionData] = useState(null);
+    const [preparingStatus, setPreparingStatus] = useState('');
 
-    // Update selected UTXOs based on amount
+    // Auto-select UTXOs when amount changes
     useEffect(() => {
-        if (amount && !isNaN(parseFloat(amount))) {
-            const amountInSats = parseFloat(amount) * 100000000; // Convert BTC to satoshis
-            const selected = selectUtxosForAmount(confirmedUtxos, amountInSats);
-            setSelectedUtxos(selected.utxos);
-            setTotalSelected(selected.total);
+        if (amount && !isNaN(parseFloat(amount)) && parseFloat(amount) > 0) {
+            selectUtxosIntelligently();
         } else {
             setSelectedUtxos([]);
             setTotalSelected(0);
         }
     }, [amount, confirmedUtxos]);
 
-    // Select optimal UTXOs for transaction amount
-    const selectUtxosForAmount = (utxos, amountInSats) => {
-        // Create temporary UTXO map structure
-        const tempUtxoMap = { 'temp-address': utxos };
+    const selectUtxosIntelligently = async () => {
+        if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+            setSelectedUtxos([]);
+            setTotalSelected(0);
+            return;
+        }
 
-        // Convert to BTC and select UTXOs
-        const amountBtc = amountInSats / 100000000;
-        const selectedUtxos = utxoService.selectUtxos(tempUtxoMap, amountBtc, feeRate);
+        try {
+            const amountInSats = parseFloat(amount) * 100000000;
+            const utxoSelector = new UtxoSelector();
+            const selection = utxoSelector.selectUtxosForAmount(confirmedUtxos, amountInSats, feeRate);
 
-        // Sum selected UTXO values
-        const totalValue = selectedUtxos.reduce((sum, utxo) => sum + utxo.value, 0);
-
-        return {
-            utxos: selectedUtxos,
-            total: totalValue
-        };
+            if (selection.sufficientFunds) {
+                setSelectedUtxos(selection.selectedUtxos);
+                setTotalSelected(selection.totalSelected);
+                setError('');
+            } else {
+                setSelectedUtxos([]);
+                setTotalSelected(0);
+                setError(`Insufficient funds. Need ${(amountInSats + selection.estimatedFee).toLocaleString()} sats, available: ${selection.totalSelected.toLocaleString()} sats.`);
+            }
+        } catch (error) {
+            setSelectedUtxos([]);
+            setTotalSelected(0);
+            setError('Error selecting UTXOs. Please try again.');
+        }
     };
 
-    // Check for sufficient funds
     const hasEnoughFunds = useMemo(() => {
         if (!amount || isNaN(parseFloat(amount))) return true;
         const amountInSats = parseFloat(amount) * 100000000;
         return totalSelected >= amountInSats;
     }, [amount, totalSelected]);
 
-    // Retrieve scriptPubKey for transaction input
-    const fetchScriptPubKey = async (utxo) => {
-        try {
-            // Use existing scriptPubKey if available
-            if (utxo.scriptPubKey) {
-                return utxo.scriptPubKey;
-            }
-
-            // Fetch transaction details from API
-            const apiUrl = `${config.api.wallet}/bitcoin-rpc/prev-txs/${utxo.txid}`;
-
-            const response = await fetch(apiUrl);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            // Validate API response
-            const txHexArray = await response.json();
-            if (!txHexArray || txHexArray.length === 0) {
-                throw new Error(`No transaction data returned for: ${utxo.txid}`);
-            }
-
-            // Extract transaction hex
-            const txHex = txHexArray[0];
-
-            // Parse transaction data
-            const decodedTx = decodeTx(txHex);
-
-            // Locate matching output
-            const output = decodedTx.outputs.find(output => output.index === utxo.vout);
-
-            if (!output || !output.scriptPubKey) {
-                throw new Error(`Could not find scriptPubKey for UTXO: ${utxo.txid}:${utxo.vout}`);
-            }
-
-            return output.scriptPubKey;
-        } catch (error) {
-            throw error;
-        }
-    };
-
     const handleSendClick = async () => {
         try {
-            // Validate input fields
-            if (!destinationAddress.trim()) {
-                setError('Destination address is required');
-                return;
-            }
-
-            if (!amount.trim() || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
-                setError('Please enter a valid amount');
+            if (!destinationAddress || !amount || selectedUtxos.length === 0) {
+                setError('Please fill in all fields and ensure UTXOs are selected.');
                 return;
             }
 
             if (!hasEnoughFunds) {
-                setError('Insufficient funds');
+                setError('Insufficient funds for this transaction.');
                 return;
             }
 
-            if (selectedUtxos.length === 0) {
-                setError('No UTXOs selected');
-                return;
-            }
-
-            // Process selected UTXOs for transaction
-
-            // Reset error state
             setError('');
+            setShowPreparing(true);
+            setPreparingStatus('Creating transaction...');
 
-            // Retrieve missing scriptPubKey data
-            setError('Fetching transaction details for UTXOs...');
-            const enhancedUtxos = [...selectedUtxos];
+            const orchestrator = new TransactionOrchestrator();
+            const result = await orchestrator.processTransaction(destinationAddress, amount, selectedUtxos, feeRate);
 
-            try {
-                for (let i = 0; i < enhancedUtxos.length; i++) {
-                    if (!enhancedUtxos[i].scriptPubKey) {
-                        const scriptPubKey = await fetchScriptPubKey(enhancedUtxos[i]);
-                        enhancedUtxos[i] = {
-                            ...enhancedUtxos[i],
-                            scriptPubKey
-                        };
-                    }
-                }
-            } catch (err) {
-                setError(`Failed to fetch transaction details: ${err.message}`);
-                return;
+            if (!result.success) {
+                throw new Error(result.error);
             }
 
-            // Clear progress message
-            setError('');
+            setPreparingStatus('Decoding transaction...');
+            const decodedTx = decodeTx(result.signedTxHex, config.network);
 
-            // Construct transaction data
-            const txData = {
-                utxos: enhancedUtxos,
-                destinationAddress,
-                amount: parseFloat(amount),
-                feeRate,
-                // The change address will be determined by the service
-                // but we can provide a default from the selected UTXOs
-                changeAddress: enhancedUtxos[0]?.address || destinationAddress
-            };
-
-            // Generate unsigned transaction
-            const unsignedTxHex = await createUnsignedTransaction(txData);
-
-            // Sign transaction with wallet keys
-            const txHex = await signTransaction(txData);
-
-            // Parse for confirmation display
-            const decodedTx = decodeTx(txHex);
-
-            // Store complete transaction data
             setTransactionData({
-                ...txData,
-                unsignedTxHex,
-                txHex,
-                decodedTx
+                txHex: result.signedTxHex,
+                decodedTx,
+                size: result.signedTxHex.length / 2
             });
 
-            // Display confirmation screen
+            setShowPreparing(false);
             setShowConfirmation(true);
+
         } catch (err) {
-            setError(err.message || 'Failed to prepare transaction');
+            setShowPreparing(false);
+            setError(err.message || 'Transaction preparation failed');
         }
     };
 
@@ -190,26 +111,30 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
             setIsSubmitting(true);
             setError('');
 
-            // Broadcast signed transaction
-            const result = await broadcastService.broadcastTransaction(transactionData.txHex);
+            const orchestrator = new TransactionOrchestrator();
+            const result = await orchestrator.broadcastTransaction(transactionData.txHex);
 
-            // Save transaction identifier
+            const utxoSelector = new UtxoSelector();
+            utxoSelector.unlockUtxos(selectedUtxos);
+
             setTxId(result.txid);
+            setShowConfirmation(false);
+            setShowSuccess(true);
 
-            // Trigger parent component callback
-            onSend({
-                utxos: selectedUtxos,
-                destinationAddress,
-                amount: parseFloat(amount),
-                txid: result.txid,
-                unsignedTxHex: transactionData.unsignedTxHex,
-                txHex: transactionData.txHex
-            });
+            if (onSend) {
+                onSend({
+                    txid: result.txid,
+                    amount: parseFloat(amount),
+                    destinationAddress,
+                    utxos: selectedUtxos,
+                    fee: transactionData?.size ? Math.ceil(transactionData.size * feeRate) : 0
+                });
+            }
 
-            // Clean up and close
-            resetAndClose();
         } catch (err) {
-            setError(err.response?.data?.message || err.message || 'Failed to send transaction');
+            const utxoSelector = new UtxoSelector();
+            utxoSelector.unlockUtxos(selectedUtxos);
+            setError(err.message);
         } finally {
             setIsSubmitting(false);
         }
@@ -219,9 +144,15 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
         setDestinationAddress('');
         setAmount('');
         setShowConfirmation(false);
+        setShowSuccess(false);
+        setShowPreparing(false);
         setError('');
         setSelectedUtxos([]);
         setTotalSelected(0);
+        setIsSubmitting(false);
+        setTxId(null);
+        setTransactionData(null);
+        setPreparingStatus('');
         onClose();
     };
 
@@ -229,45 +160,162 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50">
-            <div className="card p-6 w-full max-w-2xl">
-                {!showConfirmation ? (
+            <div className="card p-6 w-full max-w-3xl">
+                {showSuccess ? (
+                    <>
+                        <div className="text-center mb-8">
+                            <div className="relative inline-flex items-center justify-center w-20 h-20 mb-6">
+                                <div className="absolute inset-0 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full animate-pulse opacity-20"></div>
+                                <div className="relative flex items-center justify-center w-16 h-16 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full">
+                                    <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </div>
+                            </div>
+                            <h2 className="text-2xl font-bold gradient-text mb-2">Transaction Sent!</h2>
+                            <p className="text-dark-300">Your Bitcoin has been successfully broadcast to the network</p>
+                        </div>
+
+                        <div className="mb-8 p-6 bg-gradient-to-br from-dark-800 to-dark-900 rounded-xl border border-dark-600 shadow-lg">
+                            <div className="flex items-center justify-between mb-4 pb-4 border-b border-dark-700">
+                                <h3 className="text-lg font-semibold text-dark-100">Transaction Summary</h3>
+                                <div className="flex items-center space-x-2">
+                                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                                    <span className="text-sm text-green-400 font-medium">Broadcasted</span>
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="text-center p-4 bg-dark-800 rounded-lg border border-dark-700">
+                                        <div className="text-sm text-dark-400 mb-1">Amount Sent</div>
+                                        <div className="text-xl font-bold text-bitcoin-400 bitcoin-glow-text">{amount} BTC</div>
+                                    </div>
+                                    <div className="text-center p-4 bg-dark-800 rounded-lg border border-dark-700">
+                                        <div className="text-sm text-dark-400 mb-1">Network Fee</div>
+                                        <div className="text-lg font-semibold text-dark-200">{transactionData?.size ? `${Math.ceil(transactionData.size * feeRate)} sats` : 'N/A'}</div>
+                                    </div>
+                                </div>
+
+                                <div className="p-4 bg-dark-800 rounded-lg border border-dark-700">
+                                    <div className="text-sm text-dark-400 mb-2">Sent To</div>
+                                    <div className="text-dark-200 font-mono text-sm break-all bg-dark-900 p-3 rounded border border-dark-600">
+                                        {destinationAddress}
+                                    </div>
+                                </div>
+
+                                <div className="p-4 bg-dark-800 rounded-lg border border-dark-700">
+                                    <div className="text-sm text-dark-400 mb-2">Transaction ID</div>
+                                    <div className="text-dark-200 font-mono text-sm break-all bg-dark-900 p-3 rounded border border-dark-600">
+                                        {txId}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                            <a
+                                href={`https://mempool.space/testnet4/tx/${txId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                                <span>View on Mempool</span>
+                            </a>
+                            <button
+                                className="btn btn-secondary shadow-lg transform hover:scale-105 transition-all duration-200"
+                                onClick={resetAndClose}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </>
+                ) : showPreparing ? (
+                    <>
+                        <h2 className="text-xl font-bold gradient-text mb-4">Preparing Transaction</h2>
+                        <div className="flex items-center justify-center py-8">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-bitcoin-400 mr-3"></div>
+                            <span className="text-dark-200">{preparingStatus}</span>
+                        </div>
+                    </>
+                ) : showConfirmation ? (
+                    <>
+                        <h2 className="text-xl font-bold gradient-text mb-4">Confirm Transaction</h2>
+
+                        {transactionData?.decodedTx && (
+                            <div className="mb-4">
+                                <pre className="bg-dark-900 text-dark-200 p-4 rounded-lg overflow-auto text-xs font-mono border border-dark-700">
+                                    {JSON.stringify(transactionData.decodedTx, null, 2)}
+                                </pre>
+                            </div>
+                        )}
+
+                        {error && <div className="error-message">{error}</div>}
+
+                        <div className="flex justify-end space-x-2">
+                            <button
+                                className="btn btn-secondary"
+                                onClick={() => setShowConfirmation(false)}
+                                disabled={isSubmitting}
+                            >
+                                No, Cancel
+                            </button>
+                            <button
+                                className={`btn ${isSubmitting ? 'bg-green-700 opacity-50 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'} text-white`}
+                                onClick={handleConfirmSend}
+                                disabled={isSubmitting}
+                            >
+                                {isSubmitting ? 'Sending...' : 'Yes, Send Now'}
+                            </button>
+                        </div>
+                    </>
+                ) : (
                     <>
                         <h2 className="text-xl font-bold gradient-text mb-4">Send Bitcoin</h2>
 
                         <div className="mb-4">
-                            <p className="text-dark-300 mb-2">Total available: <span className="font-bold text-bitcoin-400 bitcoin-glow-text">{formatSats(confirmedUtxos.reduce((sum, u) => sum + u.value, 0))} BTC</span></p>
-                        </div>
-
-                        <div className="mb-4">
-                            <label className="block text-sm font-medium text-dark-200 mb-1">
+                            <label className="block text-sm font-medium text-dark-200 mb-2">
                                 Destination Address
                             </label>
                             <input
                                 type="text"
-                                className="w-full p-2 bg-dark-700 border border-dark-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                                 value={destinationAddress}
                                 onChange={(e) => setDestinationAddress(e.target.value)}
+                                className="input w-full"
                                 placeholder="Enter Bitcoin address"
                             />
                         </div>
 
                         <div className="mb-4">
-                            <label className="block text-sm font-medium text-dark-200 mb-1">
+                            <label className="block text-sm font-medium text-dark-200 mb-2">
                                 Amount (BTC)
                             </label>
                             <input
-                                type="text"
-                                className={`w-full p-2 bg-dark-700 border ${!hasEnoughFunds ? 'border-red-500' : 'border-dark-600'} text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500`}
+                                type="number"
+                                step="0.00000001"
                                 value={amount}
                                 onChange={(e) => setAmount(e.target.value)}
-                                placeholder="0.0"
+                                className="input w-full"
+                                placeholder="0.00000000"
                             />
-                            {!hasEnoughFunds && (
-                                <p className="mt-1 text-sm text-red-400">Insufficient funds</p>
-                            )}
                         </div>
 
-                        {/* Input UTXOs list */}
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-dark-200 mb-2">
+                                Fee Rate (sats/byte)
+                            </label>
+                            <input
+                                type="number"
+                                value={feeRate}
+                                onChange={(e) => setFeeRate(parseInt(e.target.value) || 1)}
+                                className="input w-full"
+                                min="1"
+                            />
+                        </div>
+
                         {selectedUtxos.length > 0 && (
                             <div className="mb-4">
                                 <label className="block text-sm font-medium text-dark-200 mb-2">
@@ -291,59 +339,14 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                             </div>
                         )}
 
-                        {error && (
-                            <div className="error-message">
-                                {error}
-                            </div>
-                        )}
+                        {error && <div className="error-message">{error}</div>}
 
                         <div className="flex justify-end space-x-2">
-                            <button
-                                className="btn btn-secondary"
-                                onClick={resetAndClose}
-                            >
+                            <button className="btn btn-secondary" onClick={resetAndClose}>
                                 Cancel
                             </button>
-                            <button
-                                className="btn btn-bitcoin"
-                                onClick={handleSendClick}
-                            >
+                            <button className="btn btn-bitcoin" onClick={handleSendClick}>
                                 Send Now
-                            </button>
-                        </div>
-                    </>
-                ) : (
-                    <>
-                        <h2 className="text-xl font-bold gradient-text mb-4">Confirm Transaction</h2>
-
-                        {transactionData?.decodedTx && (
-                            <div className="mb-4">
-                                <pre className="bg-dark-900 text-dark-200 p-4 rounded-lg overflow-auto text-xs font-mono border border-dark-700">
-                                    {JSON.stringify(transactionData.decodedTx, null, 2)}
-                                </pre>
-                            </div>
-                        )}
-
-                        {error && (
-                            <div className="error-message">
-                                {error}
-                            </div>
-                        )}
-
-                        <div className="flex justify-end space-x-2">
-                            <button
-                                className="btn btn-secondary"
-                                onClick={() => setShowConfirmation(false)}
-                                disabled={isSubmitting}
-                            >
-                                No, Cancel
-                            </button>
-                            <button
-                                className={`btn ${isSubmitting ? 'bg-green-700 opacity-50 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'} text-white`}
-                                onClick={handleConfirmSend}
-                                disabled={isSubmitting}
-                            >
-                                {isSubmitting ? 'Sending...' : 'Yes, Send Now'}
                             </button>
                         </div>
                     </>

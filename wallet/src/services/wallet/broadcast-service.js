@@ -18,34 +18,39 @@ class BroadcastService {
             apiUrl = `${mempoolApiUrl}/tx`;
             requestBody = txHex; // Just the raw hex for mempool.space
 
-            // Broadcasting transaction
-
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'text/plain', // mempool.space expects text/plain for raw hex
                 },
-                body: typeof requestBody === 'string' ? requestBody : JSON.stringify(requestBody),
+                body: requestBody,
             });
 
             if (!response.ok) {
-                // Try to get detailed error message
                 let errorText = 'Unknown error';
                 try {
                     errorText = await response.text();
                 } catch (e) {
-                    // Ignore error reading response text
+                    // Ignore text reading error
                 }
                 throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
             }
 
-            // Different APIs return different formats
-            const result = await response.json().catch(() => response.text());
+            const responseText = await response.text();
+
+            let result;
+            try {
+                result = JSON.parse(responseText);
+            } catch (jsonError) {
+                result = responseText;
+            }
 
             // Format the result consistently
             const txid = typeof result === 'string' ? result : result.txid;
 
-            // Transaction broadcast successfully
+            if (!txid) {
+                throw new Error('No transaction ID returned from broadcast service');
+            }
 
             return {
                 txid,

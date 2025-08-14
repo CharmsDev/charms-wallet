@@ -6,6 +6,7 @@ import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useWallet } from '@/stores/walletStore';
 import config from '@/config';
+import utxoManager from '@/services/wallet/utxo-manager';
 import SendBitcoinDialog from './SendBitcoinDialog';
 
 export default function UTXOList() {
@@ -17,8 +18,10 @@ export default function UTXOList() {
         refreshProgress,
         loadUTXOs,
         refreshUTXOs,
+        updateAfterTransaction,
         formatValue,
-        initialized
+        initialized,
+        cancelUTXORefresh
     } = useUTXOs();
     const { addresses, loadAddresses } = useAddresses();
     const { activeBlockchain, activeNetwork, isBitcoin, isCardano } = useBlockchain();
@@ -114,14 +117,20 @@ export default function UTXOList() {
         setIsSendDialogOpen(true);
     };
 
-    const handleSendBitcoin = (sendData) => {
-        // Show loading state
-        setIsSendDialogOpen(false);
-
-
-        // Transaction has been sent successfully
-        // Just refresh UTXOs to show updated balances
-        refreshUTXOs(activeBlockchain, activeNetwork);
+    const handleSendBitcoin = async (sendData) => {
+        try {
+            if (sendData.utxos && sendData.utxos.length > 0) {
+                await utxoManager.processTransactionCompletion(
+                    sendData,
+                    updateAfterTransaction,
+                    activeBlockchain,
+                    activeNetwork
+                );
+            }
+        } catch (error) {
+            console.error('[UTXOList] Error handling transaction completion:', error);
+            refreshUTXOs(activeBlockchain, activeNetwork);
+        }
     };
 
 
@@ -130,22 +139,32 @@ export default function UTXOList() {
             <div>
                 <div className="p-6 flex justify-between items-center">
                     <h2 className="text-xl font-bold gradient-text">Your UTXOs</h2>
-                    <button
-                        className="btn btn-primary"
-                        onClick={handleRefresh}
-                        disabled={refreshProgress.isRefreshing}
-                    >
-                        {refreshProgress.isRefreshing ? (
-                            <div className="flex items-center space-x-2">
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                <span>
-                                    {refreshProgress.processed}/{refreshProgress.total}
-                                </span>
-                            </div>
-                        ) : (
-                            'Refresh'
+                    <div className="flex space-x-2">
+                        <button
+                            className="btn btn-primary"
+                            onClick={handleRefresh}
+                            disabled={refreshProgress.isRefreshing}
+                        >
+                            {refreshProgress.isRefreshing ? (
+                                <div className="flex items-center space-x-2">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                    <span>
+                                        {refreshProgress.processed}/{refreshProgress.total}
+                                    </span>
+                                </div>
+                            ) : (
+                                'Refresh'
+                            )}
+                        </button>
+                        {refreshProgress.isRefreshing && (
+                            <button
+                                className="btn bg-red-600 hover:bg-red-700 text-white"
+                                onClick={cancelUTXORefresh}
+                            >
+                                Cancel
+                            </button>
                         )}
-                    </button>
+                    </div>
                 </div>
                 <div className="error-message">
                     <p>Error: {error}</p>
@@ -159,7 +178,6 @@ export default function UTXOList() {
             <div className="p-6 flex justify-between items-center">
                 <h2 className="text-xl font-bold gradient-text">Your UTXOs</h2>
                 <div className="flex space-x-2">
-                    {/* Send buttons commented out for mobile view
                     {isBitcoin() && (
                         <button
                             className={`btn ${confirmedUtxos.length === 0 ? 'opacity-50 cursor-not-allowed bg-dark-700' : 'btn-bitcoin'}`}
@@ -169,6 +187,7 @@ export default function UTXOList() {
                             Send Bitcoin
                         </button>
                     )}
+                    {/* Cardano send button kept commented for now
                     {isCardano() && (
                         <button
                             className={`btn ${confirmedUtxos.length === 0 ? 'opacity-50 cursor-not-allowed bg-dark-700' : 'btn-cardano'}`}
@@ -195,6 +214,14 @@ export default function UTXOList() {
                             'Refresh'
                         )}
                     </button>
+                    {refreshProgress.isRefreshing && (
+                        <button
+                            className="btn bg-red-600 hover:bg-red-700 text-white ml-2"
+                            onClick={cancelUTXORefresh}
+                        >
+                            Cancel
+                        </button>
+                    )}
                 </div>
             </div>
 
