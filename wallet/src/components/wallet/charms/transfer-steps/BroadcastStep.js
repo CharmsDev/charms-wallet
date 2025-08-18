@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useCharms } from '@/stores/charmsStore';
-import { broadcastTransactions } from '@/services/charms/sign/submit-charm-txs';
+import { broadcastTransactions } from '@/services/charms/sign/broadcastTx';
 
 export default function BroadcastStep({
     signedCommitTx,

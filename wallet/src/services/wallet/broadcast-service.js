@@ -9,21 +9,19 @@ class BroadcastService {
                 throw new Error('Transaction hex is required');
             }
 
-            let apiUrl;
-            let requestBody;
-
-            // Always use testnet network
-            // For testnet, use mempool.space API
             const mempoolApiUrl = config.bitcoin.getMempoolApiUrl();
-            apiUrl = `${mempoolApiUrl}/tx`;
-            requestBody = txHex; // Just the raw hex for mempool.space
+            const apiUrl = `${mempoolApiUrl}/tx`;
+            
+            console.log('[BroadcastService] Broadcasting to:', apiUrl);
+            console.log('[BroadcastService] Transaction hex length:', txHex.length);
+            console.log('[BroadcastService] Transaction hex (first 200 chars):', txHex.substring(0, 200));
 
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'text/plain', // mempool.space expects text/plain for raw hex
+                    'Content-Type': 'text/plain',
                 },
-                body: requestBody,
+                body: txHex,
             });
 
             if (!response.ok) {
@@ -45,7 +43,6 @@ class BroadcastService {
                 result = responseText;
             }
 
-            // Format the result consistently
             const txid = typeof result === 'string' ? result : result.txid;
 
             if (!txid) {
@@ -61,22 +58,14 @@ class BroadcastService {
         }
     }
 
-    // Gets the status of a Bitcoin transaction
     async getTransactionStatus(txid) {
         try {
             if (!txid) {
                 throw new Error('Transaction ID is required');
             }
 
-            let apiUrl;
-
-            // Always use testnet network
-            // For testnet, use mempool.space API
             const mempoolApiUrl = config.bitcoin.getMempoolApiUrl();
-            apiUrl = `${mempoolApiUrl}/tx/${txid}`;
-
-            // Getting transaction status
-
+            const apiUrl = `${mempoolApiUrl}/tx/${txid}`;
             const response = await fetch(apiUrl);
 
             if (!response.ok) {

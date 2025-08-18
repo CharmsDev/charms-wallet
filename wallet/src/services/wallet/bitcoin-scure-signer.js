@@ -13,10 +13,17 @@ import { getSeedPhrase, getAddresses } from '@/services/storage';
  */
 class BitcoinScureSigner {
     constructor() {
-        // Network configuration
+        // Network configuration - testnet4 specific
         this.networks = {
             mainnet: btc.NETWORK,
-            testnet: btc.TEST_NETWORK,
+            testnet: {
+                ...btc.TEST_NETWORK,
+                // Testnet4 specific configuration
+                bech32: 'tb',
+                pubKeyHash: 0x6f,
+                scriptHash: 0xc4,
+                wif: 0xef
+            },
             regtest: btc.TEST_NETWORK // Use testnet config for regtest
         };
         
@@ -90,6 +97,19 @@ class BitcoinScureSigner {
     }
 
     /**
+     * Create Taproot address from xOnlyPubkey
+     */
+    createTaprootAddress(xOnlyPubkey) {
+        try {
+            const p2tr = btc.p2tr(xOnlyPubkey, undefined, this.currentNetwork);
+            return p2tr.address;
+        } catch (error) {
+            console.error('[BitcoinScureSigner] Error creating Taproot address:', error);
+            throw new Error(`Failed to create Taproot address: ${error.message}`);
+        }
+    }
+
+    /**
      * Create and sign a Bitcoin transaction using PSBT approach
      */
     async createAndSignTransaction(transactionData, logCallback = null) {
@@ -123,7 +143,7 @@ class BitcoinScureSigner {
                 throw new Error('Valid amount is required');
             }
 
-            log(`Creating transaction: ${transactionData.amount} BTC to ${transactionData.destinationAddress}`);
+            console.log(`[BitcoinScureSigner] Creating transaction: ${transactionData.amount} BTC to ${transactionData.destinationAddress} using ${transactionData.utxos.length} UTXOs`);
             log(`Using ${transactionData.utxos.length} UTXOs`);
 
             // Create transaction using @scure/btc-signer
@@ -135,9 +155,10 @@ class BitcoinScureSigner {
                 
                 log(`Processing input ${i}: ${utxo.txid}:${utxo.vout}`);
                 log(`UTXO details: address=${utxo.address}, value=${utxo.value}, scriptPubKey=${utxo.scriptPubKey}`);
+                log(`Full UTXO structure:`, JSON.stringify(utxo, null, 2));
                 
-                // Convert txid to buffer (reverse for little-endian)
-                const txidBuffer = hex.decode(utxo.txid).reverse();
+                // Convert txid to buffer (no reversal needed - txid is already in correct format)
+                const txidBuffer = hex.decode(utxo.txid);
                 log(`TXID buffer: ${hex.encode(txidBuffer)}`);
                 
                 // Find address info for derivation path
@@ -155,13 +176,33 @@ class BitcoinScureSigner {
                 
                 log(`Derived keys for ${utxo.address} with path: ${derivationPath}`);
                 log(`xOnlyPubkey: ${hex.encode(keyData.xOnlyPubkey)}`);
-                log(`scriptPubKey length: ${utxo.scriptPubKey.length}`);
+
+                // Verify the derived address matches the UTXO address
+                const derivedAddress = this.createTaprootAddress(keyData.xOnlyPubkey);
+                if (derivedAddress !== utxo.address) {
+                    throw new Error(`Address mismatch: derived ${derivedAddress} != expected ${utxo.address}`);
+                }
+                log(`✅ Address verification passed: ${derivedAddress}`);
+
+                // Generate scriptPubKey if not provided
+                let scriptPubKey = utxo.scriptPubKey;
+                if (!scriptPubKey) {
+                    // For Taproot addresses, extract witness program from address
+                    const decoded = btc.Address(this.currentNetwork).decode(utxo.address);
+                    if (decoded.type !== 'tr') {
+                        throw new Error(`Address ${utxo.address} is not Taproot`);
+                    }
+                    // Use the pubkey from the decoded address as witness program
+                    scriptPubKey = '5120' + hex.encode(decoded.pubkey);
+                }
+
+                log(`scriptPubKey: ${scriptPubKey}`);
 
                 tx.addInput({
                     txid: txidBuffer,
                     index: utxo.vout,
                     witnessUtxo: {
-                        script: hex.decode(utxo.scriptPubKey),
+                        script: hex.decode(scriptPubKey),
                         amount: BigInt(utxo.value),
                     },
                     tapInternalKey: keyData.xOnlyPubkey,
@@ -227,24 +268,60 @@ class BitcoinScureSigner {
                 log(`Change amount ${changeAmount} sats too small (dust), adding to fee`);
             }
 
-            // Sign each input
+            // Diagnostics: dump tapInternalKey of each input
+            for (let i = 0; i < tx.inputsLength; i++) {
+                const inp = tx.getInput(i);
+                const tik = inp && inp.tapInternalKey ? hex.encode(inp.tapInternalKey) : '(none)';
+                log(`Input ${i} tapInternalKey: ${tik}`);
+            }
+
+            // Build a map of unique keys needed to sign all inputs
+            const addressesAll = await getAddresses();
+            const keyMap = new Map(); // xOnlyPubkeyHex -> { privateKey, derivationPath }
+
             for (let inputIndex = 0; inputIndex < transactionData.utxos.length; inputIndex++) {
                 const utxo = transactionData.utxos[inputIndex];
-                
-                // Find the address for this UTXO
-                const addresses = await getAddresses();
-                const addressInfo = addresses.find(addr => addr.address === utxo.address);
-
-                // Determine derivation path
+                const addressInfo = addressesAll.find(addr => addr.address === utxo.address);
+                if (!addressInfo) {
+                    throw new Error(`Could not find address info for UTXO: ${utxo.txid}:${utxo.vout}`);
+                }
                 const derivationPath = `m/86'/0'/0'/${addressInfo.isChange ? 1 : 0}/${addressInfo.index || 0}`;
-                
-                // Derive keys for this input
                 const keyData = await this.deriveTaprootKeys(seedPhrase, derivationPath);
-                
-                // Sign the input
-                tx.sign(keyData.privateKey, inputIndex);
-                
-                log(`Signed input ${inputIndex} with derivation path: ${derivationPath}`);
+                const xOnlyHex = hex.encode(keyData.xOnlyPubkey);
+                if (!keyMap.has(xOnlyHex)) {
+                    keyMap.set(xOnlyHex, { privateKey: keyData.privateKey, derivationPath });
+                    log(`Prepared signer for xOnly ${xOnlyHex} (path ${derivationPath})`);
+                }
+            }
+
+            // Sign once per unique key to cover all matching inputs
+            for (const [xOnlyHex, { privateKey, derivationPath }] of keyMap.entries()) {
+                const signedCount = tx.sign(privateKey); // sign all inputs matching this key
+                if (signedCount === 0) {
+                    throw new Error(`No inputs signed for key ${xOnlyHex} (path ${derivationPath})`);
+                }
+                log(`Signed ${signedCount} input(s) with derivation path: ${derivationPath}`);
+            }
+
+            // Verify all inputs have a signature before finalizing
+            for (let i = 0; i < tx.inputsLength; i++) {
+                const inp = tx.getInput(i);
+                log(`Input ${i} verification: ${inp ? 'exists' : 'missing'}`);
+                if (inp) {
+                    // Check various possible witness/signature properties
+                    const hasWitness = inp.witness && inp.witness.length > 0;
+                    const hasTapKeySig = inp.tapKeySig && inp.tapKeySig.length > 0;
+                    const hasFinalScriptWitness = inp.finalScriptWitness && inp.finalScriptWitness.length > 0;
+                    
+                    log(`Input ${i} witness check: witness=${hasWitness}, tapKeySig=${hasTapKeySig}, finalScriptWitness=${hasFinalScriptWitness}`);
+                    
+                    if (!hasWitness && !hasTapKeySig && !hasFinalScriptWitness) {
+                        log(`Input ${i} properties:`, Object.keys(inp));
+                        throw new Error(`Input ${i} appears unsigned - no witness/signature found`);
+                    }
+                } else {
+                    throw new Error(`Input ${i} is missing`);
+                }
             }
 
             // Finalize transaction
@@ -258,6 +335,41 @@ class BitcoinScureSigner {
             log(`✅ Transaction successfully created and signed`);
             log(`TXID: ${txId}`);
             log(`Size: ${finalTxBytes.length} bytes`);
+            log(`Full transaction hex: ${txHex}`);
+            
+            // Log input details for debugging
+            log('Transaction inputs:');
+            for (let i = 0; i < transactionData.utxos.length; i++) {
+                const utxo = transactionData.utxos[i];
+                log(`  Input ${i}: ${utxo.txid}:${utxo.vout} (${utxo.value} sats) from ${utxo.address}`);
+            }
+            
+            // Verify address derivation matches UTXO addresses
+            log('Verifying address derivation:');
+            for (let i = 0; i < transactionData.utxos.length; i++) {
+                const utxo = transactionData.utxos[i];
+                const addressInfo = addressesAll.find(addr => addr.address === utxo.address);
+                if (addressInfo) {
+                    const derivationPath = `m/86'/0'/0'/${addressInfo.isChange ? 1 : 0}/${addressInfo.index || 0}`;
+                    log(`  Input ${i} derivation: ${derivationPath} -> Expected: ${utxo.address}`);
+                    
+                    // Derive the address to verify it matches
+                    try {
+                        const keyData = await this.deriveTaprootKeys(seedPhrase, derivationPath);
+                        const derivedAddress = this.createTaprootAddress(keyData.xOnlyPubkey);
+                        const matches = derivedAddress === utxo.address;
+                        log(`  Input ${i} verification: Derived: ${derivedAddress}, Matches: ${matches}`);
+                        
+                        if (!matches) {
+                            log(`  ❌ ADDRESS MISMATCH for input ${i}!`);
+                        }
+                    } catch (error) {
+                        log(`  ❌ Error verifying address for input ${i}: ${error.message}`);
+                    }
+                } else {
+                    log(`  ❌ No address info found for UTXO address: ${utxo.address}`);
+                }
+            }
 
             return {
                 success: true,

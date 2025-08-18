@@ -26,6 +26,10 @@ const config = {
                 testnet: 'https://mempool.space/testnet4/api',
                 regtest: null, // No mempool API for regtest, we use our local API
             },
+            quicknode: {
+                testnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_TESTNET_URL || null,
+                apiKey: process.env.NEXT_PUBLIC_QUICKNODE_API_KEY || null,
+            },
         },
 
         // Get the appropriate API URL based on current network
@@ -34,6 +38,24 @@ const config = {
                 return null;
             }
             return config.bitcoin.apis.mempool[config.bitcoin.network];
+        },
+
+        // Get QuickNode API URL for current network
+        getQuickNodeApiUrl: () => {
+            if (config.bitcoin.isTestnet() && config.bitcoin.apis.quicknode.testnet) {
+                return config.bitcoin.apis.quicknode.testnet;
+            }
+            return null;
+        },
+
+        // Get QuickNode API key
+        getQuickNodeApiKey: () => {
+            return config.bitcoin.apis.quicknode.apiKey;
+        },
+
+        // Check if QuickNode is available for current network
+        hasQuickNode: () => {
+            return config.bitcoin.getQuickNodeApiUrl() !== null && config.bitcoin.getQuickNodeApiKey() !== null;
         },
     },
 

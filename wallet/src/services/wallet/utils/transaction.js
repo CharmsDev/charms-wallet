@@ -6,7 +6,7 @@ export function parseTx(txHex) {
 
     // Parse inputs
     const inputs = tx.ins.map((input, index) => {
-        const txid = Buffer.from(input.hash).reverse().toString('hex');
+        const txid = Buffer.from(input.hash).toString('hex');
         const vout = input.index;
         const sequence = input.sequence;
         return {
@@ -75,7 +75,7 @@ export function decodeTx(txHex) {
 
         // Extract input details
         result.inputs = tx.ins.map((input, index) => {
-            const txid = Buffer.from(input.hash).reverse().toString('hex');
+            const txid = Buffer.from(input.hash).toString('hex');
             return {
                 index,
                 txid,

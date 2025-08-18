@@ -26,6 +26,10 @@ const useUTXOStore = create((set, get) => ({
 
         try {
             console.log(`[UTXO STORE] Loading UTXOs for ${blockchain}-${network}`);
+            console.log(`[UTXO STORE] Debug - blockchain type:`, typeof blockchain, blockchain);
+            console.log(`[UTXO STORE] Debug - network type:`, typeof network, network);
+            console.log(`[UTXO STORE] Debug - BLOCKCHAINS.BITCOIN:`, BLOCKCHAINS.BITCOIN);
+            console.log(`[UTXO STORE] Debug - NETWORKS.BITCOIN.TESTNET:`, NETWORKS.BITCOIN.TESTNET);
 
             const storedUTXOs = await utxoService.getStoredUTXOs(blockchain, network);
             const balance = utxoService.calculateTotalBalance(storedUTXOs);
