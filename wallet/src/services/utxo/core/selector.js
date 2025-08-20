@@ -1,9 +1,9 @@
 // UTXO Selector - Handles UTXO selection algorithms and verification
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
+import { utxoService } from '@/services/utxo/utxo-service';
 
 export class UTXOSelector {
     constructor() {
-        this.spentUtxosBlacklist = new Set();
         this.lockedUtxos = new Set();
     }
 
@@ -53,16 +53,8 @@ export class UTXOSelector {
     async selectUtxosForAmountDynamic(availableUtxos, amountInSats, feeRate = 1, verifier = null, updateStateCallback = null, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
         console.log('[UTXOSelector] Starting dynamic UTXO selection with verification');
 
-        const candidateUtxos = availableUtxos.filter(utxo => {
-            const utxoKey = `${utxo.txid}:${utxo.vout}`;
-            const isInLocalList = this.spentUtxosBlacklist.has(utxoKey);
-
-            if (isInLocalList) {
-                console.log(`[UTXOSelector] Filtering out UTXO ${utxoKey}: already processed as spent`);
-                return false;
-            }
-            return true;
-        });
+        // Filter only by lock state; no blacklisting
+        const candidateUtxos = availableUtxos.filter(utxo => !this.lockedUtxos.has(`${utxo.txid}:${utxo.vout}`));
 
         console.log(`[UTXOSelector] Filtered from ${availableUtxos.length} to ${candidateUtxos.length} candidate UTXOs`);
 
@@ -113,13 +105,17 @@ export class UTXOSelector {
                     totalSelected += utxo.value;
                     console.log(`[UTXOSelector] ✅ Selected UTXO ${utxoKey} (${utxo.value} sats) - Total: ${totalSelected} sats`);
                 } else {
-                    this.spentUtxosBlacklist.add(utxoKey);
-                    console.log(`[UTXOSelector] ❌ UTXO ${utxoKey} is SPENT - added to blacklist, storage and state updated`);
+                    // Immediately delete spent UTXO from storage/state; no blacklisting
+                    await utxoService.removeUtxo(utxo.txid, utxo.vout);
+                    if (updateStateCallback) {
+                        try { await updateStateCallback([{ txid: utxo.txid, vout: utxo.vout }], {}); } catch {}
+                    }
+                    console.log(`[UTXOSelector] ❌ UTXO ${utxoKey} is SPENT - removed from storage/state`);
                 }
             } catch (error) {
                 console.error(`[UTXOSelector] Error verifying UTXO ${utxoKey}:`, error);
-                this.spentUtxosBlacklist.add(utxoKey);
-                console.log(`[UTXOSelector] ⚠️ UTXO ${utxoKey} verification failed - added to blacklist`);
+                // On verification failure, do not blacklist; keep UTXO to avoid false negatives
+                // Proceed without selecting it in this pass
             }
         }
 
@@ -138,7 +134,7 @@ export class UTXOSelector {
     selectUtxosForAmount(availableUtxos, amountInSats, feeRate = 1) {
         const candidateUtxos = availableUtxos.filter(utxo => {
             const utxoKey = `${utxo.txid}:${utxo.vout}`;
-            return !this.lockedUtxos.has(utxoKey) && !this.spentUtxosBlacklist.has(utxoKey);
+            return !this.lockedUtxos.has(utxoKey);
         });
 
         const sortedUtxos = [...candidateUtxos].sort((a, b) => b.value - a.value);
@@ -213,9 +209,7 @@ export class UTXOSelector {
     getLockStats() {
         return {
             totalLocked: this.lockedUtxos.size,
-            lockedUtxos: [...this.lockedUtxos],
-            totalBlacklisted: this.spentUtxosBlacklist.size,
-            blacklistedUtxos: [...this.spentUtxosBlacklist]
+            lockedUtxos: [...this.lockedUtxos]
         };
     }
 }

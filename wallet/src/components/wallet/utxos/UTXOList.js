@@ -6,7 +6,7 @@ import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useWallet } from '@/stores/walletStore';
 import config from '@/config';
-import utxoManager from '@/services/wallet/utxo-manager';
+import { utxoService } from '@/services/utxo';
 import SendBitcoinDialog from './SendBitcoinDialog';
 
 export default function UTXOList() {
@@ -120,7 +120,7 @@ export default function UTXOList() {
     const handleSendBitcoin = async (sendData) => {
         try {
             if (sendData.utxos && sendData.utxos.length > 0) {
-                await utxoManager.processTransactionCompletion(
+                await utxoService.processTransactionCompletion(
                     sendData,
                     updateAfterTransaction,
                     activeBlockchain,

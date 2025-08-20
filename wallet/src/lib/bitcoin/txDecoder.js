@@ -1,12 +1,14 @@
 import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
+import { getNetwork } from '@/utils/addressUtils';
 
 // Initialize the ECC library for bitcoinjs-lib
 bitcoin.initEccLib(ecc);
 
 // Decode Bitcoin transaction hex in a format similar to bitcoin-cli decoderawtransaction
-export function decodeTx(txHex) {
+export function decodeTx(txHex, network = 'testnet') {
     try {
+        const bitcoinNetwork = getNetwork(network);
         const tx = bitcoin.Transaction.fromHex(txHex);
 
         const txid = tx.getId();
@@ -49,7 +51,7 @@ export function decodeTx(txHex) {
                     desc = `rawtr(${scriptPubKeyHex.substring(4)})`;
 
                     try {
-                        address = bitcoin.address.fromOutputScript(output.script, bitcoin.networks.testnet);
+                        address = bitcoin.address.fromOutputScript(output.script, bitcoinNetwork);
                     } catch (e) {
                         address = `Unable to decode address`;
                     }
