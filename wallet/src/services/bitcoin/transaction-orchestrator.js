@@ -1,0 +1,94 @@
+'use client';
+
+import { BitcoinScureSigner } from '../wallet/bitcoin-scure-signer';
+import { UtxoSelector } from '@/services/utxo';
+import BitcoinBroadcastService from './broadcast-service';
+
+export class BitcoinTransactionOrchestrator {
+    constructor(network) {
+        if (!network) {
+            throw new Error('BitcoinTransactionOrchestrator requires a network.');
+        }
+        this.network = network;
+        this.broadcastService = new BitcoinBroadcastService(network);
+        this.utxoSelector = new UtxoSelector();
+        this.signer = new BitcoinScureSigner(network);
+    }
+
+    async processTransaction(destinationAddress, amountInSats, availableUtxos, feeRate = 5, updateStateCallback = null) {
+        const amountInSatsInt = parseInt(amountInSats);
+        
+        const selectionResult = await this.utxoSelector.selectUtxosForAmountDynamic(
+            availableUtxos,
+            amountInSatsInt,
+            feeRate,
+            updateStateCallback
+        );
+
+        const transactionData = {
+            destinationAddress,
+            amount: amountInSats / 100000000,
+            utxos: selectionResult.selectedUtxos,
+            feeRate,
+            amountInSats: amountInSatsInt
+        };
+
+        const signingResult = await this.signer.createAndSignTransaction(transactionData);
+        
+        if (!signingResult.success) {
+            throw new Error(signingResult.error || 'Transaction signing failed');
+        }
+
+        return {
+            success: true,
+            signedTxHex: signingResult.signedTxHex,
+            txid: signingResult.txid,
+            selectedUtxos: selectionResult.selectedUtxos,
+            totalSelected: selectionResult.totalSelected,
+            estimatedFee: selectionResult.estimatedFee,
+            change: selectionResult.change,
+            transactionMetadata: transactionData
+        };
+    }
+
+    async broadcastTransaction(signedTxHex, selectedUtxos, transactionData, updateStateCallback = null) {
+        return await this.broadcastService.broadcastWithRetry(
+            signedTxHex,
+            selectedUtxos,
+            transactionData,
+            updateStateCallback
+        );
+    }
+
+    async sendTransaction(destinationAddress, amountInSats, availableUtxos, feeRate = 5, updateStateCallback = null) {
+        const processResult = await this.processTransaction(
+            destinationAddress,
+            amountInSats,
+            availableUtxos,
+            feeRate,
+            updateStateCallback
+        );
+
+        if (!processResult.success) {
+            throw new Error(processResult.error);
+        }
+
+        const broadcastResult = await this.broadcastTransaction(
+            processResult.signedTxHex,
+            processResult.selectedUtxos,
+            processResult.transactionMetadata,
+            updateStateCallback
+        );
+
+        return {
+            success: true,
+            txid: broadcastResult.txid,
+            selectedUtxos: processResult.selectedUtxos,
+            totalSelected: processResult.totalSelected,
+            estimatedFee: processResult.estimatedFee,
+            change: processResult.change
+        };
+    }
+}
+
+export default BitcoinTransactionOrchestrator;

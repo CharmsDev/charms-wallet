@@ -1,5 +1,4 @@
 import { ProcessedCharm, UTXOMap } from '@/types';
-import { fetchTransaction } from './utils/transaction-fetcher';
 import { isNFT, isToken, getCharmDisplayName } from './utils/charm-utils';
 // Dynamic import for charms-js to handle browser compatibility
 let charmsJs: any = null;
@@ -21,25 +20,16 @@ async function getCharmsJs() {
 }
 
 /**
- * Helper function to find the owner address for a transaction from the UTXOs
- */
-function findOwnerAddress(utxos: UTXOMap, txId: string): string {
-    return Object.entries(utxos).find(([addr, utxoList]) =>
-        utxoList.some(utxo => utxo.txid === txId)
-    )?.[0] || '';
-}
-
-/**
  * Service for handling Charms functionality
  * This is a facade that orchestrates the various modules
  */
 class CharmsService {
     /**
-     * Gets all charms from the provided UTXOs
+     * Gets all charms from the provided UTXOs using the new charms-js v2 API
      */
-    async getCharmsByUTXOs(utxos: UTXOMap): Promise<ProcessedCharm[]> {
+    async getCharmsByUTXOs(utxos: UTXOMap, network: 'mainnet' | 'testnet4'): Promise<ProcessedCharm[]> {
         try {
-            console.log('[CHARMS] Starting charm detection process...');
+            console.log(`[CHARMS] Starting charm detection on network: ${network}`);
 
             // Load charms-js dynamically
             const charms = await getCharmsJs();
@@ -48,129 +38,68 @@ class CharmsService {
                 return [];
             }
 
-            console.log('[CHARMS] charms-js library loaded successfully');
-            console.log('[CHARMS] Available functions in charms-js:', Object.keys(charms));
+            const { decodeTransactionById } = charms;
 
-            // Use the correct API functions from charms-js v1.1.1
-            const { decodeTransaction, hasCharmsData } = charms;
-
-            if (!decodeTransaction) {
-                console.error('[CHARMS] decodeTransaction function not found in charms-js');
-                console.log('[CHARMS] Available functions:', Object.keys(charms));
-                return [];
-            }
-
-            if (!hasCharmsData) {
-                console.error('[CHARMS] hasCharmsData function not found in charms-js');
+            if (!decodeTransactionById) {
+                console.error('[CHARMS] decodeTransactionById function not found in charms-js. Available functions:', Object.keys(charms));
                 return [];
             }
 
             // Get all unique transaction IDs
-            const txIds = Array.from(new Set(Object.values(utxos).flat().map(utxo => utxo.txid)));
+            let txIds = Array.from(new Set(Object.values(utxos).flat().map(utxo => utxo.txid)));
+
+            // --- DEBUGGING: Hardcode GADI transaction to ensure it's processed ---
+            const GADI_TXID = '1f1986613f3be85b8565ceff7db2c0ab20fd2e70d56fa78f41ce064743b43a2c';
+            if (!txIds.includes(GADI_TXID)) {
+                txIds.push(GADI_TXID);
+                console.log(`[CHARMS-DEBUG] Hardcoded GADI tx ${GADI_TXID.substring(0,8)} for testing.`);
+            }
+            // --- END DEBUGGING ---
+
             console.log(`[CHARMS] Found ${txIds.length} unique transactions to check`);
 
             if (txIds.length === 0) {
-                console.log('[CHARMS] No transactions found in UTXOs');
                 return [];
             }
 
-            // Fetch all transactions in parallel
-            const transactions = await Promise.all(
-                txIds.map(txId => fetchTransaction(txId))
-            );
-
-            const successfulFetches = transactions.filter(tx => tx !== null).length;
-            console.log(`[CHARMS] Processing ${txIds.length} transactions, fetched ${successfulFetches} successfully`);
-
-            if (successfulFetches === 0) {
-                console.warn('[CHARMS] No transactions could be fetched');
-                return [];
-            }
-
-            // Process all transactions
             const charmsArray: ProcessedCharm[] = [];
+            const walletAddresses = new Set(Object.keys(utxos));
 
-            for (let index = 0; index < transactions.length; index++) {
-                const tx = transactions[index];
-                if (!tx) {
+            for (const txId of txIds) {
+                // Decode and extract charms using the new API
+                const charmsResult = await decodeTransactionById(txId, { network });
+
+                if (charmsResult && 'error' in charmsResult) {
+                    // Log errors but don't stop processing other transactions
+                    console.log(`[CHARMS] Skipping tx ${txId.substring(0, 8)} due to error: ${charmsResult.error}`);
                     continue;
                 }
 
-                const txId = txIds[index];
-                const txHex = tx.toHex();
-
-                // Check if transaction has charms data
-                if (!hasCharmsData(txHex)) {
-                    continue;
-                }
-
-                // Find the owner address for this transaction
-                const ownerAddress = findOwnerAddress(utxos, txId);
-                if (!ownerAddress) {
-                    continue;
-                }
-
-                // Decode and extract charms from the transaction (async call)
-                const charmsResult = await decodeTransaction(txHex);
-
-                console.log(`[CHARMS] Decode result for tx ${txId.substring(0, 8)}:`, charmsResult);
-
-                // Check if decoding was successful
-                if (!charmsResult) {
-                    console.log(`[CHARMS] No result returned for transaction ${txId.substring(0, 8)} (verification likely failed)`);
-                    continue;
-                }
-
-                if ('error' in charmsResult) {
-                    console.log(`[CHARMS] Error decoding transaction ${txId.substring(0, 8)}: ${charmsResult.error}`);
-                    continue;
-                }
-
-                // Check if result is an array
-                if (!Array.isArray(charmsResult)) {
-                    console.log(`[CHARMS] Unexpected result type for transaction ${txId.substring(0, 8)}:`, typeof charmsResult, charmsResult);
+                if (!charmsResult || !Array.isArray(charmsResult)) {
+                    console.log(`[CHARMS] No valid charms found for tx ${txId.substring(0, 8)}.`);
                     continue;
                 }
 
                 console.log(`[CHARMS] Found ${charmsResult.length} charms in tx ${txId.substring(0, 8)}`);
 
-                // Get all wallet addresses from UTXOs
-                const walletAddresses = new Set(Object.keys(utxos));
-
-                // Process each decoded charm
                 for (const charmInstance of charmsResult) {
-                    // Determine the charm's address
-                    // Use the address from the CharmInstance
-                    const charmAddress = charmInstance.address !== 'unknown' ? charmInstance.address : ownerAddress;
+                    const charmAddress = charmInstance.address;
 
-                    console.log(`[CHARMS] Charm ${charmInstance.appId} output ${charmInstance.utxo.index}: SDK address="${charmInstance.address}", final address="${charmAddress}"`);
-
-                    // Check if the charm's address belongs to the wallet
+                    // For debugging, we also want to see charms that don't belong to the wallet yet
                     const belongsToWallet = walletAddresses.has(charmAddress);
+                    if (txId === GADI_TXID) {
+                        console.log('[CHARMS-DEBUG] Processing GADI charm instance:', JSON.stringify(charmInstance, null, 2));
+                        console.log(`[CHARMS-DEBUG] GADI charmAddress: ${charmAddress}`);
+                        console.log(`[CHARMS-DEBUG] Wallet addresses:`, Array.from(walletAddresses));
+                        console.log(`[CHARMS-DEBUG] Does GADI charm belong to wallet? ${belongsToWallet}`);
+                    }
 
-                    // Only process charms that belong to the wallet
-                    if (belongsToWallet) {
-                        // Determine the ticker and remaining values based on the charm data
-                        let ticker: string;
-                        let remaining: number;
+                    if (belongsToWallet || txId === GADI_TXID) {
+                        const ticker = charmInstance.ticker || (charmInstance.value !== undefined ? 'CHARMS-TOKEN' : 'CHARMS-NFT');
+                        const remaining = charmInstance.value ?? charmInstance.remaining ?? 1;
 
-                        // Check if the charm has a value property (token amount)
-                        if (charmInstance.value !== undefined) {
-                            // For tokens with a value property
-                            ticker = charmInstance.ticker || 'CHARMS-TOKEN';
-                            remaining = charmInstance.value;
-                        } else {
-                            // For NFTs or tokens with ticker/remaining properties
-                            ticker = charmInstance.ticker || 'CHARMS-NFT';
-                            remaining = charmInstance.remaining || 1;
-                        }
-
-                        // Create a ProcessedCharm object from the CharmInstance
                         const charm: ProcessedCharm = {
-                            uniqueId: `${txId}-${charmInstance.appId}-${charmInstance.utxo.index}-${JSON.stringify({
-                                ticker: ticker,
-                                remaining: remaining
-                            })}`,
+                            uniqueId: `${txId}-${charmInstance.appId}-${charmInstance.utxo.index}`,
                             id: charmInstance.appId,
                             amount: {
                                 ticker: ticker,
@@ -181,7 +110,7 @@ class CharmsService {
                                 image_hash: charmInstance.image_hash,
                                 url: charmInstance.url
                             },
-                            app: charmInstance.app || '',
+                            app: charmInstance.app,
                             outputIndex: charmInstance.utxo.index,
                             txid: txId,
                             address: charmAddress,
@@ -197,7 +126,7 @@ class CharmsService {
 
             return charmsArray;
         } catch (error) {
-            console.error('Error getting charms by UTXOs:', error);
+            console.error('Error in getCharmsByUTXOs:', error);
             return [];
         }
     }

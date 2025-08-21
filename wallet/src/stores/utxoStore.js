@@ -11,6 +11,7 @@ const useUTXOStore = create((set, get) => ({
     totalBalance: 0,
     refreshProgress: { processed: 0, total: 0, isRefreshing: false },
     initialized: false,
+    cancelRefresh: false, // Flag to cancel ongoing refresh
 
     // Load UTXOs from localStorage
     loadUTXOs: async (blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
@@ -25,6 +26,10 @@ const useUTXOStore = create((set, get) => ({
 
         try {
             console.log(`[UTXO STORE] Loading UTXOs for ${blockchain}-${network}`);
+            console.log(`[UTXO STORE] Debug - blockchain type:`, typeof blockchain, blockchain);
+            console.log(`[UTXO STORE] Debug - network type:`, typeof network, network);
+            console.log(`[UTXO STORE] Debug - BLOCKCHAINS.BITCOIN:`, BLOCKCHAINS.BITCOIN);
+            console.log(`[UTXO STORE] Debug - NETWORKS.BITCOIN.TESTNET:`, NETWORKS.BITCOIN.TESTNET);
 
             const storedUTXOs = await utxoService.getStoredUTXOs(blockchain, network);
             const balance = utxoService.calculateTotalBalance(storedUTXOs);
@@ -60,7 +65,8 @@ const useUTXOStore = create((set, get) => ({
         try {
             set({
                 error: null,
-                refreshProgress: { processed: 0, total: 0, isRefreshing: true }
+                refreshProgress: { processed: 0, total: 0, isRefreshing: true },
+                cancelRefresh: false
             });
 
             console.log(`[UTXO STORE] Refreshing UTXOs for ${blockchain}-${network}`);
@@ -169,6 +175,15 @@ const useUTXOStore = create((set, get) => ({
     // Reset error state
     clearError: () => {
         set({ error: null });
+    },
+
+    cancelUTXORefresh: () => {
+        utxoService.cancelOperations();
+        
+        set({ 
+            cancelRefresh: true,
+            refreshProgress: { processed: 0, total: 0, isRefreshing: false }
+        });
     }
 }));
 

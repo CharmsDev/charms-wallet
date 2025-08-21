@@ -8,11 +8,16 @@ export interface CharmAmount {
     url?: string;
 }
 
+export interface CharmApp {
+    type: 'n' | 't';
+    id: string;
+}
+
 export interface ProcessedCharm {
     uniqueId: string;
     id: string;
     amount: CharmAmount;
-    app: string;
+    app: CharmApp;
     outputIndex: number;
     txid: string;
     address: string;

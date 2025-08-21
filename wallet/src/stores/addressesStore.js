@@ -1,8 +1,9 @@
 'use client';
 
 import { create } from 'zustand';
-import { getAddresses, saveAddresses } from '@/services/storage';
+import { getAddresses, saveAddresses, getSeedPhrase } from '@/services/storage';
 import { generateTaprootAddress, generateInitialBitcoinAddresses } from '@/utils/addressUtils';
+import { useBlockchain } from './blockchainStore';
 
 const useAddressesStore = create((set, get) => ({
     addresses: [],
@@ -12,17 +13,12 @@ const useAddressesStore = create((set, get) => ({
     error: null,
     initialized: false,
 
-    // Load addresses with lazy generation
-    loadAddresses: async (seedPhrase, blockchain, network) => {
+    // Simplified address loader
+    loadAddresses: async (blockchain, network) => {
         const state = get();
 
-        // Prevent multiple simultaneous loads
-        if (state.loading || state.isGenerating) {
-            return;
-        }
-
-        // If already initialized for this blockchain/network, skip
-        if (state.initialized && state.addresses.length > 0) {
+        // Prevent multiple loads
+        if (state.loading || state.initialized) {
             return;
         }
 
@@ -31,121 +27,41 @@ const useAddressesStore = create((set, get) => ({
         try {
             const storedAddresses = await getAddresses(blockchain, network);
 
-            if (storedAddresses.length > 0) {
-                // Small delay to show loader for better UX
-                await new Promise(resolve => setTimeout(resolve, 200));
+            // Use a small delay for better UX, allowing the loader to be visible
+            await new Promise(resolve => setTimeout(resolve, 200));
 
-                set({
-                    addresses: storedAddresses,
-                    loading: false,
-                    initialized: true
-                });
-                return;
-            }
-
-            if (!seedPhrase) {
-                set({ loading: false, initialized: true });
-                return;
-            }
-
-            // Generate only initial addresses (first 10 pairs = 20 addresses)
-            await get().generateInitialAddresses(seedPhrase, blockchain, network);
+            set({
+                addresses: storedAddresses,
+                loading: false,
+                initialized: true
+            });
 
         } catch (err) {
             console.error('Error loading addresses:', err);
             set({
                 error: 'Failed to load addresses',
                 loading: false,
-                isGenerating: false,
                 initialized: true
             });
         }
     },
 
-    // Generate initial addresses (non-blocking, smaller batch)
-    generateInitialAddresses: async (seedPhrase, blockchain, network) => {
-        set({
-            isGenerating: true,
-            loading: false,
-            generationProgress: { current: 0, total: 20 }
-        });
-
-        try {
-            const addresses = [];
-            const batchSize = 5; // Generate 5 pairs at a time
-            const totalPairs = 10; // Only generate first 10 pairs initially
-
-            for (let batch = 0; batch < totalPairs; batch += batchSize) {
-                const batchPromises = [];
-                const batchEnd = Math.min(batch + batchSize, totalPairs);
-
-                for (let i = batch; i < batchEnd; i++) {
-                    // Generate external address
-                    batchPromises.push(
-                        generateTaprootAddress(seedPhrase, i, false).then(address => ({
-                            address,
-                            index: i,
-                            isChange: false,
-                            created: new Date().toISOString(),
-                            blockchain
-                        }))
-                    );
-
-                    // Generate change address
-                    batchPromises.push(
-                        generateTaprootAddress(seedPhrase, i, true).then(address => ({
-                            address,
-                            index: i,
-                            isChange: true,
-                            created: new Date().toISOString(),
-                            blockchain
-                        }))
-                    );
-                }
-
-                const batchResults = await Promise.all(batchPromises);
-                addresses.push(...batchResults);
-
-                // Update progress
-                set({
-                    generationProgress: {
-                        current: addresses.length,
-                        total: totalPairs * 2
-                    }
-                });
-
-                // Small delay to prevent UI blocking
-                await new Promise(resolve => setTimeout(resolve, 10));
-            }
-
-            await saveAddresses(addresses, blockchain, network);
-
-            set({
-                addresses,
-                isGenerating: false,
-                generationProgress: { current: 0, total: 0 },
-                initialized: true
-            });
-
-        } catch (err) {
-            console.error('Error generating addresses:', err);
-            set({
-                error: 'Failed to generate addresses',
-                isGenerating: false,
-                generationProgress: { current: 0, total: 0 },
-                initialized: true
-            });
-        }
-    },
-
-    // Generate more addresses on demand
-    generateMoreAddresses: async (seedPhrase, blockchain, network, count = 10) => {
+    // Generate more addresses on demand, now self-sufficient
+    generateMoreAddresses: async (count = 5) => {
         const state = get();
         if (state.isGenerating) return;
 
         set({ isGenerating: true });
 
         try {
+            // Get required data from other stores/storage
+            const seedPhrase = await getSeedPhrase();
+            const { activeBlockchain, activeNetwork } = useBlockchain.getState();
+
+            if (!seedPhrase) {
+                throw new Error('Seed phrase not found.');
+            }
+
             const currentAddresses = state.addresses;
             const maxIndex = Math.max(...currentAddresses.map(addr => addr.index), -1);
             const startIndex = maxIndex + 1;
@@ -163,20 +79,20 @@ const useAddressesStore = create((set, get) => ({
                         index: i,
                         isChange: false,
                         created: new Date().toISOString(),
-                        blockchain
+                        blockchain: activeBlockchain
                     },
                     {
                         address: changeAddress,
                         index: i,
                         isChange: true,
                         created: new Date().toISOString(),
-                        blockchain
+                        blockchain: activeBlockchain
                     }
                 );
             }
 
             const allAddresses = [...currentAddresses, ...newAddresses];
-            await saveAddresses(allAddresses, blockchain, network);
+            await saveAddresses(allAddresses, activeBlockchain, activeNetwork);
             set({ addresses: allAddresses, isGenerating: false });
 
         } catch (err) {
