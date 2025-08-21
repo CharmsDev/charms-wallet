@@ -12,10 +12,26 @@ const useUTXOStore = create((set, get) => ({
     refreshProgress: { processed: 0, total: 0, isRefreshing: false },
     initialized: false,
     cancelRefresh: false, // Flag to cancel ongoing refresh
+    currentNetwork: null, // Track current network for change detection
 
     // Load UTXOs from localStorage
     loadUTXOs: async (blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         const state = get();
+
+        // Check if network has changed - if so, clear existing UTXOs
+        const networkKey = `${blockchain}-${network}`;
+        if (state.currentNetwork && state.currentNetwork !== networkKey) {
+            console.log(`[UTXO STORE] Network changed from ${state.currentNetwork} to ${networkKey}, clearing UTXOs`);
+            set({
+                utxos: {},
+                totalBalance: 0,
+                initialized: false,
+                error: null
+            });
+        }
+
+        // Update current network
+        set({ currentNetwork: networkKey });
 
         // Prevent multiple simultaneous loads
         if (state.isLoading) {
@@ -26,10 +42,6 @@ const useUTXOStore = create((set, get) => ({
 
         try {
             console.log(`[UTXO STORE] Loading UTXOs for ${blockchain}-${network}`);
-            console.log(`[UTXO STORE] Debug - blockchain type:`, typeof blockchain, blockchain);
-            console.log(`[UTXO STORE] Debug - network type:`, typeof network, network);
-            console.log(`[UTXO STORE] Debug - BLOCKCHAINS.BITCOIN:`, BLOCKCHAINS.BITCOIN);
-            console.log(`[UTXO STORE] Debug - NETWORKS.BITCOIN.TESTNET:`, NETWORKS.BITCOIN.TESTNET);
 
             const storedUTXOs = await utxoService.getStoredUTXOs(blockchain, network);
             const balance = utxoService.calculateTotalBalance(storedUTXOs);
@@ -71,30 +83,34 @@ const useUTXOStore = create((set, get) => ({
 
             console.log(`[UTXO STORE] Refreshing UTXOs for ${blockchain}-${network}`);
 
+            // Clear existing UTXOs before refresh to ensure clean state
+            set({
+                utxos: {},
+                totalBalance: 0
+            });
+
             // Progress callback to update UTXOs dynamically
             const onProgress = (progressData) => {
+                const currentState = get();
+                const updatedUTXOs = { ...currentState.utxos };
+
+                if (progressData.hasUtxos && progressData.utxos.length > 0) {
+                    updatedUTXOs[progressData.address] = progressData.utxos;
+                } else {
+                    delete updatedUTXOs[progressData.address];
+                }
+
+                const newBalance = utxoService.calculateTotalBalance(updatedUTXOs);
+
                 set({
+                    utxos: updatedUTXOs,
+                    totalBalance: newBalance,
                     refreshProgress: {
                         processed: progressData.processed,
                         total: progressData.total,
                         isRefreshing: true
                     }
                 });
-
-                // Update UTXOs immediately when new ones are found
-                if (progressData.hasUtxos && progressData.utxos.length > 0) {
-                    const currentState = get();
-                    const updatedUTXOs = {
-                        ...currentState.utxos,
-                        [progressData.address]: progressData.utxos
-                    };
-                    const newBalance = utxoService.calculateTotalBalance(updatedUTXOs);
-
-                    set({
-                        utxos: updatedUTXOs,
-                        totalBalance: newBalance
-                    });
-                }
             };
 
             const fetchedUTXOs = await utxoService.fetchAndStoreAllUTXOsSequential(
@@ -179,8 +195,8 @@ const useUTXOStore = create((set, get) => ({
 
     cancelUTXORefresh: () => {
         utxoService.cancelOperations();
-        
-        set({ 
+
+        set({
             cancelRefresh: true,
             refreshProgress: { processed: 0, total: 0, isRefreshing: false }
         });

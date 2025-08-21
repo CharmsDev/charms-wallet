@@ -91,7 +91,7 @@ export async function createTransferCharmTxs(
 
     // API endpoints
 
-    // Find the input that contains a charm (RJJ-TODO support multiple charms)
+    // Find the input that contains a charm (support multiple charms)
     let txid = null;
     let charmInputFound = false;
     if (parsedSpell.ins && parsedSpell.ins.length > 0) {

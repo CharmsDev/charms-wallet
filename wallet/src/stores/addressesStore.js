@@ -12,13 +12,27 @@ const useAddressesStore = create((set, get) => ({
     generationProgress: { current: 0, total: 0 },
     error: null,
     initialized: false,
+    currentNetwork: null,
 
     // Simplified address loader
     loadAddresses: async (blockchain, network) => {
         const state = get();
 
-        // Prevent multiple loads
-        if (state.loading || state.initialized) {
+        // Check if network has changed - if so, clear existing addresses and reinitialize
+        const networkKey = `${blockchain}-${network}`;
+        if (state.currentNetwork && state.currentNetwork !== networkKey) {
+            set({
+                addresses: [],
+                initialized: false,
+                error: null
+            });
+        }
+
+        // Update current network
+        set({ currentNetwork: networkKey });
+
+        // Prevent multiple loads for same network
+        if (state.loading || (state.initialized && state.currentNetwork === networkKey)) {
             return;
         }
 
@@ -27,7 +41,7 @@ const useAddressesStore = create((set, get) => ({
         try {
             const storedAddresses = await getAddresses(blockchain, network);
 
-            // Use a small delay for better UX, allowing the loader to be visible
+            // Use a small delay for better UX, allowing the loader to be visible and prevent flickering
             await new Promise(resolve => setTimeout(resolve, 200));
 
             set({
@@ -37,7 +51,7 @@ const useAddressesStore = create((set, get) => ({
             });
 
         } catch (err) {
-            console.error('Error loading addresses:', err);
+            console.error(`[ADDRESSES STORE] Error loading addresses for ${networkKey}:`, err);
             set({
                 error: 'Failed to load addresses',
                 loading: false,
