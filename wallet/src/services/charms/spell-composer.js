@@ -68,7 +68,6 @@ class CharmsSpellService {
 
         // Create charms object with dynamic key
         const charms = {};
-        // RJJ-TODO review metadata standard
         // Only include the remaining property if it exists and is not undefined
         const charmData = {
             ticker: charm.amount.ticker

@@ -33,14 +33,12 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
     // NFT detection
     const isNftCharm = isNFT(charm);
 
-    // Ensure NFTs always transfer the full amount (RJJ-TODO review how do we apply metadata standard)
+    // Ensure NFTs always transfer the full amount
     useEffect(() => {
         if (isNftCharm) {
             setTransferAmount(charm.amount.remaining);
-        } else if (transferAmount > charm.amount.remaining) {
-            setTransferAmount(charm.amount.remaining);
         }
-    }, [isNftCharm, charm.amount.remaining, transferAmount]);
+    }, [isNftCharm, charm.amount.remaining]);
 
     // Form validation logic
     // NFTs only require destination address as they transfer as whole units

@@ -46,15 +46,7 @@ class CharmsService {
             }
 
             // Get all unique transaction IDs
-            let txIds = Array.from(new Set(Object.values(utxos).flat().map(utxo => utxo.txid)));
-
-            // --- DEBUGGING: Hardcode GADI transaction to ensure it's processed ---
-            const GADI_TXID = '1f1986613f3be85b8565ceff7db2c0ab20fd2e70d56fa78f41ce064743b43a2c';
-            if (!txIds.includes(GADI_TXID)) {
-                txIds.push(GADI_TXID);
-                console.log(`[CHARMS-DEBUG] Hardcoded GADI tx ${GADI_TXID.substring(0,8)} for testing.`);
-            }
-            // --- END DEBUGGING ---
+            const txIds = Array.from(new Set(Object.values(utxos).flat().map(utxo => utxo.txid)));
 
             console.log(`[CHARMS] Found ${txIds.length} unique transactions to check`);
 
@@ -85,16 +77,10 @@ class CharmsService {
                 for (const charmInstance of charmsResult) {
                     const charmAddress = charmInstance.address;
 
-                    // For debugging, we also want to see charms that don't belong to the wallet yet
+                    // Only process charms that belong to wallet addresses
                     const belongsToWallet = walletAddresses.has(charmAddress);
-                    if (txId === GADI_TXID) {
-                        console.log('[CHARMS-DEBUG] Processing GADI charm instance:', JSON.stringify(charmInstance, null, 2));
-                        console.log(`[CHARMS-DEBUG] GADI charmAddress: ${charmAddress}`);
-                        console.log(`[CHARMS-DEBUG] Wallet addresses:`, Array.from(walletAddresses));
-                        console.log(`[CHARMS-DEBUG] Does GADI charm belong to wallet? ${belongsToWallet}`);
-                    }
 
-                    if (belongsToWallet || txId === GADI_TXID) {
+                    if (belongsToWallet) {
                         const ticker = charmInstance.ticker || (charmInstance.value !== undefined ? 'CHARMS-TOKEN' : 'CHARMS-NFT');
                         const remaining = charmInstance.value ?? charmInstance.remaining ?? 1;
 
