@@ -4,14 +4,14 @@ import { ProcessedCharm } from '@/types';
  * Helper method to determine if a charm is an NFT
  */
 export function isNFT(charm: ProcessedCharm): boolean {
-    return charm.app.startsWith("n/");
+    return charm.app && charm.app.type === 'n';
 }
 
 /**
  * Helper method to determine if a charm is a token
  */
 export function isToken(charm: ProcessedCharm): boolean {
-    return charm.app.startsWith("t/");
+    return charm.app && charm.app.type === 't';
 }
 
 /**

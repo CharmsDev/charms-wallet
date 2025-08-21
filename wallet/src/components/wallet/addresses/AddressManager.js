@@ -35,7 +35,7 @@ export default function AddressManager() {
     // Load addresses when component mounts
     useEffect(() => {
         if (seedPhrase && activeBlockchain && activeNetwork) {
-            loadAddresses(seedPhrase, activeBlockchain, activeNetwork);
+            loadAddresses(activeBlockchain, activeNetwork);
         }
     }, [seedPhrase, activeBlockchain, activeNetwork, loadAddresses]);
 

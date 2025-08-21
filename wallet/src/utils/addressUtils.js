@@ -12,8 +12,6 @@ bitcoin.initEccLib(ecc);
 const ECPair = ECPairFactory(ecc);
 const bip32 = BIP32Factory(ecc);
 
-// Get the network from config
-
 // Create a regtest network configuration (based on testnet but with different prefix)
 const regtestNetwork = {
     ...bitcoin.networks.testnet,
@@ -21,7 +19,7 @@ const regtestNetwork = {
 };
 
 // Get the appropriate network based on the config
-function getNetwork() {
+export function getNetwork() {
     return config.bitcoin.isRegtest() ? regtestNetwork : bitcoin.networks.testnet;
 }
 

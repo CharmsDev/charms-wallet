@@ -7,20 +7,9 @@ import TransferCharmDialog from './TransferCharmDialog';
 
 export default function CharmCard({ charm }) {
     const { isNFT, getCharmDisplayName } = useCharms();
-    const { addresses } = useAddresses();
     const isNftCharm = isNFT(charm);
     const [showTransferDialog, setShowTransferDialog] = useState(false);
     const [imageError, setImageError] = useState(false);
-
-    // Find address entry for charm
-    const addressEntry = addresses.find(addr => addr.address === charm.address);
-
-    // Construct the derivation path
-    const isChange = addressEntry?.isChange || false;
-    const addressIndex = addressEntry?.index || 'Unknown';
-    const derivationPath = addressIndex !== 'Unknown'
-        ? `m/86'/0'/0'/${isChange ? '1' : '0'}/${addressIndex}`
-        : 'Unknown';
 
     // Get charm metadata
     const name = charm.amount.name;
@@ -101,18 +90,6 @@ export default function CharmCard({ charm }) {
                         <div className="flex flex-col">
                             <span>Address:</span>
                             <span className="font-mono break-all mt-1 text-dark-300">{charm.address}</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span>Address Type:</span>
-                            <span className="font-mono text-dark-300">{isChange ? 'Change' : 'Receiver'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span>Address Index:</span>
-                            <span className="font-mono text-dark-300">{addressIndex}</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span>Derivation Path:</span>
-                            <span className="font-mono text-dark-300">{derivationPath}</span>
                         </div>
                     </div>
                 </div>

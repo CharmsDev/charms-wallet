@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { charmsService } from '@/services/charms/charms';
 import { useUTXOs } from './utxoStore';
+import { useBlockchain } from './blockchainStore';
 
 const CharmsContext = createContext();
 
@@ -19,6 +20,7 @@ export function CharmsProvider({ children }) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const { utxos } = useUTXOs();
+    const { activeNetwork } = useBlockchain();
 
     // Load charms on request, not UTXO change
 
@@ -26,7 +28,8 @@ export function CharmsProvider({ children }) {
         try {
             setIsLoading(true);
             setError(null);
-            const fetchedCharms = await charmsService.getCharmsByUTXOs(utxos);
+            const charmsNetwork = activeNetwork === 'testnet' ? 'testnet4' : 'mainnet';
+            const fetchedCharms = await charmsService.getCharmsByUTXOs(utxos, charmsNetwork);
             setCharms(fetchedCharms);
         } catch (error) {
             setError('Failed to load charms');
@@ -39,7 +42,8 @@ export function CharmsProvider({ children }) {
         try {
             setIsLoading(true);
             setError(null);
-            const fetchedCharms = await charmsService.getCharmsByUTXOs(utxos);
+            const charmsNetwork = activeNetwork === 'testnet' ? 'testnet4' : 'mainnet';
+            const fetchedCharms = await charmsService.getCharmsByUTXOs(utxos, charmsNetwork);
             setCharms(fetchedCharms);
         } catch (error) {
             setError('Failed to refresh charms');
