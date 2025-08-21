@@ -22,6 +22,17 @@ export function CharmsProvider({ children }) {
     const { utxos } = useUTXOs();
     const { activeNetwork } = useBlockchain();
 
+    // Automatically reload charms when network changes
+    useEffect(() => {
+        // Clear charms immediately when network changes
+        setCharms([]);
+
+        // Reload charms if UTXOs are available
+        if (Object.keys(utxos).length > 0) {
+            loadCharms();
+        }
+    }, [activeNetwork]);
+
     // Load charms on request, not UTXO change
 
     const loadCharms = async () => {
@@ -39,17 +50,8 @@ export function CharmsProvider({ children }) {
     };
 
     const refreshCharms = async () => {
-        try {
-            setIsLoading(true);
-            setError(null);
-            const charmsNetwork = activeNetwork === 'testnet' ? 'testnet4' : 'mainnet';
-            const fetchedCharms = await charmsService.getCharmsByUTXOs(utxos, charmsNetwork);
-            setCharms(fetchedCharms);
-        } catch (error) {
-            setError('Failed to refresh charms');
-        } finally {
-            setIsLoading(false);
-        }
+        // Re-use the loadCharms logic for refreshing
+        await loadCharms();
     };
 
     const isNFT = (charm) => {

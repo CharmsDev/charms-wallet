@@ -107,53 +107,54 @@ export function WalletProvider({ children }) {
             setInitializationStep('Deriving wallet information...');
             await new Promise(resolve => setTimeout(resolve, 500)); // Small delay for UX
 
-            // Step 3: Generate all addresses
-            setInitializationStep('Generating addresses...');
-            setInitializationProgress({ current: 0, total: 512 });
+            // Step 3: Generate addresses for both mainnet and testnet
+            setInitializationStep('Generating addresses for all networks...');
+            setInitializationProgress({ current: 0, total: 1024 }); // 512 addresses × 2 networks
 
-            // Import the address generation function dynamically to avoid circular imports
+            // Import dependencies dynamically to avoid circular imports
             const { generateInitialBitcoinAddresses } = await import('@/utils/addressUtils');
             const { saveAddresses } = await import('@/services/storage');
 
-            return new Promise((resolve, reject) => {
-                generateInitialBitcoinAddresses(
-                    finalSeedPhrase,
-                    // Progress callback
-                    (current, total) => {
-                        const addressCount = current * 2; // Each index generates 2 addresses
-                        setInitializationProgress({ current: addressCount, total: total * 2 });
-                        setInitializationStep(`Generating addresses... ${addressCount}/${total * 2}`);
-                    },
-                    // Complete callback
-                    async (generatedAddresses) => {
-                        try {
-                            setInitializationStep('Saving addresses...');
+            const networks = ['mainnet', 'testnet'];
+            let totalAddressesGenerated = 0;
 
-                            // Add blockchain info to addresses
-                            const addressesWithBlockchain = generatedAddresses.map(addr => ({
-                                ...addr,
-                                blockchain: blockchain
-                            }));
-
-                            // Save to storage with the correct blockchain and network
-                            await saveAddresses(addressesWithBlockchain, blockchain, network);
-
-                            // Step 4: Finalize
-                            setInitializationStep('Finalizing wallet setup...');
-                            await new Promise(resolve => setTimeout(resolve, 500));
-
-                            setHasWallet(true);
-                            setIsInitializing(false);
-                            setInitializationStep('');
-                            setInitializationProgress({ current: 0, total: 0 });
-
-                            resolve(finalSeedPhrase);
-                        } catch (error) {
-                            reject(error);
+            for (const currentNetwork of networks) {
+                await new Promise((resolve, reject) => {
+                    generateInitialBitcoinAddresses(
+                        finalSeedPhrase,
+                        // Progress callback
+                        (current, total) => {
+                            const networkAddresses = current * 2; // Each index generates 2 addresses
+                            const totalCurrent = totalAddressesGenerated + networkAddresses;
+                            setInitializationProgress({ current: totalCurrent, total: 1024 });
+                            setInitializationStep(`Generating ${currentNetwork} addresses... ${networkAddresses}/512`);
+                        },
+                        // Complete callback for this network
+                        async (generatedAddresses) => {
+                            try {
+                                setInitializationStep(`Saving ${currentNetwork} addresses...`);
+                                const addressesWithBlockchain = generatedAddresses.map(addr => ({ ...addr, blockchain }));
+                                await saveAddresses(addressesWithBlockchain, blockchain, currentNetwork);
+                                totalAddressesGenerated += 512; // 256 indexes × 2 addresses each
+                                resolve(); // Proceed to the next network
+                            } catch (error) {
+                                reject(error);
+                            }
                         }
-                    }
-                );
-            });
+                    );
+                });
+            }
+
+            // Step 4: Finalize setup
+            setInitializationStep('Finalizing wallet setup...');
+            await new Promise(resolve => setTimeout(resolve, 500)); // Final UX delay
+
+            setHasWallet(true);
+            setIsInitializing(false);
+            setInitializationStep('');
+            setInitializationProgress({ current: 0, total: 0 });
+
+            return finalSeedPhrase;
 
         } catch (err) {
             setError('Failed to initialize wallet: ' + err.message);

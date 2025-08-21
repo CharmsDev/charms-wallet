@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
@@ -8,6 +8,20 @@ import { useWallet } from '@/stores/walletStore';
 import config from '@/config';
 import { utxoService } from '@/services/utxo';
 import SendBitcoinDialog from './SendBitcoinDialog';
+
+// Helper function for sorting UTXOs to ensure consistent ordering
+const sortUtxos = (a, b) => {
+    // Primary sort: by address index
+    if (a.addressIndex !== b.addressIndex) {
+        return a.addressIndex - b.addressIndex;
+    }
+    // Secondary sort: external addresses (isChange=false) before change addresses (isChange=true)
+    if (a.isChange !== b.isChange) {
+        return a.isChange ? 1 : -1;
+    }
+    // Tertiary sort: by transaction ID for consistency
+    return a.txid.localeCompare(b.txid);
+};
 
 export default function UTXOList() {
     const {
@@ -26,14 +40,12 @@ export default function UTXOList() {
     const { addresses, loadAddresses } = useAddresses();
     const { activeBlockchain, activeNetwork, isBitcoin, isCardano } = useBlockchain();
     const { seedPhrase } = useWallet();
-    const [flattenedUtxos, setFlattenedUtxos] = useState([]);
     const [isSendDialogOpen, setIsSendDialogOpen] = useState(false);
-    const [confirmedUtxos, setConfirmedUtxos] = useState([]);
 
     // Load addresses when component mounts - CRITICAL for UTXO loading to work
     useEffect(() => {
         if (seedPhrase && activeBlockchain && activeNetwork) {
-            loadAddresses(seedPhrase, activeBlockchain, activeNetwork);
+            loadAddresses(activeBlockchain, activeNetwork);
         }
     }, [seedPhrase, activeBlockchain, activeNetwork, loadAddresses]);
 
@@ -52,11 +64,9 @@ export default function UTXOList() {
         }
     }, [addresses, initialized, activeBlockchain, activeNetwork, refreshUTXOs, isCardano]);
 
-    // Flatten UTXOs, add isChange flag, filter confirmed UTXOs, and sort by address index
-    useEffect(() => {
+    // Compute flattened and sorted UTXOs using useMemo for performance
+    const flattenedUtxos = useMemo(() => {
         const flattened = [];
-        const confirmed = [];
-
         Object.entries(utxos).forEach(([address, addressUtxos]) => {
             const addressEntry = addresses.find(addr => addr.address === address);
             const isChange = addressEntry?.isChange || false;
@@ -64,50 +74,24 @@ export default function UTXOList() {
             const addressIndex = addressEntry?.index ?? 999999; // Put unknown addresses at the end
 
             addressUtxos.forEach(utxo => {
-                const formattedUtxo = {
+                flattened.push({
                     ...utxo,
                     address,
                     isChange,
                     isStaking,
                     addressIndex,
                     formattedValue: formatValue(utxo.value)
-                };
-
-                flattened.push(formattedUtxo);
-
-                if (utxo.status.confirmed) {
-                    confirmed.push(formattedUtxo);
-                }
+                });
             });
         });
 
-        // Sort by address index (ascending), then by isChange (external addresses first), then by txid
-        const sortedFlattened = flattened.sort((a, b) => {
-            // Primary sort: by address index
-            if (a.addressIndex !== b.addressIndex) {
-                return a.addressIndex - b.addressIndex;
-            }
-            // Secondary sort: external addresses (isChange=false) before change addresses (isChange=true)
-            if (a.isChange !== b.isChange) {
-                return a.isChange ? 1 : -1;
-            }
-            // Tertiary sort: by transaction ID for consistency
-            return a.txid.localeCompare(b.txid);
-        });
-
-        const sortedConfirmed = confirmed.sort((a, b) => {
-            if (a.addressIndex !== b.addressIndex) {
-                return a.addressIndex - b.addressIndex;
-            }
-            if (a.isChange !== b.isChange) {
-                return a.isChange ? 1 : -1;
-            }
-            return a.txid.localeCompare(b.txid);
-        });
-
-        setFlattenedUtxos(sortedFlattened);
-        setConfirmedUtxos(sortedConfirmed);
+        return flattened.sort(sortUtxos);
     }, [utxos, addresses, formatValue]);
+
+    // Derive confirmed UTXOs from the flattened list
+    const confirmedUtxos = useMemo(() => {
+        return flattenedUtxos.filter(utxo => utxo.status.confirmed);
+    }, [flattenedUtxos]);
 
     const handleRefresh = async () => {
         await refreshUTXOs(activeBlockchain, activeNetwork);
@@ -132,7 +116,6 @@ export default function UTXOList() {
             refreshUTXOs(activeBlockchain, activeNetwork);
         }
     };
-
 
     if (error) {
         return (
