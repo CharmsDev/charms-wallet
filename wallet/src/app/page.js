@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useWallet } from '@/stores/walletStore';
 import { useWalletInfo } from '@/stores/walletInfoStore';
 import { useBlockchain } from '@/stores/blockchainStore';
+import { useSearchParams } from 'next/navigation';
 import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
 import WalletCreation from '@/components/wallet/setup/WalletCreation';
 import WalletDashboard from '@/components/wallet/setup/WalletDashboard';
 import WalletInitialization from '@/components/wallet/setup/WalletInitialization';
+import WalletExistsModal from '@/components/wallet/setup/WalletExistsModal';
 
 // Initialize bitcoinjs-lib with ECC
 bitcoin.initEccLib(ecc);
@@ -19,6 +21,7 @@ export default function Home() {
     seedPhrase,
     isLoading,
     error,
+    isCheckingWallet,
     isInitializing,
     initializationStep,
     initializationProgress,
@@ -27,6 +30,36 @@ export default function Home() {
   const { walletInfo, derivationLoading, loadWalletInfo } = useWalletInfo();
   const { activeBlockchain, activeNetwork } = useBlockchain();
   const [initializationComplete, setInitializationComplete] = useState(false);
+  const [showWalletExistsModal, setShowWalletExistsModal] = useState(false);
+  const searchParams = useSearchParams();
+  const seedProcessed = useRef(false);
+
+  useEffect(() => {
+    // Wait until the wallet check is complete
+    if (isCheckingWallet) {
+      return;
+    }
+
+    const seedParam = searchParams.get('seed');
+    if (seedParam && !seedProcessed.current) {
+      if (hasWallet) {
+        setShowWalletExistsModal(true);
+      } else {
+        try {
+          const decodedSeed = atob(seedParam);
+          handleImportWallet(decodedSeed);
+
+          // Clear the seed from the URL to prevent re-import on refresh
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.delete('seed');
+          window.history.replaceState({}, '', newUrl.toString());
+        } catch (e) {
+          console.error('Failed to decode seed from URL:', e);
+        }
+      }
+      seedProcessed.current = true;
+    }
+  }, [searchParams, hasWallet, isCheckingWallet]);
 
   // Load wallet info when wallet exists and is not initializing
   useEffect(() => {
@@ -59,35 +92,35 @@ export default function Home() {
     }, 500);
   };
 
-  // Show initialization screen
-  if (isInitializing) {
-    return (
-      <WalletInitialization
-        initializationStep={initializationStep}
-        initializationProgress={initializationProgress}
-        onComplete={handleInitializationComplete}
-      />
-    );
-  }
-
-  // Show wallet dashboard if available and not initializing
-  if (hasWallet && seedPhrase && !isInitializing) {
-    return (
-      <WalletDashboard
-        seedPhrase={seedPhrase}
-        walletInfo={walletInfo}
-        derivationLoading={derivationLoading}
-        createSuccess={initializationComplete}
-      />
-    );
-  }
-
-  // Default view: create or import wallet
   return (
-    <WalletCreation
-      isLoading={isLoading}
-      onCreateWallet={handleCreateWallet}
-      onImportWallet={handleImportWallet}
-    />
+    <>
+      <WalletExistsModal
+        isOpen={showWalletExistsModal}
+        onClose={() => setShowWalletExistsModal(false)}
+      />
+
+      {isCheckingWallet ? (
+        <div></div> // Or a loading spinner
+      ) : isInitializing ? (
+        <WalletInitialization
+          initializationStep={initializationStep}
+          initializationProgress={initializationProgress}
+          onComplete={handleInitializationComplete}
+        />
+      ) : hasWallet && seedPhrase ? (
+        <WalletDashboard
+          seedPhrase={seedPhrase}
+          walletInfo={walletInfo}
+          derivationLoading={derivationLoading}
+          createSuccess={initializationComplete}
+        />
+      ) : (
+        <WalletCreation
+          isLoading={isLoading}
+          onCreateWallet={handleCreateWallet}
+          onImportWallet={handleImportWallet}
+        />
+      )}
+    </>
   );
 }

@@ -46,7 +46,11 @@ class CharmsService {
             }
 
             // Get all unique transaction IDs
+<<<<<<< Updated upstream
             const txIds = Array.from(new Set(Object.values(utxos).flat().map(utxo => utxo.txid)));
+=======
+            let txIds = Array.from(new Set(Object.values(utxos).flat().map(utxo => utxo.txid)));
+>>>>>>> Stashed changes
 
             console.log(`[CHARMS] Found ${txIds.length} unique transactions to check`);
 
@@ -77,11 +81,18 @@ class CharmsService {
                 for (const charmInstance of charmsResult) {
                     const charmAddress = charmInstance.address;
 
+<<<<<<< Updated upstream
                     // Only process charms that belong to wallet addresses
                     const belongsToWallet = walletAddresses.has(charmAddress);
 
                     if (belongsToWallet) {
                         const ticker = charmInstance.ticker || (charmInstance.value !== undefined ? 'CHARMS-TOKEN' : 'CHARMS-NFT');
+=======
+                    const belongsToWallet = walletAddresses.has(charmAddress);
+
+                    if (belongsToWallet) {
+                        const ticker = charmInstance.name || charmInstance.ticker || (charmInstance.value !== undefined ? 'CHARMS-TOKEN' : 'CHARMS-NFT');
+>>>>>>> Stashed changes
                         const remaining = charmInstance.value ?? charmInstance.remaining ?? 1;
 
                         const charm: ProcessedCharm = {
