@@ -22,6 +22,7 @@ export function WalletProvider({ children }) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [hasWallet, setHasWallet] = useState(false);
+    const [isCheckingWallet, setIsCheckingWallet] = useState(true);
     const [isInitializing, setIsInitializing] = useState(false);
     const [initializationStep, setInitializationStep] = useState('');
     const [initializationProgress, setInitializationProgress] = useState({ current: 0, total: 0 });
@@ -36,6 +37,7 @@ export function WalletProvider({ children }) {
             } else {
                 setHasWallet(false);
             }
+            setIsCheckingWallet(false); // Finished checking
         };
 
         checkWalletExists();
@@ -171,6 +173,7 @@ export function WalletProvider({ children }) {
         hasWallet,
         isLoading,
         error,
+        isCheckingWallet,
         createWallet,
         importWallet,
         clearWallet,
