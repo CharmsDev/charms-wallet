@@ -1,6 +1,7 @@
 // UTXO Fetcher - Handles fetching UTXOs from APIs
 import { getAddresses, saveUTXOs, getUTXOs } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
+import { quickNodeService } from '@/services/bitcoin/quicknode-service';
 import config from '@/config';
 
 export class UTXOFetcher {
@@ -24,8 +25,8 @@ export class UTXOFetcher {
 
     async getBitcoinAddressUTXOs(address, network) {
         try {
+            // Use mempool.space API directly (QuickNode needs BTC Blockbook addon)
             let response;
-
             if (config.bitcoin.isRegtest()) {
                 response = await fetch(`${config.api.wallet}/bitcoin-node/utxos/${address}`);
             } else {

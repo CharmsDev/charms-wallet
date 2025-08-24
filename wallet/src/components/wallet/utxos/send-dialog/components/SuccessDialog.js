@@ -1,4 +1,8 @@
 import { formatSatoshis, parseAmount } from '../utils/amountUtils';
+import { useUTXOs } from '@/stores/utxoStore';
+import { useBlockchain } from '@/stores/blockchainStore';
+import { refreshTransactionAddresses } from '@/services/utxo/address-refresh-helper';
+import { useEffect } from 'react';
 
 export function SuccessDialog({
     txId,
@@ -8,6 +12,37 @@ export function SuccessDialog({
     feeRate,
     onClose
 }) {
+    const { loadUTXOs } = useUTXOs();
+    const { activeBlockchain, activeNetwork } = useBlockchain();
+
+    // Refresh specific addresses after transaction success
+    useEffect(() => {
+        const refreshAfterTransaction = async () => {
+            try {
+                console.log('[SUCCESS DIALOG] Refreshing transaction addresses');
+                
+                // Refresh change address and destination address (if ours)
+                await refreshTransactionAddresses(
+                    transactionData,
+                    destinationAddress,
+                    activeBlockchain,
+                    activeNetwork
+                );
+
+                // Reload UTXOs in store to update UI
+                await loadUTXOs(activeBlockchain, activeNetwork);
+                
+                console.log('[SUCCESS DIALOG] Address refresh completed');
+            } catch (error) {
+                console.error('[SUCCESS DIALOG] Error refreshing addresses:', error);
+            }
+        };
+
+        if (txId && transactionData && destinationAddress) {
+            refreshAfterTransaction();
+        }
+    }, [txId]); // Only depend on txId to avoid loops
+
     return (
         <>
             <div className="text-center mb-8">
@@ -78,7 +113,10 @@ export function SuccessDialog({
                 </a>
                 <button
                     className="btn btn-secondary shadow-lg transform hover:scale-105 transition-all duration-200"
-                    onClick={onClose}
+                    onClick={() => {
+                        // Close the entire dialog flow, not just this success screen
+                        onClose();
+                    }}
                 >
                     Close
                 </button>

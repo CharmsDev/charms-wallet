@@ -134,6 +134,10 @@ export class UTXOService {
         this.verifier.clearCache();
     }
 
+    async removeUtxo(txid, vout, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
+        return await this.verifier.removeUtxo(txid, vout, blockchain, network);
+    }
+
     // ============================================================================
     // CALCULATION OPERATIONS
     // ============================================================================

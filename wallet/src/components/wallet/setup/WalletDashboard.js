@@ -10,7 +10,7 @@ import { useUTXOs } from '@/stores/utxoStore';
 import { useCharms } from '@/stores/charmsStore';
 import { clearAllWalletData } from '@/services/storage';
 
-export default function WalletDashboard({ seedPhrase, walletInfo, derivationLoading, createSuccess }) {
+export default function WalletDashboard({ seedPhrase, walletInfo, derivationLoading, createSuccess, onToggleUser }) {
     const [copyNotification, setCopyNotification] = useState(false);
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
     const { clearWallet } = useWallet();
@@ -53,12 +53,22 @@ export default function WalletDashboard({ seedPhrase, walletInfo, derivationLoad
         <div>
             <div className="p-6 flex justify-between items-center">
                 <h2 className="text-xl font-bold gradient-text">Your Wallet</h2>
-                <button
-                    onClick={() => setShowDeleteDialog(true)}
-                    className="btn bg-red-600 hover:bg-red-700 text-white"
-                >
-                    Delete Wallet
-                </button>
+                <div className="flex items-center space-x-3">
+                    {onToggleUser && (
+                        <button
+                            onClick={onToggleUser}
+                            className="text-sm text-primary-400 hover:text-primary-300 transition-colors"
+                        >
+                            User Dashboard
+                        </button>
+                    )}
+                    <button
+                        onClick={() => setShowDeleteDialog(true)}
+                        className="btn bg-red-600 hover:bg-red-700 text-white"
+                    >
+                        Delete Wallet
+                    </button>
+                </div>
             </div>
 
             <div className="card p-6 mb-6 space-y-6">
