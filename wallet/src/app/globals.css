@@ -47,7 +47,7 @@
   }
 
   .btn-primary {
-    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+    @apply bg-gradient-to-r from-primary-600 to-blue-600 text-white hover:from-primary-700 hover:to-blue-700 focus:ring-primary-500 shadow-lg hover:shadow-xl transition-all;
   }
 
   .btn-secondary {
@@ -55,7 +55,11 @@
   }
 
   .btn-bitcoin {
-    @apply bg-bitcoin-500 text-white hover:bg-bitcoin-600 focus:ring-bitcoin-400;
+    @apply bg-gradient-to-r from-bitcoin-500 to-orange-600 text-white hover:from-bitcoin-600 hover:to-orange-700 focus:ring-bitcoin-400 shadow-lg hover:shadow-xl transition-all;
+  }
+
+  .btn-disabled {
+    @apply bg-dark-700 text-dark-400 border border-dark-600;
   }
 
   .card {

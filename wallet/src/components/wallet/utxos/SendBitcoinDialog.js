@@ -17,8 +17,8 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-dark-900 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
+            <div className="bg-dark-900 rounded-lg p-6 w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto border border-white/20">
                 {transactionFlow.showPreparing && (
                     <PreparingDialog status={transactionFlow.preparingStatus} />
                 )}
@@ -37,7 +37,12 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                         txId={transactionFlow.txId}
                         destinationAddress={formState.destinationAddress}
                         amount={formState.amount}
-                        onClose={transactionFlow.resetFlow}
+                        transactionData={transactionFlow.transactionData}
+                        feeRate={formState.feeRate}
+                        onClose={() => {
+                            transactionFlow.resetFlow();
+                            onClose(); // Close the entire SendBitcoinDialog
+                        }}
                     />
                 )}
 

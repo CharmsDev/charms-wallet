@@ -7,6 +7,7 @@ export const STORAGE_KEYS = {
     WALLET_INFO: 'wallet_info',
     WALLET_ADDRESSES: 'wallet_addresses',
     UTXOS: 'wallet_utxos',
+    TRANSACTIONS: 'wallet_transactions',
     ACTIVE_BLOCKCHAIN: 'active_blockchain',
     ACTIVE_NETWORK: 'active_network'
 };
@@ -18,6 +19,20 @@ export interface AddressEntry {
     isChange?: boolean;  // Identifies change addresses
     privateKey?: string; // For imported addresses
     blockchain?: string; // Identifies which blockchain this address belongs to
+}
+
+export interface TransactionEntry {
+    txid: string;
+    type: 'sent' | 'received';
+    amount: number; // in satoshis
+    fee?: number; // in satoshis
+    status: 'confirmed' | 'pending' | 'failed';
+    confirmations: number;
+    timestamp: number;
+    blockHeight?: number;
+    addresses: string[]; // involved addresses
+    utxos?: string[]; // related UTXO keys
+    memo?: string;
 }
 
 // Helper function to get the active blockchain and network
@@ -124,11 +139,63 @@ export const clearUTXOs = async (blockchain?: string, network?: string): Promise
     localStorage.removeItem(storageKey);
 };
 
+// Transaction storage
+export const saveTransactions = async (transactions: TransactionEntry[], blockchain?: string, network?: string): Promise<void> => {
+    const storageKey = getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
+    localStorage.setItem(storageKey, JSON.stringify(transactions));
+};
+
+export const getTransactions = async (blockchain?: string, network?: string): Promise<TransactionEntry[]> => {
+    const storageKey = getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
+    const stored = localStorage.getItem(storageKey);
+    return stored ? JSON.parse(stored) : [];
+};
+
+export const addTransaction = async (transaction: TransactionEntry, blockchain?: string, network?: string): Promise<TransactionEntry[]> => {
+    const transactions = await getTransactions(blockchain, network);
+    
+    // Check if transaction already exists
+    const existingIndex = transactions.findIndex(tx => tx.txid === transaction.txid);
+    
+    if (existingIndex >= 0) {
+        // Update existing transaction
+        transactions[existingIndex] = transaction;
+    } else {
+        // Add new transaction
+        transactions.push(transaction);
+    }
+    
+    // Sort by timestamp (newest first)
+    transactions.sort((a, b) => b.timestamp - a.timestamp);
+    
+    await saveTransactions(transactions, blockchain, network);
+    return transactions;
+};
+
+export const updateTransactionStatus = async (txid: string, status: TransactionEntry['status'], confirmations: number, blockchain?: string, network?: string): Promise<TransactionEntry[]> => {
+    const transactions = await getTransactions(blockchain, network);
+    const txIndex = transactions.findIndex(tx => tx.txid === txid);
+    
+    if (txIndex >= 0) {
+        transactions[txIndex].status = status;
+        transactions[txIndex].confirmations = confirmations;
+        await saveTransactions(transactions, blockchain, network);
+    }
+    
+    return transactions;
+};
+
+export const clearTransactions = async (blockchain?: string, network?: string): Promise<void> => {
+    const storageKey = getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
+    localStorage.removeItem(storageKey);
+};
+
 // Clear all wallet data for a specific blockchain and network
 export const clearBlockchainWalletData = async (blockchain?: string, network?: string): Promise<void> => {
     await clearWalletInfo(blockchain, network);
     await clearAddresses(blockchain, network);
     await clearUTXOs(blockchain, network);
+    await clearTransactions(blockchain, network);
 };
 
 // Clear all wallet data across all blockchains and networks

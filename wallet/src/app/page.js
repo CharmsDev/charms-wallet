@@ -9,6 +9,7 @@ import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
 import WalletCreation from '@/components/wallet/setup/WalletCreation';
 import WalletDashboard from '@/components/wallet/setup/WalletDashboard';
+import UserDashboard from '@/components/wallet/dashboard/UserDashboard';
 import WalletInitialization from '@/components/wallet/setup/WalletInitialization';
 import WalletExistsModal from '@/components/wallet/setup/WalletExistsModal';
 
@@ -49,6 +50,7 @@ export default function Home() {
   const { activeBlockchain, activeNetwork } = useBlockchain();
   const [initializationComplete, setInitializationComplete] = useState(false);
   const [showWalletExistsModal, setShowWalletExistsModal] = useState(false);
+  const [showTechnicalDashboard, setShowTechnicalDashboard] = useState(false);
 
   const handleSeedParam = (seedParam, hasWallet) => {
     if (hasWallet) {
@@ -123,12 +125,23 @@ export default function Home() {
           onComplete={handleInitializationComplete}
         />
       ) : hasWallet && seedPhrase ? (
-        <WalletDashboard
-          seedPhrase={seedPhrase}
-          walletInfo={walletInfo}
-          derivationLoading={derivationLoading}
-          createSuccess={initializationComplete}
-        />
+        showTechnicalDashboard ? (
+          <WalletDashboard
+            seedPhrase={seedPhrase}
+            walletInfo={walletInfo}
+            derivationLoading={derivationLoading}
+            createSuccess={initializationComplete}
+            onToggleUser={() => setShowTechnicalDashboard(false)}
+          />
+        ) : (
+          <UserDashboard
+            seedPhrase={seedPhrase}
+            walletInfo={walletInfo}
+            derivationLoading={derivationLoading}
+            createSuccess={initializationComplete}
+            onToggleTechnical={() => setShowTechnicalDashboard(true)}
+          />
+        )
       ) : (
         <WalletCreation
           isLoading={isLoading}
