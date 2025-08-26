@@ -6,11 +6,11 @@ import { useBlockchain } from '@/stores/blockchainStore';
 import { useAddresses } from '@/stores/addressesStore';
 
 export default function RecentTransactions({ utxos, isLoading }) {
-    const { 
-        transactions, 
-        isLoading: txLoading, 
-        loadTransactions, 
-        processUTXOsForTransactions,
+    const {
+        transactions,
+        isLoading: txLoading,
+        loadTransactions,
+        processUTXOsForReceivedTransactions,
         getPaginatedTransactions,
         pagination,
         nextPage,
@@ -23,12 +23,30 @@ export default function RecentTransactions({ utxos, isLoading }) {
     // Get current page transactions
     const paginatedTransactions = getPaginatedTransactions();
 
+    // Track list rendering attempts
+    useEffect(() => {
+        console.log(
+            `[TX_LIST] render count=${paginatedTransactions.length} total=${transactions.length} page=${pagination.currentPage}/${pagination.totalPages}`
+        );
+    }, [transactions, pagination.currentPage, pagination.totalPages, paginatedTransactions.length]);
+
+    // Listen for new transaction events and reload
+    useEffect(() => {
+        const handleTransactionRecorded = (event) => {
+            console.log('[RECENT TRANSACTIONS] New transaction recorded, reloading...', event.detail);
+            loadTransactions(activeBlockchain, activeNetwork);
+        };
+
+        window.addEventListener('transactionRecorded', handleTransactionRecorded);
+        return () => window.removeEventListener('transactionRecorded', handleTransactionRecorded);
+    }, [activeBlockchain, activeNetwork, loadTransactions]);
+
     // Handle transaction click - open mempool.space
     const handleTransactionClick = (txId) => {
-        const baseUrl = activeNetwork === 'mainnet' 
-            ? 'https://mempool.space' 
+        const baseUrl = activeNetwork === 'mainnet'
+            ? 'https://mempool.space'
             : 'https://mempool.space/testnet4';
-        
+
         const url = `${baseUrl}/tx/${txId}`;
         console.log(`[TRANSACTION CLICK] Opening ${url} for network: ${activeNetwork}`);
         window.open(url, '_blank', 'noopener,noreferrer');
@@ -39,12 +57,12 @@ export default function RecentTransactions({ utxos, isLoading }) {
         loadTransactions(activeBlockchain, activeNetwork);
     }, [activeBlockchain, activeNetwork, loadTransactions]);
 
-    // Process UTXOs to create transaction entries when UTXOs change
+    // Process UTXOs to detect received transactions when UTXOs change
     useEffect(() => {
         if (utxos && Object.keys(utxos).length > 0 && addresses && addresses.length > 0) {
-            processUTXOsForTransactions(utxos, addresses, activeBlockchain, activeNetwork);
+            processUTXOsForReceivedTransactions(utxos, addresses, activeBlockchain, activeNetwork);
         }
-    }, [utxos, addresses, activeBlockchain, activeNetwork, processUTXOsForTransactions]);
+    }, [utxos, addresses, activeBlockchain, activeNetwork, processUTXOsForReceivedTransactions]);
 
     const formatBTC = (satoshis) => {
         const btc = satoshis / 100000000;
@@ -74,6 +92,14 @@ export default function RecentTransactions({ utxos, isLoading }) {
             case 'sent': return '↗';
             case 'received': return '↙';
             default: return '•';
+        }
+    };
+
+    const getTransactionDescription = (tx) => {
+        if (tx.type === 'sent') {
+            return 'Sent Bitcoin';
+        } else {
+            return 'Received Bitcoin';
         }
     };
 
@@ -108,42 +134,47 @@ export default function RecentTransactions({ utxos, isLoading }) {
                 <div className="text-center py-8 text-dark-400">
                     <div className="text-4xl mb-2">📭</div>
                     <p>No transactions yet</p>
-                    <p className="text-sm mt-1">Your transactions will appear here</p>
+                    <p className="text-sm mt-1">Send or receive Bitcoin to see transactions here</p>
                 </div>
             ) : (
                 <>
                     <div className="space-y-2">
                         {paginatedTransactions.map((tx) => (
-                        <div 
-                            key={tx.id} 
-                            onClick={() => handleTransactionClick(tx.txid)}
-                            className="flex items-center justify-between p-3 glass-effect rounded-lg hover:bg-dark-800/50 transition-colors cursor-pointer"
-                            title={`Click to view transaction ${tx.txid} on mempool.space`}
-                        >
-                            <div className="flex items-center space-x-3">
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                                    tx.type === 'received' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                                }`}>
-                                    {getTypeIcon(tx.type)}
+                            <div
+                                key={tx.id}
+                                onClick={() => handleTransactionClick(tx.txid)}
+                                className="flex items-center justify-between p-3 glass-effect rounded-lg hover:bg-dark-800/50 transition-colors cursor-pointer"
+                                title={`Click to view transaction ${tx.txid} on mempool.space`}
+                            >
+                                <div className="flex items-center space-x-3">
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${tx.type === 'received' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                                        }`}>
+                                        {getTypeIcon(tx.type)}
+                                    </div>
+                                    <div>
+                                        <p className="font-medium text-white">{getTransactionDescription(tx)}</p>
+                                        <p className="text-xs text-dark-400 hover:text-primary-400 transition-colors">
+                                            {tx.txid.slice(0, 8)}...{tx.txid.slice(-8)}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="font-medium text-white capitalize">{tx.type}</p>
-                                    <p className="text-xs text-dark-400 hover:text-primary-400 transition-colors">
-                                        {tx.txid.slice(0, 8)}...{tx.txid.slice(-8)}
+                                <div className="text-right">
+                                    <p className={`font-medium ${tx.type === 'received' ? 'text-green-400' : 'text-red-400'}`}>
+                                        {tx.type === 'received' ? '+' : '-'}{formatBTC(tx.amount)} BTC
                                     </p>
+                                    <div className="flex items-center space-x-2 text-xs">
+                                        <span className={getStatusColor(tx.status)}>{tx.status}</span>
+                                        {tx.fee && tx.type === 'sent' && (
+                                            <>
+                                                <span className="text-dark-500">•</span>
+                                                <span className="text-dark-400">Fee: {formatBTC(tx.fee)}</span>
+                                            </>
+                                        )}
+                                        <span className="text-dark-500">•</span>
+                                        <span className="text-dark-400">{formatDate(tx.timestamp)}</span>
+                                    </div>
                                 </div>
                             </div>
-                            <div className="text-right">
-                                <p className={`font-medium ${tx.type === 'received' ? 'text-green-400' : 'text-red-400'}`}>
-                                    {tx.type === 'received' ? '+' : '-'}{formatBTC(tx.amount)} BTC
-                                </p>
-                                <div className="flex items-center space-x-2 text-xs">
-                                    <span className={getStatusColor(tx.status)}>{tx.status}</span>
-                                    <span className="text-dark-500">•</span>
-                                    <span className="text-dark-400">{formatDate(tx.timestamp)}</span>
-                                </div>
-                            </div>
-                        </div>
                         ))}
                     </div>
 
@@ -154,7 +185,7 @@ export default function RecentTransactions({ utxos, isLoading }) {
                                 Page {pagination.currentPage} of {pagination.totalPages}
                                 <span className="ml-2">({pagination.totalTransactions} total)</span>
                             </div>
-                            
+
                             <div className="flex items-center space-x-2">
                                 <button
                                     onClick={previousPage}
@@ -163,7 +194,7 @@ export default function RecentTransactions({ utxos, isLoading }) {
                                 >
                                     Previous
                                 </button>
-                                
+
                                 {/* Page numbers */}
                                 <div className="flex space-x-1">
                                     {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
@@ -176,23 +207,22 @@ export default function RecentTransactions({ utxos, isLoading }) {
                                             pageNum = start + i;
                                             if (pageNum > end) return null;
                                         }
-                                        
+
                                         return (
                                             <button
                                                 key={pageNum}
                                                 onClick={() => goToPage(pageNum)}
-                                                className={`px-2 py-1 text-sm rounded transition-colors ${
-                                                    pageNum === pagination.currentPage
+                                                className={`px-2 py-1 text-sm rounded transition-colors ${pageNum === pagination.currentPage
                                                         ? 'bg-primary-500 text-white'
                                                         : 'bg-dark-700 hover:bg-dark-600 text-dark-300'
-                                                }`}
+                                                    }`}
                                             >
                                                 {pageNum}
                                             </button>
                                         );
                                     })}
                                 </div>
-                                
+
                                 <button
                                     onClick={nextPage}
                                     disabled={pagination.currentPage === pagination.totalPages}

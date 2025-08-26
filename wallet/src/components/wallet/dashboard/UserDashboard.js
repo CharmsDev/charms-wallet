@@ -6,6 +6,7 @@ import { useUTXOs } from '@/stores/utxoStore';
 import { useCharms } from '@/stores/charmsStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
+import coinGeckoService from '@/services/shared/coingecko-service';
 import BalanceDisplay from './components/BalanceDisplay';
 import QuickActionsPanel from './components/QuickActionsPanel';
 import PortfolioSummary from './components/PortfolioSummary';
@@ -21,7 +22,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     const [showSettingsDialog, setShowSettingsDialog] = useState(false);
     const [btcPrice, setBtcPrice] = useState(null);
     const [priceLoading, setPriceLoading] = useState(true);
-    
+
     const { hasWallet } = useWallet();
     const { utxos, totalBalance, isLoading: utxosLoading, loadUTXOs } = useUTXOs();
     const { charms, isLoading: charmsLoading, loadCharms } = useCharms();
@@ -37,22 +38,32 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
         }
     }, [hasWallet, seedPhrase, derivationLoading, activeBlockchain, activeNetwork]);
 
-    // Fetch BTC price
+    // Fetch BTC price using CoinGecko service
     useEffect(() => {
         const fetchBTCPrice = async () => {
             try {
-                const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,eur');
-                const data = await response.json();
-                setBtcPrice(data.bitcoin);
-                setPriceLoading(false);
+                setPriceLoading(true);
+                const priceData = await coinGeckoService.getBitcoinPriceWithState();
+
+                if (priceData.success) {
+                    setBtcPrice(priceData.data);
+                } else {
+                    console.warn('[DASHBOARD] Using fallback price due to:', priceData.error);
+                    setBtcPrice(priceData.data); // Still set fallback data
+                }
             } catch (error) {
-                console.error('Failed to fetch BTC price:', error);
+                console.error('[DASHBOARD] Failed to fetch BTC price:', error);
+                // Use fallback price from service
+                setBtcPrice(coinGeckoService.getFallbackPrice());
+            } finally {
                 setPriceLoading(false);
             }
         };
 
         fetchBTCPrice();
-        const interval = setInterval(fetchBTCPrice, 60000); // Update every minute
+
+        // Update every 2 minutes (respecting rate limits)
+        const interval = setInterval(fetchBTCPrice, 120000);
         return () => clearInterval(interval);
     }, []);
 
@@ -134,7 +145,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                     {/* Left Column - Balance and Quick Actions */}
                     <div className="lg:col-span-2 space-y-6">
                         {/* Balance Display */}
-                        <BalanceDisplay 
+                        <BalanceDisplay
                             balance={totalBalance}
                             btcPrice={btcPrice}
                             priceLoading={priceLoading}
@@ -143,7 +154,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                         />
 
                         {/* Quick Actions */}
-                        <QuickActionsPanel 
+                        <QuickActionsPanel
                             onSend={() => setShowSendDialog(true)}
                             onReceive={() => setShowReceiveDialog(true)}
                             onViewHistory={() => console.log('History clicked')}
@@ -151,7 +162,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                         />
 
                         {/* Recent Transactions */}
-                        <RecentTransactions 
+                        <RecentTransactions
                             utxos={utxos}
                             isLoading={utxosLoading}
                         />
@@ -160,7 +171,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                     {/* Right Column - Portfolio and Security */}
                     <div className="space-y-6">
                         {/* Portfolio Summary */}
-                        <PortfolioSummary 
+                        <PortfolioSummary
                             utxos={utxos}
                             charms={charms}
                             addresses={addresses}
@@ -168,7 +179,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                         />
 
                         {/* Security Panel */}
-                        <SecurityPanel 
+                        <SecurityPanel
                             hasWallet={hasWallet}
                             seedPhrase={seedPhrase}
                         />

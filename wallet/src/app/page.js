@@ -104,7 +104,7 @@ export default function Home() {
   return (
     <>
       <Suspense fallback={<div></div>}>
-        <SearchParamsHandler 
+        <SearchParamsHandler
           onSeedParam={handleSeedParam}
           hasWallet={hasWallet}
           isCheckingWallet={isCheckingWallet}
