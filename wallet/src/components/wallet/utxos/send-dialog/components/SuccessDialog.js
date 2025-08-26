@@ -1,8 +1,10 @@
-import { formatSatoshis, parseAmount } from '../utils/amountUtils';
-import { useUTXOs } from '@/stores/utxoStore';
+import { useState, useEffect } from 'react';
+import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
+import { useUTXOs } from '@/stores/utxoStore';
+import { useTransactions } from '@/stores/transactionStore';
 import { refreshTransactionAddresses } from '@/services/utxo/address-refresh-helper';
-import { useEffect } from 'react';
+import { formatSatoshis, parseAmount } from '../utils/amountUtils';
 
 export function SuccessDialog({
     txId,
@@ -14,12 +16,13 @@ export function SuccessDialog({
 }) {
     const { loadUTXOs } = useUTXOs();
     const { activeBlockchain, activeNetwork } = useBlockchain();
+    const { loadTransactions } = useTransactions();
 
     // Refresh specific addresses after transaction success
     useEffect(() => {
         const refreshAfterTransaction = async () => {
             try {
-                console.log('[SUCCESS DIALOG] Refreshing transaction addresses');
+                console.log('[SUCCESS DIALOG] Refreshing after transaction:', txId);
                 
                 // Refresh change address and destination address (if ours)
                 await refreshTransactionAddresses(
@@ -32,7 +35,10 @@ export function SuccessDialog({
                 // Reload UTXOs in store to update UI
                 await loadUTXOs(activeBlockchain, activeNetwork);
                 
-                console.log('[SUCCESS DIALOG] Address refresh completed');
+                // Reload transactions to show the sent transaction immediately
+                await loadTransactions(activeBlockchain, activeNetwork);
+                
+                console.log('[SUCCESS DIALOG] Successfully refreshed UTXOs and transactions');
             } catch (error) {
                 console.error('[SUCCESS DIALOG] Error refreshing addresses:', error);
             }
@@ -101,7 +107,7 @@ export function SuccessDialog({
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <a
-                    href={`https://mempool.space/testnet4/tx/${txId}`}
+                    href={`${activeNetwork === 'mainnet' ? 'https://mempool.space' : 'https://mempool.space/testnet4'}/tx/${txId}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2"

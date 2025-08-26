@@ -2,6 +2,7 @@
 import { getAddresses, saveUTXOs, getUTXOs } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
 import { quickNodeService } from '@/services/bitcoin/quicknode-service';
+import TransactionRecorder from '@/services/transactions/transaction-recorder';
 import config from '@/config';
 
 export class UTXOFetcher {
@@ -25,7 +26,16 @@ export class UTXOFetcher {
 
     async getBitcoinAddressUTXOs(address, network) {
         try {
-            // Use mempool.space API directly (QuickNode needs BTC Blockbook addon)
+            // Try QuickNode first if available
+            if (quickNodeService.isAvailable()) {
+                try {
+                    return await quickNodeService._getAddressUTXOsRaw(address);
+                } catch (error) {
+                    console.warn(`[UTXOFetcher] QuickNode failed for ${address}, falling back to mempool.space:`, error);
+                }
+            }
+
+            // Fallback to mempool.space API
             let response;
             if (config.bitcoin.isRegtest()) {
                 response = await fetch(`${config.api.wallet}/bitcoin-node/utxos/${address}`);
@@ -167,6 +177,19 @@ export class UTXOFetcher {
 
             console.log(`[UTXOFetcher] Storing final UTXO map with ${Object.keys(utxoMap).length} addresses`);
             await saveUTXOs(utxoMap, blockchain, network);
+
+            // Process UTXOs for received transaction detection
+            if (Object.keys(utxoMap).length > 0) {
+                try {
+                    console.log('[UTXOFetcher] Processing UTXOs for received transactions');
+                    const transactionRecorder = new TransactionRecorder(blockchain, network);
+                    await transactionRecorder.processUTXOsForReceivedTransactions(utxoMap, addressEntries);
+                    console.log('[UTXOFetcher] Received transaction detection completed');
+                } catch (error) {
+                    console.error('[UTXOFetcher] Error processing UTXOs for received transactions:', error);
+                    // Don't fail the entire UTXO fetch if transaction processing fails
+                }
+            }
 
             return utxoMap;
         } catch (error) {

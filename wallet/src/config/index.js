@@ -55,6 +55,7 @@ const config = {
 
         // Check if QuickNode is available for current network
         hasQuickNode: () => {
+            // Re-enabled QuickNode with correct bb_getUTXOs Blockbook RPC parameters
             return config.bitcoin.getQuickNodeApiUrl() !== null && config.bitcoin.getQuickNodeApiKey() !== null;
         },
     },

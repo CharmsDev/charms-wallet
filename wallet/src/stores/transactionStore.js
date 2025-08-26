@@ -1,8 +1,9 @@
 'use client';
 
 import { create } from 'zustand';
-import { getTransactions, addTransaction, updateTransactionStatus, TransactionEntry } from '@/services/storage';
+import { getTransactions, addTransaction as addTransactionToStorage, updateTransactionStatus, TransactionEntry } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from './blockchainStore';
+import TransactionRecorder from '@/services/transactions/transaction-recorder';
 
 const useTransactionStore = create((set, get) => ({
     transactions: [],
@@ -10,7 +11,7 @@ const useTransactionStore = create((set, get) => ({
     error: null,
     initialized: false,
     currentNetwork: null, // Track current network for change detection
-    
+
     // Pagination state
     pagination: {
         currentPage: 1,
@@ -54,7 +55,7 @@ const useTransactionStore = create((set, get) => ({
             console.log(`[TRANSACTION STORE] Loading transactions for ${blockchain}-${network}`);
 
             const storedTransactions = await getTransactions(blockchain, network);
-            
+
             // Calculate pagination info
             const totalTransactions = storedTransactions.length;
             const pageSize = state.pagination.pageSize;
@@ -84,16 +85,55 @@ const useTransactionStore = create((set, get) => ({
         }
     },
 
-    // Add or update a transaction
+    // Record sent transaction (called by transaction orchestrator)
+    recordSentTransaction: async (transactionData, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
+        try {
+            console.log(`[TRANSACTION STORE] Recording sent transaction ${transactionData.txid}`);
+
+            const updatedTransactions = await addTransactionToStorage(transactionData, blockchain, network);
+
+            // Update pagination info
+            const state = get();
+            const totalTransactions = updatedTransactions.length;
+            const totalPages = Math.ceil(totalTransactions / state.pagination.pageSize);
+
+            set({
+                transactions: updatedTransactions,
+                error: null,
+                pagination: {
+                    ...state.pagination,
+                    totalTransactions,
+                    totalPages
+                }
+            });
+
+            console.log(`[TRANSACTION STORE] Sent transaction recorded, total: ${updatedTransactions.length}`);
+        } catch (error) {
+            console.error('[TRANSACTION STORE] Error recording sent transaction:', error);
+            set({ error: error.message });
+        }
+    },
+
+    // Add or update a transaction (legacy method for backward compatibility)
     addTransaction: async (transaction, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
             console.log(`[TRANSACTION STORE] Adding transaction ${transaction.txid}`);
 
-            const updatedTransactions = await addTransaction(transaction, blockchain, network);
+            const updatedTransactions = await addTransactionToStorage(transaction, blockchain, network);
+
+            // Update pagination info
+            const state = get();
+            const totalTransactions = updatedTransactions.length;
+            const totalPages = Math.ceil(totalTransactions / state.pagination.pageSize);
 
             set({
                 transactions: updatedTransactions,
-                error: null
+                error: null,
+                pagination: {
+                    ...state.pagination,
+                    totalTransactions,
+                    totalPages
+                }
             });
 
             console.log(`[TRANSACTION STORE] Transaction added, total: ${updatedTransactions.length}`);
@@ -120,74 +160,31 @@ const useTransactionStore = create((set, get) => ({
         }
     },
 
-    // Process UTXOs to extract transaction data
-    processUTXOsForTransactions: async (utxos, addresses, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
+    // Process UTXOs to detect received transactions (excluding change addresses)
+    processUTXOsForReceivedTransactions: async (utxos, addresses, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
-            const state = get();
-            const existingTxids = new Set(state.transactions.map(tx => tx.txid));
-            const walletAddresses = new Set(addresses.map(addr => addr.address));
+            console.log(`[TRANSACTION STORE] Processing UTXOs for received transactions`);
 
-            console.log(`[TRANSACTION STORE] Processing UTXOs for transactions. Wallet addresses: ${walletAddresses.size}`);
+            const transactionRecorder = new TransactionRecorder(blockchain, network);
+            await transactionRecorder.processUTXOsForReceivedTransactions(utxos, addresses);
 
-            // Flatten UTXOs from all addresses
-            const allUtxos = [];
-            Object.entries(utxos).forEach(([address, addressUtxos]) => {
-                if (Array.isArray(addressUtxos)) {
-                    addressUtxos.forEach(utxo => {
-                        allUtxos.push({
-                            ...utxo,
-                            address: address,
-                            key: `${utxo.txid}:${utxo.vout}`
-                        });
-                    });
-                }
-            });
+            // Reload transactions to get the updated list
+            await get().loadTransactions(blockchain, network);
 
-            console.log(`[TRANSACTION STORE] Found ${allUtxos.length} UTXOs to process`);
-
-            // Group UTXOs by transaction ID
-            const txGroups = {};
-            allUtxos.forEach(utxo => {
-                const txid = utxo.txid;
-                if (!txGroups[txid]) {
-                    txGroups[txid] = [];
-                }
-                txGroups[txid].push(utxo);
-            });
-
-            // Process each transaction group
-            for (const [txid, txUtxos] of Object.entries(txGroups)) {
-                if (existingTxids.has(txid)) {
-                    continue; // Skip if already processed
-                }
-
-                // Calculate total amount for this transaction (sum of all UTXOs)
-                const totalAmount = txUtxos.reduce((sum, utxo) => sum + (utxo.value || 0), 0);
-
-                console.log(`[TRANSACTION STORE] Processing transaction ${txid} with ${txUtxos.length} UTXOs, total amount: ${totalAmount} sats`);
-
-                // Determine involved addresses
-                const involvedAddresses = [...new Set(txUtxos.map(utxo => utxo.address).filter(Boolean))];
-
-                // Create transaction entry
-                const transaction = {
-                    id: txid, // Add unique id for React key
-                    txid,
-                    type: 'received', // All UTXOs represent received transactions
-                    amount: totalAmount,
-                    status: 'confirmed',
-                    confirmations: Math.min(...txUtxos.map(utxo => utxo.confirmations || 1)),
-                    timestamp: txUtxos[0].timestamp || Date.now(),
-                    blockHeight: txUtxos[0].blockHeight,
-                    addresses: involvedAddresses,
-                    utxos: txUtxos.map(utxo => utxo.key)
-                };
-
-                await get().addTransaction(transaction, blockchain, network);
-            }
         } catch (error) {
-            console.error('[TRANSACTION STORE] Error processing UTXOs for transactions:', error);
+            console.error('[TRANSACTION STORE] Error processing UTXOs for received transactions:', error);
             set({ error: error.message });
+        }
+    },
+
+    // Check if transaction exists by txid and type
+    checkTransactionExists: async (txid, type, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
+        try {
+            const transactionRecorder = new TransactionRecorder(blockchain, network);
+            return await transactionRecorder.transactionExists(txid, type);
+        } catch (error) {
+            console.error('[TRANSACTION STORE] Error checking transaction existence:', error);
+            return false;
         }
     },
 
@@ -208,7 +205,7 @@ const useTransactionStore = create((set, get) => ({
         const { currentPage, pageSize } = state.pagination;
         const startIndex = (currentPage - 1) * pageSize;
         const endIndex = startIndex + pageSize;
-        
+
         return state.transactions.slice(startIndex, endIndex);
     },
 
@@ -216,7 +213,7 @@ const useTransactionStore = create((set, get) => ({
     goToPage: (page) => {
         const state = get();
         const { totalPages } = state.pagination;
-        
+
         if (page >= 1 && page <= totalPages) {
             set({
                 pagination: {
@@ -231,7 +228,7 @@ const useTransactionStore = create((set, get) => ({
     nextPage: () => {
         const state = get();
         const { currentPage, totalPages } = state.pagination;
-        
+
         if (currentPage < totalPages) {
             set({
                 pagination: {
@@ -246,7 +243,7 @@ const useTransactionStore = create((set, get) => ({
     previousPage: () => {
         const state = get();
         const { currentPage } = state.pagination;
-        
+
         if (currentPage > 1) {
             set({
                 pagination: {
@@ -262,7 +259,7 @@ const useTransactionStore = create((set, get) => ({
         const state = get();
         const totalPages = Math.ceil(state.pagination.totalTransactions / newPageSize);
         const currentPage = Math.min(state.pagination.currentPage, totalPages);
-        
+
         set({
             pagination: {
                 ...state.pagination,

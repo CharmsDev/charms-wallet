@@ -147,7 +147,59 @@ export function WalletProvider({ children }) {
                 });
             }
 
-            // Step 4: Finalize setup
+            // Step 4: Quick UTXO scan for first 12 addresses
+            setInitializationStep('Scanning addresses...');
+
+            try {
+                const { refreshFirstAddresses } = await import('@/services/utxo/address-refresh-helper');
+
+                // Scan first 12 addresses on both networks
+                for (const currentNetwork of networks) {
+                    try {
+                        setInitializationStep('Refreshing UTXOs...');
+                        await refreshFirstAddresses(12, blockchain, currentNetwork);
+                        console.log(`[WALLET INIT] Refreshed first 12 addresses on ${currentNetwork}`);
+                    } catch (error) {
+                        console.error(`[WALLET INIT] Error refreshing addresses on ${currentNetwork}:`, error);
+                    }
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 800));
+            } catch (error) {
+                console.error('[WALLET INIT] Error during address scanning:', error);
+            }
+
+            // Step 5: Scan for Charms using existing service
+            setInitializationStep('Scanning for Charms...');
+
+            try {
+                const { charmsService } = await import('@/services/charms/charms');
+                const { getUTXOs } = await import('@/services/storage');
+
+                for (const currentNetwork of networks) {
+                    try {
+                        const utxos = await getUTXOs(blockchain, currentNetwork);
+                        
+                        if (Object.keys(utxos).length > 0) {
+                            setInitializationStep('Processing Charms...');
+                            const charmsNetwork = currentNetwork === 'mainnet' ? 'mainnet' : 'testnet4';
+                            const charms = await charmsService.getCharmsByUTXOs(utxos, charmsNetwork);
+                            
+                            if (charms.length > 0) {
+                                console.log(`[WALLET INIT] Found ${charms.length} charms on ${currentNetwork}`);
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`[WALLET INIT] Error scanning charms on ${currentNetwork}:`, error);
+                    }
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 800));
+            } catch (error) {
+                console.error('[WALLET INIT] Error during charms scanning:', error);
+            }
+
+            // Step 6: Finalize setup
             setInitializationStep('Finalizing wallet setup...');
             await new Promise(resolve => setTimeout(resolve, 500)); // Final UX delay
 

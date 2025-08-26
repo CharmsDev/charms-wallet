@@ -129,17 +129,51 @@ export default function WalletInitialization({
                     <div className="flex items-center space-x-3">
                         <div className={`w-3 h-3 rounded-full ${initializationStep.includes('Generating')
                             ? 'bg-primary-500'
-                            : initializationStep.includes('Saving') || initializationStep.includes('Finalizing')
+                            : initializationStep.includes('Saving') || initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
                                 ? 'bg-green-500'
                                 : 'bg-gray-600'
                             }`}></div>
                         <span className={`text-sm ${initializationStep.includes('Generating')
                             ? 'text-primary-400 font-medium'
-                            : initializationStep.includes('Saving') || initializationStep.includes('Finalizing')
+                            : initializationStep.includes('Saving') || initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
                                 ? 'text-green-400'
                                 : 'text-gray-400'
                             }`}>
-                            Generate 512 addresses
+                            Generate addresses
+                        </span>
+                    </div>
+
+                    <div className="flex items-center space-x-3">
+                        <div className={`w-3 h-3 rounded-full ${initializationStep.includes('Scanning') || initializationStep.includes('Refreshing')
+                            ? 'bg-primary-500'
+                            : initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
+                                ? 'bg-green-500'
+                                : 'bg-gray-600'
+                            }`}></div>
+                        <span className={`text-sm ${initializationStep.includes('Scanning') || initializationStep.includes('Refreshing')
+                            ? 'text-primary-400 font-medium'
+                            : initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
+                                ? 'text-green-400'
+                                : 'text-gray-400'
+                            }`}>
+                            Scan addresses
+                        </span>
+                    </div>
+
+                    <div className="flex items-center space-x-3">
+                        <div className={`w-3 h-3 rounded-full ${initializationStep.includes('Processing') && initializationStep.includes('Charms')
+                            ? 'bg-primary-500'
+                            : initializationStep.includes('Finalizing')
+                                ? 'bg-green-500'
+                                : 'bg-gray-600'
+                            }`}></div>
+                        <span className={`text-sm ${initializationStep.includes('Processing') && initializationStep.includes('Charms')
+                            ? 'text-primary-400 font-medium'
+                            : initializationStep.includes('Finalizing')
+                                ? 'text-green-400'
+                                : 'text-gray-400'
+                            }`}>
+                            Scan for Charms
                         </span>
                     </div>
 

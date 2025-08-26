@@ -1,21 +1,22 @@
 // UTXO Verifier - Verifies UTXO status and updates storage when spent
 import { getUTXOs, saveUTXOs } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
+import { quickNodeService } from '@/services/bitcoin/quicknode-service';
+import { utxoCache } from '@/services/shared/cache-service';
 
 export class UTXOVerifier {
     constructor() {
-        this.verificationCache = new Map();
-        this.cacheTimeout = 30000; // 30 seconds cache
+        // Using unified cache service instead of local cache
     }
 
     clearCache() {
         console.log('[UTXOVerifier] Clearing verification cache');
-        this.verificationCache.clear();
+        utxoCache.clearAll();
     }
 
     clearCacheForUtxo(utxoKey) {
         console.log(`[UTXOVerifier] Clearing cache for UTXO: ${utxoKey}`);
-        this.verificationCache.delete(utxoKey);
+        utxoCache.clear(utxoKey);
     }
 
     async verifyAndUpdateUTXO(utxo, updateStateCallback = null, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
@@ -23,24 +24,19 @@ export class UTXOVerifier {
         console.log(`[UTXOVerifier] Verifying UTXO: ${utxoKey}`);
 
         try {
-            // Check cache first
-            if (this.verificationCache.has(utxoKey)) {
-                const cachedResult = this.verificationCache.get(utxoKey);
-                if (Date.now() - cachedResult.timestamp < this.cacheTimeout) {
-                    console.log(`[UTXOVerifier] Using cached result for ${utxoKey}: ${cachedResult.isUnspent}`);
-                    return cachedResult.isUnspent;
-                }
+            // Check cache first using unified cache service
+            const cachedResult = utxoCache.get(utxoKey);
+            if (cachedResult !== null) {
+                console.log(`[UTXOVerifier] Using cached result for ${utxoKey}: ${cachedResult}`);
+                return cachedResult;
             }
 
             console.log(`[UTXOVerifier] Checking API status for ${utxoKey}`);
-            const isUnspent = await this.checkUTXOStatus(utxo);
+            const isUnspent = await this.checkUTXOStatus(utxo, network);
             console.log(`[UTXOVerifier] API result for ${utxoKey}: ${isUnspent ? 'UNSPENT' : 'SPENT'}`);
 
-            // Cache the result
-            this.verificationCache.set(utxoKey, {
-                isUnspent,
-                timestamp: Date.now()
-            });
+            // Cache the result using unified cache service
+            utxoCache.set(utxoKey, isUnspent);
 
             // If UTXO is spent, update storage and state
             if (!isUnspent) {
@@ -60,9 +56,23 @@ export class UTXOVerifier {
         }
     }
 
-    async checkUTXOStatus(utxo) {
+    async checkUTXOStatus(utxo, network = NETWORKS.BITCOIN.TESTNET) {
         try {
-            const url = `https://mempool.space/testnet4/api/tx/${utxo.txid}/outspend/${utxo.vout}`;
+            // Prefer QuickNode if configured: use gettxout (authoritative)
+            if (quickNodeService && quickNodeService.isAvailable()) {
+                console.log(`[UTXOVerifier] Using QuickNode gettxout for ${utxo.txid}:${utxo.vout}`);
+                const isSpent = await quickNodeService.isUtxoSpent(utxo.txid, utxo.vout);
+                const isUnspent = !isSpent;
+                console.log(`[UTXOVerifier] QuickNode result for ${utxo.txid}:${utxo.vout}: ${isUnspent ? 'UNSPENT' : 'SPENT'}`);
+                return isUnspent;
+            }
+
+            // Fallback to mempool.space outspend endpoint
+            const isMainnet = network === NETWORKS.BITCOIN.MAINNET;
+            const baseUrl = isMainnet
+                ? 'https://mempool.space/api'
+                : 'https://mempool.space/testnet4/api';
+            const url = `${baseUrl}/tx/${utxo.txid}/outspend/${utxo.vout}`;
             console.log(`[UTXOVerifier] Fetching: ${url}`);
 
             const response = await fetch(url, {
@@ -118,15 +128,19 @@ export class UTXOVerifier {
         }
     }
 
+    async removeUtxo(txid, vout, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
+        const utxo = { txid, vout };
+        await this.removeSpentUTXOFromStorage(utxo, blockchain, network);
+
+        // Clear cache for this UTXO
+        const utxoKey = `${txid}:${vout}`;
+        this.clearCacheForUtxo(utxoKey);
+
+        console.log(`[UTXOVerifier] Removed UTXO ${utxoKey} via removeUtxo method`);
+    }
+
     getCacheStats() {
-        return {
-            size: this.verificationCache.size,
-            entries: Array.from(this.verificationCache.entries()).map(([key, value]) => ({
-                utxo: key,
-                isUnspent: value.isUnspent,
-                age: Date.now() - value.timestamp
-            }))
-        };
+        return utxoCache.getStats();
     }
 }
 

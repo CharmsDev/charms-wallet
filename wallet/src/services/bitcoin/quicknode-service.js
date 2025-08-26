@@ -62,26 +62,21 @@ export class QuickNodeService {
     }
 
     /**
-     * Get UTXO information for an address
+     * Get UTXO information for an address using Blockbook RPC (internal method)
      */
-    async getAddressUTXOs(address) {
-        try {
-            // Use listunspent RPC method to get UTXOs for address
-            const utxos = await this.makeRequest('listunspent', [0, 9999999, [address]]);
-            
-            // Convert QuickNode format to our standard format
-            return utxos.map(utxo => ({
-                txid: utxo.txid,
-                vout: utxo.vout,
-                value: Math.round(utxo.amount * 100000000), // Convert BTC to satoshis
-                address: utxo.address,
-                scriptPubKey: utxo.scriptPubKey,
-                confirmations: utxo.confirmations
-            }));
-        } catch (error) {
-            console.error(`[QuickNodeService] Failed to get UTXOs for ${address}:`, error);
-            return [];
-        }
+    async _getAddressUTXOsRaw(address) {
+        // Use bb_getUTXOs with Blockbook RPC (includes mempool + confirmed)
+        const utxos = await this.makeRequest('bb_getUTXOs', [address, { confirmed: false }]);
+        
+        // Convert QuickNode Blockbook format to our standard format
+        return utxos.map(utxo => ({
+            txid: utxo.txid,
+            vout: utxo.vout,
+            value: Number(utxo.value), // Already in satoshis
+            address: address,
+            confirmations: utxo.confirmations ?? 0,
+            blockHeight: utxo.height
+        }));
     }
 
     /**

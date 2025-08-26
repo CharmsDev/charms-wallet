@@ -22,17 +22,25 @@ export interface AddressEntry {
 }
 
 export interface TransactionEntry {
-    txid: string;
+    id: string; // unique ID: tx_{timestamp}_{type}_{counter}
+    txid: string; // can be duplicate for sent/received pairs
     type: 'sent' | 'received';
     amount: number; // in satoshis
-    fee?: number; // in satoshis
-    status: 'confirmed' | 'pending' | 'failed';
-    confirmations: number;
+    fee?: number; // only for sent transactions
     timestamp: number;
+    status: 'pending' | 'confirmed' | 'failed';
+    addresses: {
+        from?: string[]; // for sent transactions
+        to?: string[]; // for sent transactions
+        received?: string; // for received transactions
+    };
     blockHeight?: number;
-    addresses: string[]; // involved addresses
-    utxos?: string[]; // related UTXO keys
-    memo?: string;
+    confirmations?: number;
+    metadata?: {
+        isSelfSend?: boolean;
+        changeAmount?: number;
+        totalInputs?: number;
+    };
 }
 
 // Helper function to get the active blockchain and network
@@ -105,16 +113,16 @@ export const getAddresses = async (blockchain?: string, network?: string): Promi
 
 export const addAddress = async (address: AddressEntry, blockchain?: string, network?: string): Promise<AddressEntry[]> => {
     const addresses = await getAddresses(blockchain, network);
-    const newAddresses = [...addresses, address];
-    await saveAddresses(newAddresses, blockchain, network);
-    return newAddresses;
+    addresses.push(address);
+    await saveAddresses(addresses, blockchain, network);
+    return addresses;
 };
 
 export const addMultipleAddresses = async (newAddresses: AddressEntry[], blockchain?: string, network?: string): Promise<AddressEntry[]> => {
-    const existingAddresses = await getAddresses(blockchain, network);
-    const combinedAddresses = [...existingAddresses, ...newAddresses];
-    await saveAddresses(combinedAddresses, blockchain, network);
-    return combinedAddresses;
+    const addresses = await getAddresses(blockchain, network);
+    addresses.push(...newAddresses);
+    await saveAddresses(addresses, blockchain, network);
+    return addresses;
 };
 
 export const clearAddresses = async (blockchain?: string, network?: string): Promise<void> => {
@@ -153,22 +161,22 @@ export const getTransactions = async (blockchain?: string, network?: string): Pr
 
 export const addTransaction = async (transaction: TransactionEntry, blockchain?: string, network?: string): Promise<TransactionEntry[]> => {
     const transactions = await getTransactions(blockchain, network);
-    
-    // Check if transaction already exists
-    const existingIndex = transactions.findIndex(tx => tx.txid === transaction.txid);
-    
+    const existingIndex = transactions.findIndex(tx => 
+        tx.id === transaction.id || (tx.txid === transaction.txid && tx.type === transaction.type)
+    );
+
     if (existingIndex >= 0) {
-        // Update existing transaction
         transactions[existingIndex] = transaction;
     } else {
-        // Add new transaction
         transactions.push(transaction);
     }
-    
-    // Sort by timestamp (newest first)
+
     transactions.sort((a, b) => b.timestamp - a.timestamp);
-    
     await saveTransactions(transactions, blockchain, network);
+    
+    const storageKey = getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
+    console.log(`[TX_SAVE] key=${storageKey} txid=${transaction.txid} type=${transaction.type} total=${transactions.length}`);
+    
     return transactions;
 };
 
@@ -180,6 +188,9 @@ export const updateTransactionStatus = async (txid: string, status: TransactionE
         transactions[txIndex].status = status;
         transactions[txIndex].confirmations = confirmations;
         await saveTransactions(transactions, blockchain, network);
+        
+        const storageKey = getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
+        console.log(`[TX_UPDATE] key=${storageKey} txid=${txid} status=${status} confirmations=${confirmations}`);
     }
     
     return transactions;

@@ -75,10 +75,17 @@ export function useTransactionFlow(formState, onClose) {
             formState.setError('');
 
             const orchestrator = new BitcoinTransactionOrchestrator(activeNetwork);
-            const result = await orchestrator.broadcastTransaction(
-                transactionData.txHex,
-                transactionData.selectedUtxos,
-                transactionData.transactionMetadata,
+            
+            // Use sendTransaction instead of broadcastTransaction to ensure transaction recording
+            const allUtxos = utxos ? Object.entries(utxos).flatMap(([address, addressUtxos]) =>
+                addressUtxos.map(utxo => ({ ...utxo, address }))
+            ) : [];
+
+            const result = await orchestrator.sendTransaction(
+                formState.destinationAddress,
+                formState.amount,
+                allUtxos,
+                formState.feeRate,
                 updateAfterTransaction
             );
 
