@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useCharms } from '@/stores/charmsStore';
 
 export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoading, network }) {
-    const [showUSD, setShowUSD] = useState(true);
+    const [showUSD, setShowUSD] = useState(false);
     const [trend, setTrend] = useState(null);
+    const { charms } = useCharms();
 
     // Format balance in BTC
     const formatBTC = (satoshis) => {
@@ -25,11 +27,22 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
         }).format(fiatValue);
     };
 
-    // Mock 24h trend (in production, this would come from price history)
+    const getBroTokenBalance = () => {
+        const broCharm = charms.find(charm => 
+            charm.amount?.ticker === 'CHARMS-TOKEN' || 
+            charm.amount?.name?.toLowerCase().includes('bro')
+        );
+        if (broCharm && broCharm.amount?.remaining) {
+            return broCharm.amount.remaining / 100000000;
+        }
+        return 0;
+    };
+
+    const broBalance = getBroTokenBalance();
+
     useEffect(() => {
         if (btcPrice && !priceLoading) {
-            // Simulate a small random trend for demo
-            const mockTrend = (Math.random() - 0.5) * 10; // -5% to +5%
+            const mockTrend = (Math.random() - 0.5) * 10;
             setTrend(mockTrend);
         }
     }, [btcPrice, priceLoading]);
@@ -39,10 +52,10 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
     };
 
     return (
-        <div className="card p-6 space-y-4">
+        <div className="card p-6 space-y-6">
             <div className="flex justify-between items-start">
                 <div>
-                    <h2 className="text-lg font-semibold text-dark-300 mb-1">Total Balance</h2>
+                    <h2 className="text-lg font-semibold text-dark-300 mb-1">Portfolio Balance</h2>
                     <div className="flex items-center space-x-2">
                         <div className={`w-2 h-2 rounded-full ${network === 'mainnet' ? 'bg-green-500' : 'bg-orange-500'}`}></div>
                         <span className="text-sm text-dark-400 capitalize">{network}</span>
@@ -58,41 +71,53 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
             </div>
 
             {isLoading ? (
-                <div className="space-y-3">
-                    <div className="h-12 bg-dark-700 rounded animate-pulse"></div>
+                <div className="space-y-4">
+                    <div className="h-16 bg-dark-700 rounded animate-pulse"></div>
+                    <div className="h-16 bg-dark-700 rounded animate-pulse"></div>
                     <div className="h-6 bg-dark-700 rounded w-1/2 animate-pulse"></div>
                 </div>
             ) : (
-                <div className="space-y-2">
-                    {/* Primary Balance Display */}
-                    <div 
-                        className="cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={toggleCurrency}
-                    >
-                        <div className="text-4xl font-bold gradient-text">
-                            {showUSD ? formatFiat(balance) : `${formatBTC(balance)} BTC`}
+                <div className="space-y-6">
+                    {/* Dual Token Display */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Bitcoin Balance */}
+                        <div className="glass-effect p-4 rounded-xl border border-dark-600">
+                            <div className="flex items-center space-x-2 mb-2">
+                                <div className="w-6 h-6 rounded-full bg-gradient-to-r from-orange-500 to-yellow-500 flex items-center justify-center">
+                                    <span className="text-xs font-bold text-white">₿</span>
+                                </div>
+                                <span className="text-sm font-medium text-dark-300">Bitcoin</span>
+                            </div>
+                            <div 
+                                className="cursor-pointer hover:opacity-80 transition-opacity"
+                                onClick={toggleCurrency}
+                            >
+                                <div className="text-2xl font-bold gradient-text mb-1">
+                                    {showUSD ? formatFiat(balance) : `${formatBTC(balance)} BTC`}
+                                </div>
+                                <div className="text-sm text-dark-400">
+                                    {showUSD ? `${formatBTC(balance)} BTC` : formatFiat(balance)}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Bro Token Balance */}
+                        <div className="glass-effect p-4 rounded-xl border border-dark-600">
+                            <div className="flex items-center space-x-2 mb-2">
+                                <div className="w-6 h-6 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
+                                    <span className="text-xs font-bold text-white">B</span>
+                                </div>
+                                <span className="text-sm font-medium text-dark-300">Bro Token</span>
+                            </div>
+                            <div className="text-2xl font-bold text-purple-400 mb-1">
+                                {broBalance.toFixed(2)} BRO
+                            </div>
+                            <div className="text-sm text-dark-400">
+                                {broBalance > 0 ? 'Token Balance' : 'No tokens'}
+                            </div>
                         </div>
                     </div>
 
-                    {/* Secondary Balance Display */}
-                    <div 
-                        className="text-lg text-dark-400 cursor-pointer hover:text-dark-300 transition-colors"
-                        onClick={toggleCurrency}
-                    >
-                        {showUSD ? `${formatBTC(balance)} BTC` : formatFiat(balance)}
-                    </div>
-
-                    {/* Balance Breakdown */}
-                    <div className="flex justify-between items-center pt-4 border-t border-dark-700">
-                        <div className="text-sm">
-                            <span className="text-dark-400">Available:</span>
-                            <span className="text-white ml-2">{formatBTC(balance)} BTC</span>
-                        </div>
-                        <div className="text-sm">
-                            <span className="text-dark-400">Pending:</span>
-                            <span className="text-white ml-2">0.00000000 BTC</span>
-                        </div>
-                    </div>
                 </div>
             )}
 

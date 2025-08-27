@@ -11,7 +11,8 @@ import BalanceDisplay from './components/BalanceDisplay';
 import QuickActionsPanel from './components/QuickActionsPanel';
 import PortfolioSummary from './components/PortfolioSummary';
 import RecentTransactions from './components/RecentTransactions';
-import SecurityPanel from './components/SecurityPanel';
+import SecurityStatus from './components/SecurityStatus';
+import WalletSeed from './components/WalletSeed';
 import SendBitcoinDialog from '../utxos/SendBitcoinDialog';
 import ReceiveBitcoinDialog from './components/ReceiveBitcoinDialog';
 import SettingsDialog from './components/SettingsDialog';
@@ -33,7 +34,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     useEffect(() => {
         if (hasWallet && seedPhrase && !derivationLoading) {
             loadUTXOs(activeBlockchain, activeNetwork);
-            loadCharms();
+            // Don't auto-load charms on dashboard - only load when user visits charms tab
             loadAddresses(activeBlockchain, activeNetwork);
         }
     }, [hasWallet, seedPhrase, derivationLoading, activeBlockchain, activeNetwork]);
@@ -48,12 +49,9 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                 if (priceData.success) {
                     setBtcPrice(priceData.data);
                 } else {
-                    console.warn('[DASHBOARD] Using fallback price due to:', priceData.error);
-                    setBtcPrice(priceData.data); // Still set fallback data
+                    setBtcPrice(priceData.data);
                 }
             } catch (error) {
-                console.error('[DASHBOARD] Failed to fetch BTC price:', error);
-                // Use fallback price from service
                 setBtcPrice(coinGeckoService.getFallbackPrice());
             } finally {
                 setPriceLoading(false);
@@ -72,18 +70,15 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     };
 
     const handleReceiveBitcoin = () => {
-        // TODO: Implement receive dialog or navigate to addresses tab
-        console.log('Receive Bitcoin clicked');
+        setShowReceiveDialog(true);
     };
 
     const handleViewHistory = () => {
-        // TODO: Implement transaction history view
-        console.log('View History clicked');
+        // TODO: Navigate to transaction history
     };
 
     const handleSettings = () => {
-        // TODO: Implement settings panel
-        console.log('Settings clicked');
+        setShowSettingsDialog(true);
     };
 
     // Format value function for SendBitcoinDialog
@@ -157,7 +152,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                         <QuickActionsPanel
                             onSend={() => setShowSendDialog(true)}
                             onReceive={() => setShowReceiveDialog(true)}
-                            onViewHistory={() => console.log('History clicked')}
+                            onViewHistory={handleViewHistory}
                             onSettings={() => setShowSettingsDialog(true)}
                         />
 
@@ -178,8 +173,14 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                             isLoading={utxosLoading || charmsLoading || addressesLoading}
                         />
 
-                        {/* Security Panel */}
-                        <SecurityPanel
+                        {/* Wallet Seed */}
+                        <WalletSeed
+                            hasWallet={hasWallet}
+                            seedPhrase={seedPhrase}
+                        />
+
+                        {/* Security Status */}
+                        <SecurityStatus
                             hasWallet={hasWallet}
                             seedPhrase={seedPhrase}
                         />

@@ -58,7 +58,8 @@ export class BitcoinTransactionOrchestrator {
             signedTxHex,
             selectedUtxos,
             transactionData,
-            updateStateCallback
+            updateStateCallback,
+            this.network
         );
     }
 
@@ -83,11 +84,8 @@ export class BitcoinTransactionOrchestrator {
         );
 
         // Record sent transaction after successful broadcast
-        console.log(`[TRANSACTION ORCHESTRATOR] Broadcast result:`, broadcastResult);
         if (broadcastResult.success && broadcastResult.txid) {
-            console.log(`[TRANSACTION ORCHESTRATOR] ✅ Starting to record sent transaction: ${broadcastResult.txid}`);
             try {
-                // Record sent transaction using the transaction recorder
                 const recordedTransaction = await this.transactionRecorder.recordSentTransaction(
                     {
                         txid: broadcastResult.txid,
@@ -102,11 +100,8 @@ export class BitcoinTransactionOrchestrator {
                     }
                 );
 
-                console.log(`[TRANSACTION ORCHESTRATOR] ✅ Successfully recorded sent transaction: ${broadcastResult.txid}`);
-                
-                // Force reload transactions to update UI immediately
+                // Dispatch event to update UI
                 if (typeof window !== 'undefined') {
-                    console.log(`[TRANSACTION ORCHESTRATOR] Dispatching transactionRecorded event`);
                     const event = new CustomEvent('transactionRecorded', { 
                         detail: { 
                             txid: broadcastResult.txid,
@@ -118,12 +113,8 @@ export class BitcoinTransactionOrchestrator {
                 }
                 
             } catch (recordError) {
-                console.error('[TRANSACTION ORCHESTRATOR] ❌ Failed to record sent transaction:', recordError);
-                console.error('[TRANSACTION ORCHESTRATOR] Error details:', recordError.stack);
                 // Don't fail the entire transaction if recording fails
             }
-        } else {
-            console.warn('[TRANSACTION ORCHESTRATOR] ❌ Broadcast result missing success or txid:', broadcastResult);
         }
 
         return {

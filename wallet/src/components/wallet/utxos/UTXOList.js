@@ -49,12 +49,10 @@ export default function UTXOList() {
         }
     }, [seedPhrase, activeBlockchain, activeNetwork, loadAddresses]);
 
-    // Load UTXOs from localStorage when addresses are available
+    // Load UTXOs from localStorage when network changes (independent of addresses)
     useEffect(() => {
-        if (addresses.length > 0) {
-            loadUTXOs(activeBlockchain, activeNetwork);
-        }
-    }, [addresses, activeBlockchain, activeNetwork, loadUTXOs]);
+        loadUTXOs(activeBlockchain, activeNetwork);
+    }, [activeBlockchain, activeNetwork, loadUTXOs]);
 
     // Auto-refresh UTXOs on component mount for regtest/cardano
     useEffect(() => {
@@ -90,7 +88,14 @@ export default function UTXOList() {
 
     // Derive confirmed UTXOs from the flattened list
     const confirmedUtxos = useMemo(() => {
-        return flattenedUtxos.filter(utxo => utxo.status.confirmed);
+        return flattenedUtxos.filter(utxo => {
+            // Handle UTXOs that might not have status property (legacy data)
+            if (!utxo.status) {
+                // Assume confirmed if no status (legacy UTXOs)
+                return true;
+            }
+            return utxo.status.confirmed;
+        });
     }, [flattenedUtxos]);
 
     const handleRefresh = async () => {
@@ -269,7 +274,7 @@ export default function UTXOList() {
                                                     {utxo.formattedValue}
                                                 </div>
                                                 <div className="mt-1">
-                                                    {utxo.status.confirmed ? (
+                                                    {(utxo.status?.confirmed !== false) ? (
                                                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400">
                                                             Confirmed
                                                         </span>
