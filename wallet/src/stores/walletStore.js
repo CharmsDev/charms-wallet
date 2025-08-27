@@ -121,6 +121,18 @@ export function WalletProvider({ children }) {
             let totalAddressesGenerated = 0;
 
             for (const currentNetwork of networks) {
+                // Get the appropriate Bitcoin network object for address generation
+                const { default: bitcoin } = await import('bitcoinjs-lib');
+                const { getNetwork } = await import('@/utils/addressUtils');
+                
+                let targetNetwork;
+                if (currentNetwork === 'mainnet') {
+                    targetNetwork = bitcoin.networks.bitcoin;
+                } else {
+                    // Use our custom testnet4 network configuration
+                    targetNetwork = getNetwork();
+                }
+                
                 await new Promise((resolve, reject) => {
                     generateInitialBitcoinAddresses(
                         finalSeedPhrase,
@@ -142,7 +154,8 @@ export function WalletProvider({ children }) {
                             } catch (error) {
                                 reject(error);
                             }
-                        }
+                        },
+                        targetNetwork // Pass the specific network for address generation
                     );
                 });
             }
@@ -158,15 +171,13 @@ export function WalletProvider({ children }) {
                     try {
                         setInitializationStep('Refreshing UTXOs...');
                         await refreshFirstAddresses(12, blockchain, currentNetwork);
-                        console.log(`[WALLET INIT] Refreshed first 12 addresses on ${currentNetwork}`);
                     } catch (error) {
-                        console.error(`[WALLET INIT] Error refreshing addresses on ${currentNetwork}:`, error);
                     }
                 }
 
                 await new Promise(resolve => setTimeout(resolve, 800));
             } catch (error) {
-                console.error('[WALLET INIT] Error during address scanning:', error);
+                // Continue with initialization even if address scanning fails
             }
 
             // Step 5: Scan for Charms using existing service
@@ -185,18 +196,15 @@ export function WalletProvider({ children }) {
                             const charmsNetwork = currentNetwork === 'mainnet' ? 'mainnet' : 'testnet4';
                             const charms = await charmsService.getCharmsByUTXOs(utxos, charmsNetwork);
                             
-                            if (charms.length > 0) {
-                                console.log(`[WALLET INIT] Found ${charms.length} charms on ${currentNetwork}`);
-                            }
                         }
                     } catch (error) {
-                        console.error(`[WALLET INIT] Error scanning charms on ${currentNetwork}:`, error);
+                        // Continue with initialization
                     }
                 }
 
                 await new Promise(resolve => setTimeout(resolve, 800));
             } catch (error) {
-                console.error('[WALLET INIT] Error during charms scanning:', error);
+                // Continue with initialization
             }
 
             // Step 6: Finalize setup

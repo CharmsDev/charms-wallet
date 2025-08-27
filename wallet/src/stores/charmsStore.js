@@ -27,8 +27,10 @@ export function CharmsProvider({ children }) {
         // Clear charms immediately when network changes
         setCharms([]);
 
-        // Reload charms if UTXOs are available
-        if (Object.keys(utxos).length > 0) {
+        // Only reload charms if user is actively viewing charms tab AND UTXOs are available
+        // This prevents API calls on page refresh
+        if (Object.keys(utxos).length > 0 && typeof window !== 'undefined' && 
+            window.location.pathname.includes('/charms')) {
             loadCharms();
         }
     }, [activeNetwork]);

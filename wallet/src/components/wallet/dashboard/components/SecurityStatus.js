@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 
-export default function SecurityPanel({ hasWallet, seedPhrase }) {
-    const [showSeedPhrase, setShowSeedPhrase] = useState(false);
+export default function SecurityStatus({ hasWallet, seedPhrase }) {
     const [lastLogin] = useState(new Date()); // Mock last login time
 
     const securityItems = [
@@ -86,32 +85,6 @@ export default function SecurityPanel({ hasWallet, seedPhrase }) {
                 <span>Last login:</span>
                 <span>{formatLastLogin(lastLogin)}</span>
             </div>
-
-            {/* Seed Phrase Access */}
-            {hasWallet && seedPhrase && (
-                <div className="space-y-3">
-                    <button
-                        onClick={() => setShowSeedPhrase(!showSeedPhrase)}
-                        className="w-full btn btn-secondary text-sm"
-                    >
-                        {showSeedPhrase ? 'Hide' : 'Show'} Seed Phrase
-                    </button>
-
-                    {showSeedPhrase && (
-                        <div className="glass-effect p-4 rounded-lg border-l-4 border-yellow-500">
-                            <div className="flex items-start space-x-2 mb-2">
-                                <span className="text-yellow-400">⚠️</span>
-                                <p className="text-xs text-yellow-400 font-medium">
-                                    Keep your seed phrase secure and private
-                                </p>
-                            </div>
-                            <div className="bg-dark-900 p-3 rounded font-mono text-xs break-all">
-                                {seedPhrase}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
 
             {/* Security Recommendations */}
             <div className="mt-6 pt-4 border-t border-dark-700">
