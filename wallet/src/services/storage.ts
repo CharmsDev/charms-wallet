@@ -138,8 +138,13 @@ export const saveUTXOs = async (utxoMap: UTXOMap, blockchain?: string, network?:
 
 export const getUTXOs = async (blockchain?: string, network?: string): Promise<UTXOMap> => {
     const storageKey = getStorageKey(STORAGE_KEYS.UTXOS, blockchain, network);
+    console.log(`[STORAGE] Getting UTXOs with key: ${storageKey}`);
     const stored = localStorage.getItem(storageKey);
-    return stored ? JSON.parse(stored) : {};
+    const result = stored ? JSON.parse(stored) : {};
+    console.log(`[STORAGE] Found ${Object.keys(result).length} addresses with UTXOs`);
+    
+    
+    return result;
 };
 
 export const clearUTXOs = async (blockchain?: string, network?: string): Promise<void> => {
@@ -211,6 +216,8 @@ export const clearBlockchainWalletData = async (blockchain?: string, network?: s
 
 // Clear all wallet data across all blockchains and networks
 export const clearAllWalletData = async (): Promise<void> => {
+    console.log('[STORAGE] Clearing ALL wallet data from localStorage...');
+    
     await clearSeedPhrase();
 
     // Clear Bitcoin data
@@ -220,4 +227,20 @@ export const clearAllWalletData = async (): Promise<void> => {
     // Clear Cardano data
     await clearBlockchainWalletData(BLOCKCHAINS.CARDANO, NETWORKS.CARDANO.MAINNET);
     await clearBlockchainWalletData(BLOCKCHAINS.CARDANO, NETWORKS.CARDANO.TESTNET);
+    
+    // Also clear any legacy keys that might exist
+    const allKeys = Object.keys(localStorage);
+    const walletKeys = allKeys.filter(key => 
+        key.includes('wallet') || 
+        key.includes('utxo') || 
+        key.includes('address') || 
+        key.includes('transaction') ||
+        key.includes('bitcoin') ||
+        key.includes('pending')
+    );
+    
+    console.log('[STORAGE] Removing legacy keys:', walletKeys);
+    walletKeys.forEach(key => localStorage.removeItem(key));
+    
+    console.log('[STORAGE] All wallet data cleared successfully');
 };

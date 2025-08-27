@@ -21,7 +21,6 @@ const useUTXOStore = create((set, get) => ({
         // Check if network has changed - if so, clear existing UTXOs
         const networkKey = `${blockchain}-${network}`;
         if (state.currentNetwork && state.currentNetwork !== networkKey) {
-            console.log(`[UTXO STORE] Network changed from ${state.currentNetwork} to ${networkKey}, clearing UTXOs`);
             set({
                 utxos: {},
                 totalBalance: 0,
@@ -41,8 +40,6 @@ const useUTXOStore = create((set, get) => ({
         set({ isLoading: true, error: null });
 
         try {
-            console.log(`[UTXO STORE] Loading UTXOs for ${blockchain}-${network}`);
-
             const storedUTXOs = await utxoService.getStoredUTXOs(blockchain, network);
             const balance = utxoService.calculateTotalBalance(storedUTXOs);
 
@@ -53,7 +50,6 @@ const useUTXOStore = create((set, get) => ({
                 initialized: true
             });
 
-            console.log(`[UTXO STORE] Loaded ${Object.keys(storedUTXOs).length} addresses with UTXOs, balance: ${balance}`);
         } catch (error) {
             console.error('Failed to load UTXOs:', error);
             set({
@@ -81,7 +77,6 @@ const useUTXOStore = create((set, get) => ({
                 cancelRefresh: false
             });
 
-            console.log(`[UTXO STORE] Refreshing UTXOs for ${blockchain}-${network}`);
 
             // Clear existing UTXOs before refresh to ensure clean state
             set({
@@ -127,7 +122,6 @@ const useUTXOStore = create((set, get) => ({
                 refreshProgress: { processed: 0, total: 0, isRefreshing: false }
             });
 
-            console.log(`[UTXO STORE] Refresh completed, final balance: ${finalBalance}`);
 
         } catch (error) {
             console.error('Failed to refresh UTXOs:', error);

@@ -27,8 +27,8 @@ const config = {
                 regtest: null, // No mempool API for regtest, we use our local API
             },
             quicknode: {
+                mainnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_MAINNET_URL || null,
                 testnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_TESTNET_URL || null,
-                apiKey: process.env.NEXT_PUBLIC_QUICKNODE_API_KEY || null,
             },
         },
 
@@ -40,23 +40,21 @@ const config = {
             return config.bitcoin.apis.mempool[config.bitcoin.network];
         },
 
-        // Get QuickNode API URL for current network
-        getQuickNodeApiUrl: () => {
-            if (config.bitcoin.isTestnet() && config.bitcoin.apis.quicknode.testnet) {
+        // Get QuickNode API URL for specific network (accepts network parameter)
+        getQuickNodeApiUrl: (network = null) => {
+            const targetNetwork = network || config.bitcoin.network;
+            if (targetNetwork === 'mainnet' && config.bitcoin.apis.quicknode.mainnet) {
+                return config.bitcoin.apis.quicknode.mainnet;
+            }
+            if (targetNetwork === 'testnet' && config.bitcoin.apis.quicknode.testnet) {
                 return config.bitcoin.apis.quicknode.testnet;
             }
             return null;
         },
 
-        // Get QuickNode API key
-        getQuickNodeApiKey: () => {
-            return config.bitcoin.apis.quicknode.apiKey;
-        },
-
-        // Check if QuickNode is available for current network
-        hasQuickNode: () => {
-            // Re-enabled QuickNode with correct bb_getUTXOs Blockbook RPC parameters
-            return config.bitcoin.getQuickNodeApiUrl() !== null && config.bitcoin.getQuickNodeApiKey() !== null;
+        // Check if QuickNode is available for specific network
+        hasQuickNode: (network = null) => {
+            return config.bitcoin.getQuickNodeApiUrl(network) !== null;
         },
     },
 

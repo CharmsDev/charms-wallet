@@ -12,15 +12,28 @@ bitcoin.initEccLib(ecc);
 const ECPair = ECPairFactory(ecc);
 const bip32 = BIP32Factory(ecc);
 
-// Create a regtest network configuration (based on testnet but with different prefix)
+// Create testnet4 network configuration with correct parameters
+const testnet4Network = {
+    messagePrefix: '\x18Bitcoin Signed Message:\n',
+    bech32: 'tb',
+    bip32: {
+        public: 0x043587cf,
+        private: 0x04358394,
+    },
+    pubKeyHash: 0x6f,
+    scriptHash: 0xc4,
+    wif: 0xef,
+};
+
+// Create a regtest network configuration (based on testnet4 but with different prefix)
 const regtestNetwork = {
-    ...bitcoin.networks.testnet,
+    ...testnet4Network,
     bech32: 'bcrt'
 };
 
 // Get the appropriate network based on the config
 export function getNetwork() {
-    return config.bitcoin.isRegtest() ? regtestNetwork : bitcoin.networks.testnet;
+    return config.bitcoin.isRegtest() ? regtestNetwork : testnet4Network;
 }
 
 // Validates a Bitcoin address based on the current network
@@ -39,10 +52,10 @@ export function validateAddress(address) {
 }
 
 // Generates a new Bitcoin Taproot address using BIP86 derivation path
-export async function generateTaprootAddress(seedPhrase, index, isChange = false) {
+export async function generateTaprootAddress(seedPhrase, index, isChange = false, targetNetwork = null) {
     try {
-        // Get the appropriate network based on environment
-        const network = getNetwork();
+        // Get the appropriate network - use targetNetwork if provided, otherwise current config
+        const network = targetNetwork || getNetwork();
 
         // Convert seed phrase to seed
         const seed = await bip39.mnemonicToSeed(seedPhrase);
@@ -51,16 +64,15 @@ export async function generateTaprootAddress(seedPhrase, index, isChange = false
         const masterNode = bip32.fromSeed(seed, network);
 
         // Derive the account node using BIP86 path for taproot
-        // For regtest, Bitcoin Core might use a different derivation path
+        // Use different coin types for different networks according to BIP44
         let derivationPath;
-        if (config.bitcoin.isMainnet()) {
-            derivationPath = "m/86'/0'/0'";
-        } else if (config.bitcoin.isRegtest()) {
-            // Try using the same derivation path as mainnet for regtest
-            derivationPath = "m/86'/0'/0'";
+        // Determine derivation path based on the target network's bech32 prefix
+        const isMainnetNetwork = network.bech32 === 'bc';
+        if (isMainnetNetwork) {
+            derivationPath = "m/86'/0'/0'"; // Mainnet: coin type 0
         } else {
-            // For testnet
-            derivationPath = "m/86'/0'/0'";
+            // For testnet and regtest
+            derivationPath = "m/86'/1'/0'"; // Testnet/Regtest: coin type 1
         }
 
         const accountNode = masterNode.derivePath(derivationPath);
@@ -104,16 +116,15 @@ export async function derivePrivateKey(seedPhrase, index, isChange = false) {
         const masterNode = bip32.fromSeed(seed, network);
 
         // Derive the account node using BIP86 path for taproot
-        // For regtest, Bitcoin Core might use a different derivation path
+        // Use different coin types for different networks according to BIP44
         let derivationPath;
         if (config.bitcoin.isMainnet()) {
-            derivationPath = "m/86'/0'/0'";
+            derivationPath = "m/86'/0'/0'"; // Mainnet: coin type 0
         } else if (config.bitcoin.isRegtest()) {
-            // Try using the same derivation path as mainnet for regtest
-            derivationPath = "m/86'/0'/0'";
+            derivationPath = "m/86'/1'/0'"; // Regtest: coin type 1 (testnet)
         } else {
             // For testnet
-            derivationPath = "m/86'/0'/0'";
+            derivationPath = "m/86'/1'/0'"; // Testnet: coin type 1
         }
         const accountNode = masterNode.derivePath(derivationPath);
 
@@ -184,7 +195,7 @@ export async function copyToClipboard(text) {
 }
 
 // Generates the initial set of Bitcoin Taproot addresses in a non-blocking way
-export function generateInitialBitcoinAddresses(seedPhrase, onProgress, onComplete) {
+export function generateInitialBitcoinAddresses(seedPhrase, onProgress, onComplete, targetNetwork = null) {
     let i = 0;
     const addresses = [];
     const chunkSize = 10; // Process 10 indexes at a time
@@ -194,7 +205,7 @@ export function generateInitialBitcoinAddresses(seedPhrase, onProgress, onComple
         const limit = Math.min(i + chunkSize, totalPairs);
         (async () => {
             for (; i < limit; i++) {
-                const externalAddress = await generateTaprootAddress(seedPhrase, i, false);
+                const externalAddress = await generateTaprootAddress(seedPhrase, i, false, targetNetwork);
                 addresses.push({
                     address: externalAddress,
                     index: i,
@@ -202,7 +213,7 @@ export function generateInitialBitcoinAddresses(seedPhrase, onProgress, onComple
                     created: new Date().toISOString()
                 });
 
-                const changeAddress = await generateTaprootAddress(seedPhrase, i, true);
+                const changeAddress = await generateTaprootAddress(seedPhrase, i, true, targetNetwork);
                 addresses.push({
                     address: changeAddress,
                     index: i,
@@ -272,16 +283,15 @@ export async function deriveXpub(seedPhrase) {
         const masterNode = bip32.fromSeed(seed, network);
 
         // Derive the account node using BIP86 path for taproot
-        // For regtest, Bitcoin Core might use a different derivation path
+        // Use different coin types for different networks according to BIP44
         let derivationPath;
         if (config.bitcoin.isMainnet()) {
-            derivationPath = "m/86'/0'/0'";
+            derivationPath = "m/86'/0'/0'"; // Mainnet: coin type 0
         } else if (config.bitcoin.isRegtest()) {
-            // Try using the same derivation path as mainnet for regtest
-            derivationPath = "m/86'/0'/0'";
+            derivationPath = "m/86'/1'/0'"; // Regtest: coin type 1 (testnet)
         } else {
             // For testnet
-            derivationPath = "m/86'/0'/0'";
+            derivationPath = "m/86'/1'/0'"; // Testnet: coin type 1
         }
         const accountNode = masterNode.derivePath(derivationPath);
 

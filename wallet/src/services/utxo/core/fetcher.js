@@ -26,16 +26,25 @@ export class UTXOFetcher {
 
     async getBitcoinAddressUTXOs(address, network) {
         try {
-            // Try QuickNode first if available
-            if (quickNodeService.isAvailable()) {
+            // Unified endpoint selection logic
+            const shouldUseQuickNode = quickNodeService.isAvailable(network) && 
+                                     (network === 'testnet' || network === 'mainnet');
+            
+            // Try QuickNode first if available and CORS-compatible
+            if (shouldUseQuickNode) {
                 try {
-                    return await quickNodeService._getAddressUTXOsRaw(address);
+                    // For mainnet, QuickNode has CORS issues from browser
+                    if (network === 'mainnet') {
+                        console.log(`[UTXOFetcher] QuickNode mainnet has CORS issues, using mempool.space`);
+                    } else {
+                        return await quickNodeService._getAddressUTXOsRaw(address, network);
+                    }
                 } catch (error) {
                     console.warn(`[UTXOFetcher] QuickNode failed for ${address}, falling back to mempool.space:`, error);
                 }
             }
 
-            // Fallback to mempool.space API
+            // Use mempool.space or local API
             let response;
             if (config.bitcoin.isRegtest()) {
                 response = await fetch(`${config.api.wallet}/bitcoin-node/utxos/${address}`);
@@ -46,7 +55,19 @@ export class UTXOFetcher {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            return await response.json();
+            
+            const utxos = await response.json();
+            
+            // Ensure mempool.space UTXOs have the correct status structure
+            return utxos.map(utxo => ({
+                ...utxo,
+                status: utxo.status || {
+                    confirmed: true, // mempool.space only returns confirmed UTXOs
+                    block_height: null,
+                    block_hash: null,
+                    block_time: null
+                }
+            }));
         } catch (error) {
             console.error(`Error fetching Bitcoin UTXOs for ${address}:`, error);
             return [];

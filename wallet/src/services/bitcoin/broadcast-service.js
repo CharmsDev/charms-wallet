@@ -7,16 +7,16 @@ export class BitcoinBroadcastService {
         this.maxRetries = 2;
     }
 
-    async broadcastTransaction(txHex) {
-        if (quickNodeService.isAvailable()) {
+    async broadcastTransaction(txHex, network = null) {
+        if (quickNodeService.isAvailable(network)) {
             try {
-                const txid = await quickNodeService.broadcastTransaction(txHex);
+                const txid = await quickNodeService.broadcastTransaction(txHex, network);
                 return {
                     success: true,
                     txid: txid.trim()
                 };
             } catch (quickNodeError) {
-                console.warn('[BitcoinBroadcastService] QuickNode failed, using fallback:', quickNodeError);
+                // Fallback to mempool.space
             }
         }
 
@@ -43,15 +43,15 @@ export class BitcoinBroadcastService {
         };
     }
 
-    async broadcastWithRetry(txHex, selectedUtxos, transactionData, utxoUpdateCallback = null) {
+    async broadcastWithRetry(txHex, selectedUtxos, transactionData, utxoUpdateCallback = null, network = null) {
         try {
-            const result = await this.broadcastTransaction(txHex);
+            const result = await this.broadcastTransaction(txHex, network);
             
             if (utxoUpdateCallback) {
                 try {
                     await utxoUpdateCallback(selectedUtxos, {});
                 } catch (error) {
-                    console.warn('[BitcoinBroadcastService] Failed to update UTXO state:', error);
+                    // Silent fail - don't break the flow
                 }
             }
 
@@ -65,7 +65,7 @@ export class BitcoinBroadcastService {
                     try {
                         await utxoUpdateCallback(selectedUtxos, {});
                     } catch (updateError) {
-                        console.warn('[BitcoinBroadcastService] Failed to remove spent UTXOs:', updateError);
+                        // Silent fail
                     }
                 }
                 
@@ -92,7 +92,7 @@ export class BitcoinBroadcastService {
             
             localStorage.setItem(spentKey, JSON.stringify(existing));
         } catch (error) {
-            console.warn('[BitcoinBroadcastService] Failed to mark UTXOs as spent:', error);
+            // Silent fail
         }
     }
 

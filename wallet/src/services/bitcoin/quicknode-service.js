@@ -12,27 +12,35 @@ export class QuickNodeService {
     }
 
     /**
-     * Check if QuickNode is available and configured
+     * Check if QuickNode is available and configured for specific network
      */
-    isAvailable() {
-        return config.bitcoin.hasQuickNode();
+    isAvailable(network) {
+        return config.bitcoin.hasQuickNode(network);
     }
 
     /**
      * Make authenticated request to QuickNode
      */
-    async makeRequest(method, params = []) {
-        if (!this.isAvailable()) {
-            throw new Error('QuickNode not configured');
+    async makeRequest(method, params = [], network = null) {
+        if (!this.isAvailable(network)) {
+            throw new Error(`QuickNode not configured for network: ${network || 'current'}`);
         }
 
-        const url = config.bitcoin.getQuickNodeApiUrl();
+        const url = config.bitcoin.getQuickNodeApiUrl(network);
+        if (!url) {
+            throw new Error(`QuickNode URL not available for network: ${network || config.bitcoin.network}`);
+        }
+
         const payload = {
             jsonrpc: '2.0',
             id: Date.now(),
             method,
             params
         };
+
+        console.log(`[QuickNodeService] Making request to: ${url}`);
+        console.log(`[QuickNodeService] Target network: ${network || config.bitcoin.network}`);
+        console.log(`[QuickNodeService] Method: ${method}, Params:`, params);
 
         try {
             const response = await fetch(url, {
@@ -64,18 +72,25 @@ export class QuickNodeService {
     /**
      * Get UTXO information for an address using Blockbook RPC (internal method)
      */
-    async _getAddressUTXOsRaw(address) {
+    async _getAddressUTXOsRaw(address, network = null) {
         // Use bb_getUTXOs with Blockbook RPC (includes mempool + confirmed)
-        const utxos = await this.makeRequest('bb_getUTXOs', [address, { confirmed: false }]);
+        const utxos = await this.makeRequest('bb_getUTXOs', [address, { confirmed: false }], network);
         
         // Convert QuickNode Blockbook format to our standard format
         return utxos.map(utxo => ({
             txid: utxo.txid,
             vout: utxo.vout,
-            value: Number(utxo.value), // Already in satoshis
+            value: parseInt(utxo.value, 10), // Convert string to number (satoshis)
             address: address,
             confirmations: utxo.confirmations ?? 0,
-            blockHeight: utxo.height
+            blockHeight: utxo.height,
+            coinbase: utxo.coinbase || false,
+            status: {
+                confirmed: (utxo.confirmations ?? 0) > 0,
+                block_height: utxo.height || null,
+                block_hash: null,
+                block_time: null
+            }
         }));
     }
 
@@ -83,9 +98,9 @@ export class QuickNodeService {
      * Check if a specific UTXO is spent using gettxout
      * Returns true if spent/non-existent, false if unspent
      */
-    async isUtxoSpent(txid, vout) {
+    async isUtxoSpent(txid, vout, network = null) {
         try {
-            const result = await this.makeRequest('gettxout', [txid, vout, true]);
+            const result = await this.makeRequest('gettxout', [txid, vout, true], network);
             
             // null => gastado (o no existe)
             // objeto => sigue unspent
@@ -99,9 +114,9 @@ export class QuickNodeService {
     /**
      * Broadcast a transaction
      */
-    async broadcastTransaction(txHex) {
+    async broadcastTransaction(txHex, network = null) {
         try {
-            const txid = await this.makeRequest('sendrawtransaction', [txHex]);
+            const txid = await this.makeRequest('sendrawtransaction', [txHex], network);
             console.log(`[QuickNodeService] Transaction broadcast successful: ${txid}`);
             return txid;
         } catch (error) {
@@ -113,9 +128,9 @@ export class QuickNodeService {
     /**
      * Get transaction details
      */
-    async getTransaction(txid) {
+    async getTransaction(txid, network = null) {
         try {
-            return await this.makeRequest('getrawtransaction', [txid, true]);
+            return await this.makeRequest('getrawtransaction', [txid, true], network);
         } catch (error) {
             console.error(`[QuickNodeService] Failed to get transaction ${txid}:`, error);
             throw error;
@@ -125,10 +140,10 @@ export class QuickNodeService {
     /**
      * Verify multiple UTXOs in batch
      */
-    async verifyUtxos(utxos) {
+    async verifyUtxos(utxos, network = null) {
         const results = await Promise.allSettled(
             utxos.map(async (utxo) => {
-                const isSpent = await this.isUtxoSpent(utxo.txid, utxo.vout);
+                const isSpent = await this.isUtxoSpent(utxo.txid, utxo.vout, network);
                 return { utxo, isSpent };
             })
         );

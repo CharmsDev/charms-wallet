@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import SeedPhraseDisplay from './SeedPhraseDisplay';
 import WalletInfoDisplay from './WalletInfoDisplay';
-import BitcoinCoreInstructions from './BitcoinCoreInstructions';
 import { useWallet } from '@/stores/walletStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useUTXOs } from '@/stores/utxoStore';
@@ -116,7 +115,15 @@ export default function WalletDashboard({ seedPhrase, walletInfo, derivationLoad
                         {/* Bitcoin Core Instructions Box */}
                         <div className="glass-effect p-6 rounded-xl mt-6">
                             <h3 className="text-xl font-bold gradient-text mb-4">Bitcoin Core Integration</h3>
-                            <BitcoinCoreInstructions walletInfo={walletInfo} onCopy={copyToClipboard} />
+                            <div className="text-center py-8">
+                                <div className="text-4xl mb-4">⚡</div>
+                                <p className="text-dark-300 mb-4">
+                                    Bitcoin Core setup instructions are now available in the User Dashboard.
+                                </p>
+                                <p className="text-xs text-dark-400">
+                                    Access your seed phrase and setup instructions from the Wallet Keys section.
+                                </p>
+                            </div>
                         </div>
                     </>
                 )}
