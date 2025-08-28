@@ -4,7 +4,7 @@ import config from '@/config';
 
 /**
  * QuickNode Bitcoin API Service
- * More reliable alternative to mempool.space for testnet4
+ * Centralized interface for all QuickNode API interactions
  */
 export class QuickNodeService {
     constructor() {
@@ -70,9 +70,9 @@ export class QuickNodeService {
     }
 
     /**
-     * Get UTXO information for an address using Blockbook RPC (internal method)
+     * Get UTXO information for an address using Blockbook RPC
      */
-    async _getAddressUTXOsRaw(address, network = null) {
+    async getAddressUTXOs(address, network = null) {
         // Use bb_getUTXOs with Blockbook RPC (includes mempool + confirmed)
         const utxos = await this.makeRequest('bb_getUTXOs', [address, { confirmed: false }], network);
         
@@ -102,8 +102,8 @@ export class QuickNodeService {
         try {
             const result = await this.makeRequest('gettxout', [txid, vout, true], network);
             
-            // null => gastado (o no existe)
-            // objeto => sigue unspent
+            // null => spent (or doesn't exist)
+            // object => still unspent
             return result === null;
         } catch (error) {
             console.warn(`[QuickNodeService] Failed to check UTXO ${txid}:${vout}:`, error);
@@ -133,6 +133,18 @@ export class QuickNodeService {
             return await this.makeRequest('getrawtransaction', [txid, true], network);
         } catch (error) {
             console.error(`[QuickNodeService] Failed to get transaction ${txid}:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get raw transaction hex
+     */
+    async getTransactionHex(txid, network = null) {
+        try {
+            return await this.makeRequest('getrawtransaction', [txid, false], network);
+        } catch (error) {
+            console.error(`[QuickNodeService] Failed to get transaction hex ${txid}:`, error);
             throw error;
         }
     }

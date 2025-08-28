@@ -138,10 +138,8 @@ export const saveUTXOs = async (utxoMap: UTXOMap, blockchain?: string, network?:
 
 export const getUTXOs = async (blockchain?: string, network?: string): Promise<UTXOMap> => {
     const storageKey = getStorageKey(STORAGE_KEYS.UTXOS, blockchain, network);
-    console.log(`[STORAGE] Getting UTXOs with key: ${storageKey}`);
     const stored = localStorage.getItem(storageKey);
     const result = stored ? JSON.parse(stored) : {};
-    console.log(`[STORAGE] Found ${Object.keys(result).length} addresses with UTXOs`);
     
     
     return result;
@@ -179,9 +177,6 @@ export const addTransaction = async (transaction: TransactionEntry, blockchain?:
     transactions.sort((a, b) => b.timestamp - a.timestamp);
     await saveTransactions(transactions, blockchain, network);
     
-    const storageKey = getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
-    console.log(`[TX_SAVE] key=${storageKey} txid=${transaction.txid} type=${transaction.type} total=${transactions.length}`);
-    
     return transactions;
 };
 
@@ -193,9 +188,6 @@ export const updateTransactionStatus = async (txid: string, status: TransactionE
         transactions[txIndex].status = status;
         transactions[txIndex].confirmations = confirmations;
         await saveTransactions(transactions, blockchain, network);
-        
-        const storageKey = getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
-        console.log(`[TX_UPDATE] key=${storageKey} txid=${txid} status=${status} confirmations=${confirmations}`);
     }
     
     return transactions;
@@ -216,8 +208,6 @@ export const clearBlockchainWalletData = async (blockchain?: string, network?: s
 
 // Clear all wallet data across all blockchains and networks
 export const clearAllWalletData = async (): Promise<void> => {
-    console.log('[STORAGE] Clearing ALL wallet data from localStorage...');
-    
     await clearSeedPhrase();
 
     // Clear Bitcoin data
@@ -239,8 +229,5 @@ export const clearAllWalletData = async (): Promise<void> => {
         key.includes('pending')
     );
     
-    console.log('[STORAGE] Removing legacy keys:', walletKeys);
     walletKeys.forEach(key => localStorage.removeItem(key));
-    
-    console.log('[STORAGE] All wallet data cleared successfully');
 };

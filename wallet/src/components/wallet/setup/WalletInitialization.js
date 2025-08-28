@@ -92,104 +92,122 @@ export default function WalletInitialization({
 
                 {/* Steps indicator */}
                 <div className="space-y-3">
+                    {/* Step 1: Create wallet & seed phrase */}
                     <div className="flex items-center space-x-3">
-                        <div className={`w-3 h-3 rounded-full ${initializationStep.includes('Creating') || initializationStep.includes('Validating')
-                            ? 'bg-primary-500'
-                            : initializationStep.includes('Deriving') || initializationStep.includes('Generating') || initializationStep.includes('Saving') || initializationStep.includes('Finalizing')
-                                ? 'bg-green-500'
-                                : 'bg-gray-600'
-                            }`}></div>
-                        <span className={`text-sm ${initializationStep.includes('Creating') || initializationStep.includes('Validating')
-                            ? 'text-primary-400 font-medium'
-                            : initializationStep.includes('Deriving') || initializationStep.includes('Generating') || initializationStep.includes('Saving') || initializationStep.includes('Finalizing')
-                                ? 'text-green-400'
-                                : 'text-gray-400'
-                            }`}>
+                        <div className={`w-3 h-3 rounded-full ${
+                            initializationStep.includes('Creating') || initializationStep.includes('Validating')
+                                ? 'bg-primary-500'
+                                : initializationStep.includes('Deriving') || initializationStep.includes('Generating') || initializationStep.includes('Saving') || initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
+                                    ? 'bg-green-500'
+                                    : 'bg-gray-600'
+                        }`}></div>
+                        <span className={`text-sm ${
+                            initializationStep.includes('Creating') || initializationStep.includes('Validating')
+                                ? 'text-primary-400 font-medium'
+                                : initializationStep.includes('Deriving') || initializationStep.includes('Generating') || initializationStep.includes('Saving') || initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
+                                    ? 'text-green-400'
+                                    : 'text-gray-400'
+                        }`}>
                             Create wallet & seed phrase
                         </span>
                     </div>
 
+                    {/* Step 2: Derive wallet information */}
                     <div className="flex items-center space-x-3">
-                        <div className={`w-3 h-3 rounded-full ${initializationStep.includes('Deriving')
-                            ? 'bg-primary-500'
-                            : initializationStep.includes('Generating') || initializationStep.includes('Saving') || initializationStep.includes('Finalizing')
-                                ? 'bg-green-500'
-                                : 'bg-gray-600'
-                            }`}></div>
-                        <span className={`text-sm ${initializationStep.includes('Deriving')
-                            ? 'text-primary-400 font-medium'
-                            : initializationStep.includes('Generating') || initializationStep.includes('Saving') || initializationStep.includes('Finalizing')
-                                ? 'text-green-400'
-                                : 'text-gray-400'
-                            }`}>
+                        <div className={`w-3 h-3 rounded-full ${
+                            initializationStep.includes('Deriving')
+                                ? 'bg-primary-500'
+                                : initializationStep.includes('Generating') || initializationStep.includes('Saving') || initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
+                                    ? 'bg-green-500'
+                                    : 'bg-gray-600'
+                        }`}></div>
+                        <span className={`text-sm ${
+                            initializationStep.includes('Deriving')
+                                ? 'text-primary-400 font-medium'
+                                : initializationStep.includes('Generating') || initializationStep.includes('Saving') || initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
+                                    ? 'text-green-400'
+                                    : 'text-gray-400'
+                        }`}>
                             Derive wallet information
                         </span>
                     </div>
 
+                    {/* Step 3: Generate addresses */}
                     <div className="flex items-center space-x-3">
-                        <div className={`w-3 h-3 rounded-full ${initializationStep.includes('Generating')
-                            ? 'bg-primary-500'
-                            : initializationStep.includes('Saving') || initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
-                                ? 'bg-green-500'
-                                : 'bg-gray-600'
-                            }`}></div>
-                        <span className={`text-sm ${initializationStep.includes('Generating')
-                            ? 'text-primary-400 font-medium'
-                            : initializationStep.includes('Saving') || initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
-                                ? 'text-green-400'
-                                : 'text-gray-400'
-                            }`}>
+                        <div className={`w-3 h-3 rounded-full ${
+                            initializationStep.includes('Generating') || initializationStep.includes('Saving')
+                                ? 'bg-primary-500'
+                                : initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
+                                    ? 'bg-green-500'
+                                    : 'bg-gray-600'
+                        }`}></div>
+                        <span className={`text-sm ${
+                            initializationStep.includes('Generating') || initializationStep.includes('Saving')
+                                ? 'text-primary-400 font-medium'
+                                : initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
+                                    ? 'text-green-400'
+                                    : 'text-gray-400'
+                        }`}>
                             Generate addresses
                         </span>
                     </div>
 
+                    {/* Step 4: Scan addresses */}
                     <div className="flex items-center space-x-3">
-                        <div className={`w-3 h-3 rounded-full ${initializationStep.includes('Scanning') || initializationStep.includes('Refreshing')
-                            ? 'bg-primary-500'
-                            : initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
-                                ? 'bg-green-500'
-                                : 'bg-gray-600'
-                            }`}></div>
-                        <span className={`text-sm ${initializationStep.includes('Scanning') || initializationStep.includes('Refreshing')
-                            ? 'text-primary-400 font-medium'
-                            : initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
-                                ? 'text-green-400'
-                                : 'text-gray-400'
-                            }`}>
+                        <div className={`w-3 h-3 rounded-full ${
+                            initializationStep.includes('Scanning') || initializationStep.includes('Refreshing')
+                                ? 'bg-primary-500'
+                                : initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
+                                    ? 'bg-green-500'
+                                    : 'bg-gray-600'
+                        }`}></div>
+                        <span className={`text-sm ${
+                            initializationStep.includes('Scanning') || initializationStep.includes('Refreshing')
+                                ? 'text-primary-400 font-medium'
+                                : initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
+                                    ? 'text-green-400'
+                                    : 'text-gray-400'
+                        }`}>
                             Scan addresses
                         </span>
                     </div>
 
+                    {/* Step 5: Scan for Charms */}
                     <div className="flex items-center space-x-3">
-                        <div className={`w-3 h-3 rounded-full ${initializationStep.includes('Processing') && initializationStep.includes('Charms')
-                            ? 'bg-primary-500'
-                            : initializationStep.includes('Finalizing')
-                                ? 'bg-green-500'
-                                : 'bg-gray-600'
-                            }`}></div>
-                        <span className={`text-sm ${initializationStep.includes('Processing') && initializationStep.includes('Charms')
-                            ? 'text-primary-400 font-medium'
-                            : initializationStep.includes('Finalizing')
-                                ? 'text-green-400'
-                                : 'text-gray-400'
-                            }`}>
+                        <div className={`w-3 h-3 rounded-full ${
+                            initializationStep.includes('Processing') && initializationStep.includes('Charms')
+                                ? 'bg-primary-500'
+                                : initializationStep.includes('Finalizing')
+                                    ? 'bg-green-500'
+                                    : 'bg-gray-600'
+                        }`}></div>
+                        <span className={`text-sm ${
+                            initializationStep.includes('Processing') && initializationStep.includes('Charms')
+                                ? 'text-primary-400 font-medium'
+                                : initializationStep.includes('Finalizing')
+                                    ? 'text-green-400'
+                                    : 'text-gray-400'
+                        }`}>
                             Scan for Charms
                         </span>
                     </div>
 
+                    {/* Step 6: Finalize setup */}
                     <div className="flex items-center space-x-3">
-                        <div className={`w-3 h-3 rounded-full ${initializationStep.includes('Finalizing')
-                            ? 'bg-primary-500'
-                            : progressPercentage === 100
-                                ? 'bg-green-500'
-                                : 'bg-gray-600'
-                            }`}></div>
-                        <span className={`text-sm ${initializationStep.includes('Finalizing')
-                            ? 'text-primary-400 font-medium'
-                            : progressPercentage === 100
-                                ? 'text-green-400'
-                                : 'text-gray-400'
-                            }`}>
+                        <div className={`w-3 h-3 rounded-full ${
+                            initializationStep.includes('Finalizing')
+                                ? 'bg-primary-500'
+                                : progressPercentage === 100
+                                    ? 'bg-green-500'
+                                    : 'bg-gray-600'
+                        }`}></div>
+                        <span className={`text-sm ${
+                            initializationStep.includes('Finalizing')
+                                ? 'text-primary-400 font-medium'
+                                : progressPercentage === 100
+                                    ? 'text-green-400'
+                                    : 'text-gray-400'
+                        }`}>
                             Finalize setup
                         </span>
                     </div>

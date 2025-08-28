@@ -1,46 +1,28 @@
 'use client';
 
 import config from '@/config';
-import { quickNodeService } from './quicknode-service.js';
+import { quickNodeService } from '@/services/shared/quicknode-service';
 export class BitcoinBroadcastService {
     constructor() {
         this.maxRetries = 2;
     }
 
     async broadcastTransaction(txHex, network = null) {
-        if (quickNodeService.isAvailable(network)) {
-            try {
-                const txid = await quickNodeService.broadcastTransaction(txHex, network);
-                return {
-                    success: true,
-                    txid: txid.trim()
-                };
-            } catch (quickNodeError) {
-                // Fallback to mempool.space
-            }
+        // Use QuickNode service exclusively - no fallbacks
+        if (!quickNodeService.isAvailable(network)) {
+            throw new Error(`QuickNode not configured for network: ${network}`);
         }
 
-        const apiUrl = config.bitcoin.getMempoolApiUrl();
-        if (!apiUrl) {
-            throw new Error('No broadcast API available for current network');
+        try {
+            const txid = await quickNodeService.broadcastTransaction(txHex, network);
+            return {
+                success: true,
+                txid: txid.trim()
+            };
+        } catch (error) {
+            console.error('[BroadcastService] QuickNode broadcast failed:', error);
+            throw error;
         }
-
-        const response = await fetch(`${apiUrl}/tx`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain' },
-            body: txHex,
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
-        }
-
-        const txid = await response.text();
-        return {
-            success: true,
-            txid: txid.trim()
-        };
     }
 
     async broadcastWithRetry(txHex, selectedUtxos, transactionData, utxoUpdateCallback = null, network = null) {
