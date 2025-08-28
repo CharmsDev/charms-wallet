@@ -51,7 +51,6 @@ const useUTXOStore = create((set, get) => ({
             });
 
         } catch (error) {
-            console.error('Failed to load UTXOs:', error);
             set({
                 error: 'Failed to load UTXOs',
                 utxos: {},
@@ -121,7 +120,6 @@ const useUTXOStore = create((set, get) => ({
 
 
         } catch (error) {
-            console.error('Failed to refresh UTXOs:', error);
             set({
                 error: 'Failed to refresh UTXOs: ' + error.message,
                 refreshProgress: { processed: 0, total: 0, isRefreshing: false }
@@ -134,7 +132,6 @@ const useUTXOStore = create((set, get) => ({
         try {
             return await utxoService.getAddressUTXOs(address, blockchain, network);
         } catch (error) {
-            console.error('Failed to get address UTXOs:', error);
             return [];
         }
     },
@@ -152,7 +149,6 @@ const useUTXOStore = create((set, get) => ({
 
             return updatedUTXOs;
         } catch (error) {
-            console.error('Failed to update UTXOs after transaction:', error);
             throw error;
         }
     },
