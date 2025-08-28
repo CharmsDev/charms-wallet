@@ -6,38 +6,25 @@ import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
 const config = {
     // API endpoints
     api: {
-        wallet: process.env.NEXT_PUBLIC_WALLET_API_URL || 'https://api-wallet-test.charms.dev',
-        charms: process.env.NEXT_PUBLIC_CHARMS_API_URL || 'https://api-t4.charms.dev',
-        cardano: process.env.NEXT_PUBLIC_CARDANO_API_URL || 'https://cardano-preprod.blockfrost.io/api/v0',
-        prover: process.env.NEXT_PUBLIC_PROVE_API_URL || 'https://prover-api.charms.dev',
+        wallet: process.env.NEXT_PUBLIC_WALLET_API_URL,
+        charms: process.env.NEXT_PUBLIC_CHARMS_API_URL,
+        cardano: process.env.NEXT_PUBLIC_CARDANO_API_URL,
+        prover: process.env.NEXT_PUBLIC_PROVE_API_URL,
     },
 
     // Bitcoin network configuration
     bitcoin: {
-        network: process.env.NEXT_PUBLIC_BITCOIN_NETWORK || 'testnet',
+        network: process.env.NEXT_PUBLIC_BITCOIN_NETWORK,
         isRegtest: () => config.bitcoin.network === 'regtest',
         isTestnet: () => config.bitcoin.network === 'testnet',
         isMainnet: () => config.bitcoin.network === 'mainnet',
 
         // External API endpoints based on network
         apis: {
-            mempool: {
-                mainnet: 'https://mempool.space/api',
-                testnet: 'https://mempool.space/testnet4/api',
-                regtest: null, // No mempool API for regtest, we use our local API
-            },
             quicknode: {
-                mainnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_MAINNET_URL || null,
-                testnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_TESTNET_URL || null,
+                mainnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_MAINNET_URL,
+                testnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_TESTNET_URL,
             },
-        },
-
-        // Get the appropriate API URL based on current network
-        getMempoolApiUrl: () => {
-            if (config.bitcoin.isRegtest()) {
-                return null;
-            }
-            return config.bitcoin.apis.mempool[config.bitcoin.network];
         },
 
         // Get QuickNode API URL for specific network (accepts network parameter)
@@ -60,7 +47,7 @@ const config = {
 
     // Cardano network configuration
     cardano: {
-        network: process.env.NEXT_PUBLIC_CARDANO_NETWORK || NETWORKS.CARDANO.TESTNET,
+        network: process.env.NEXT_PUBLIC_CARDANO_NETWORK,
         isMainnet: () => config.cardano.network === NETWORKS.CARDANO.MAINNET,
         isTestnet: () => config.cardano.network === NETWORKS.CARDANO.TESTNET,
 
@@ -78,7 +65,7 @@ const config = {
         },
 
         // Blockfrost project ID
-        blockfrostProjectId: process.env.NEXT_PUBLIC_BLOCKFROST_PROJECT_ID || 'testnetProjectId',
+        blockfrostProjectId: process.env.NEXT_PUBLIC_BLOCKFROST_PROJECT_ID,
     },
 
     // Get active blockchain configuration

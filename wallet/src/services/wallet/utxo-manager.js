@@ -16,7 +16,6 @@ class UTXOManager {
      */
     async processTransactionCompletion(transactionData, updateAfterTransaction, blockchain, network) {
         try {
-            console.log('[UTXOManager] Processing transaction completion:', transactionData.txid);
             
             // Prepare spent UTXOs for removal
             const spentUtxos = transactionData.utxos.map(utxo => ({
@@ -25,15 +24,11 @@ class UTXOManager {
                 address: utxo.address
             }));
 
-            console.log('[UTXOManager] Removing spent UTXOs:', spentUtxos);
-
             // Create potential new UTXOs from transaction outputs
             const newUtxos = await this.createNewUtxosFromTransaction(transactionData, blockchain, network);
 
             // Update UTXO store
             await updateAfterTransaction(spentUtxos, newUtxos, blockchain, network);
-
-            console.log('[UTXOManager] UTXO state updated successfully');
             
             return {
                 success: true,
@@ -42,7 +37,6 @@ class UTXOManager {
             };
 
         } catch (error) {
-            console.error('[UTXOManager] Error processing transaction completion:', error);
             throw error;
         }
     }
@@ -71,12 +65,6 @@ class UTXOManager {
 
                     // Check if this output goes to one of our addresses
                     if (output.address && walletAddresses.has(output.address)) {
-                        console.log('[UTXOManager] Found change output:', {
-                            address: output.address,
-                            value: output.value,
-                            vout
-                        });
-
                         if (!newUtxos[output.address]) {
                             newUtxos[output.address] = [];
                         }
@@ -108,12 +96,6 @@ class UTXOManager {
                     const changeAddress = addresses.find(addr => addr.isChange)?.address || addresses[0]?.address;
                     
                     if (changeAddress) {
-                        console.log('[UTXOManager] Estimated change output:', {
-                            address: changeAddress,
-                            value: changeAmount,
-                            vout: 1 // Typically change is output 1
-                        });
-
                         newUtxos[changeAddress] = [{
                             txid: transactionData.txid,
                             vout: 1,
@@ -130,7 +112,6 @@ class UTXOManager {
             }
 
         } catch (error) {
-            console.warn('[UTXOManager] Could not create new UTXOs from transaction:', error);
             // Return empty object - we'll get the real UTXOs on next refresh
         }
 
@@ -141,10 +122,7 @@ class UTXOManager {
      * Schedule a delayed refresh to get confirmed transaction data
      */
     scheduleDelayedRefresh(refreshFunction, delay = 3000) {
-        console.log(`[UTXOManager] Scheduling UTXO refresh in ${delay}ms`);
-        
         setTimeout(() => {
-            console.log('[UTXOManager] Executing scheduled UTXO refresh');
             refreshFunction();
         }, delay);
     }

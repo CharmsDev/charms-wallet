@@ -1,7 +1,7 @@
 // UTXO Verifier - Verifies UTXO status and updates storage when spent
 import { getUTXOs, saveUTXOs } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
-import { quickNodeService } from '@/services/bitcoin/quicknode-service';
+import { quickNodeService } from '@/services/shared/quicknode-service';
 import { utxoCache } from '@/services/shared/cache-service';
 
 export class UTXOVerifier {
@@ -46,33 +46,15 @@ export class UTXOVerifier {
 
     async checkUTXOStatus(utxo, network = NETWORKS.BITCOIN.TESTNET) {
         try {
-            if (quickNodeService && quickNodeService.isAvailable(network)) {
-                const isSpent = await quickNodeService.isUtxoSpent(utxo.txid, utxo.vout, network);
-                return !isSpent;
+            // Use QuickNode service exclusively - no fallbacks
+            if (!quickNodeService.isAvailable(network)) {
+                throw new Error(`QuickNode not configured for network: ${network}`);
             }
 
-            // Fallback to mempool.space outspend endpoint
-            const isMainnet = network === NETWORKS.BITCOIN.MAINNET;
-            const baseUrl = isMainnet
-                ? 'https://mempool.space/api'
-                : 'https://mempool.space/testnet4/api';
-            const url = `${baseUrl}/tx/${utxo.txid}/outspend/${utxo.vout}`;
-
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/json',
-                },
-                signal: AbortSignal.timeout(10000)
-            });
-
-            if (response.ok) {
-                const outspendData = await response.json();
-                return !outspendData.spent;
-            } else {
-                return false;
-            }
+            const isSpent = await quickNodeService.isUtxoSpent(utxo.txid, utxo.vout, network);
+            return !isSpent;
         } catch (error) {
+            console.error(`[UTXOVerifier] Error checking UTXO status for ${utxo.txid}:${utxo.vout}:`, error);
             return false;
         }
     }

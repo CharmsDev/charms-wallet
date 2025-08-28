@@ -34,14 +34,12 @@ class CoinGeckoService {
             // Return cached price if valid
             const cachedPrice = priceCache.get(this.cacheKey);
             if (cachedPrice) {
-                console.log('[COINGECKO] Using cached price');
                 return cachedPrice;
             }
 
             // Check rate limiting
             if (!this.canMakeRequest()) {
                 const waitTime = this.rateLimitDelay - (Date.now() - this.lastFetchTime);
-                console.log(`[COINGECKO] Rate limited, waiting ${Math.ceil(waitTime / 1000)}s`);
 
                 const staleCachedPrice = priceCache.get(this.cacheKey, 300000); // 5 min stale cache
                 if (staleCachedPrice) {
@@ -55,7 +53,6 @@ class CoinGeckoService {
             // Attempt to fetch with retries
             for (let attempt = 1; attempt <= this.retryAttempts; attempt++) {
                 try {
-                    console.log(`[COINGECKO] Fetching price (attempt ${attempt}/${this.retryAttempts})`);
 
                     const response = await fetch(
                         `${this.baseUrl}/simple/price?ids=bitcoin&vs_currencies=usd,eur`,
@@ -71,7 +68,6 @@ class CoinGeckoService {
 
                     if (!response.ok) {
                         if (response.status === 429) {
-                            console.log('[COINGECKO] Rate limit hit, extending delay');
                             this.rateLimitDelay = Math.min(this.rateLimitDelay * 2, 60000); // Max 1 minute
                             throw new Error(`Rate limited: ${response.status}`);
                         }
@@ -95,11 +91,9 @@ class CoinGeckoService {
                     };
 
                     priceCache.set(this.cacheKey, priceData);
-                    console.log('[COINGECKO] Price fetched successfully');
                     return priceData;
 
                 } catch (error) {
-                    console.log(`[COINGECKO] Attempt ${attempt} failed:`, error.message);
 
                     if (attempt < this.retryAttempts) {
                         await new Promise(resolve => setTimeout(resolve, this.retryDelay));
@@ -111,12 +105,10 @@ class CoinGeckoService {
             throw new Error('All fetch attempts failed');
 
         } catch (error) {
-            console.error('[COINGECKO] Failed to fetch price:', error.message);
 
             // Return cached price if available
             const staleCachedPrice = priceCache.get(this.cacheKey, 300000); // 5 min stale cache
             if (staleCachedPrice) {
-                console.log('[COINGECKO] Using stale cached price');
                 return {
                     ...staleCachedPrice,
                     isStale: true
@@ -124,7 +116,6 @@ class CoinGeckoService {
             }
 
             // Return fallback price
-            console.log('[COINGECKO] Using fallback price');
             return this.getFallbackPrice();
         }
     }
@@ -157,7 +148,6 @@ class CoinGeckoService {
     clearCache() {
         priceCache.clear(this.cacheKey);
         this.lastFetchTime = 0;
-        console.log('[COINGECKO] Cache cleared');
     }
 
     // Get cache status

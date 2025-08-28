@@ -31,7 +31,6 @@ export async function refreshSpecificAddresses(addresses, blockchain = BLOCKCHAI
         return currentUTXOs;
         
     } catch (error) {
-        console.error('[ADDRESS REFRESH] Error refreshing addresses:', error);
         throw error;
     }
 }
@@ -48,7 +47,6 @@ export async function isOwnAddress(address, blockchain = BLOCKCHAINS.BITCOIN, ne
         
         return walletAddresses.includes(address);
     } catch (error) {
-        console.error('[ADDRESS REFRESH] Error checking if address is own:', error);
         return false;
     }
 }
@@ -75,7 +73,6 @@ export function extractChangeAddress(transactionData, destinationAddress) {
 
         return null;
     } catch (error) {
-        console.error('[ADDRESS REFRESH] Error extracting change address:', error);
         return null;
     }
 }
@@ -97,7 +94,6 @@ export async function refreshFirstAddresses(addressLimit = 12, blockchain = BLOC
 
         return await refreshSpecificAddresses(firstAddresses, blockchain, network);
     } catch (error) {
-        console.error('[ADDRESS REFRESH] Error refreshing first addresses:', error);
         throw error;
     }
 }
@@ -132,7 +128,6 @@ export async function refreshTransactionAddresses(transactionData, destinationAd
         return await refreshSpecificAddresses(uniqueAddresses, blockchain, network);
         
     } catch (error) {
-        console.error('[ADDRESS REFRESH] Error in refreshTransactionAddresses:', error);
         throw error;
     }
 }
