@@ -1,7 +1,7 @@
 // UTXO Fetcher - Handles fetching UTXOs from APIs
 import { getAddresses, saveUTXOs, getUTXOs } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
-import { quickNodeService } from '@/services/bitcoin/quicknode-service';
+import { quickNodeService } from '@/services/shared/quicknode-service';
 import TransactionRecorder from '@/services/transactions/transaction-recorder';
 import config from '@/config';
 
@@ -26,48 +26,14 @@ export class UTXOFetcher {
 
     async getBitcoinAddressUTXOs(address, network) {
         try {
-            // Unified endpoint selection logic
-            const shouldUseQuickNode = quickNodeService.isAvailable(network) && 
-                                     (network === 'testnet' || network === 'mainnet');
-            
-            // Try QuickNode first if available and CORS-compatible
-            if (shouldUseQuickNode) {
-                try {
-                    // For mainnet, QuickNode has CORS issues from browser
-                    if (network === 'mainnet') {
-                        console.log(`[UTXOFetcher] QuickNode mainnet has CORS issues, using mempool.space`);
-                    } else {
-                        return await quickNodeService._getAddressUTXOsRaw(address, network);
-                    }
-                } catch (error) {
-                    console.warn(`[UTXOFetcher] QuickNode failed for ${address}, falling back to mempool.space:`, error);
-                }
+            // Use QuickNode service exclusively - no fallbacks
+            if (!quickNodeService.isAvailable(network)) {
+                throw new Error(`QuickNode not configured for network: ${network}`);
             }
 
-            // Use mempool.space or local API
-            let response;
-            if (config.bitcoin.isRegtest()) {
-                response = await fetch(`${config.api.wallet}/bitcoin-node/utxos/${address}`);
-            } else {
-                response = await fetch(`${config.bitcoin.getMempoolApiUrl()}/address/${address}/utxo`);
-            }
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
+            console.log(`[UTXOFetcher] Fetching UTXOs for ${address} on ${network} via QuickNode`);
+            return await quickNodeService.getAddressUTXOs(address, network);
             
-            const utxos = await response.json();
-            
-            // Ensure mempool.space UTXOs have the correct status structure
-            return utxos.map(utxo => ({
-                ...utxo,
-                status: utxo.status || {
-                    confirmed: true, // mempool.space only returns confirmed UTXOs
-                    block_height: null,
-                    block_hash: null,
-                    block_time: null
-                }
-            }));
         } catch (error) {
             console.error(`Error fetching Bitcoin UTXOs for ${address}:`, error);
             return [];
@@ -158,6 +124,11 @@ export class UTXOFetcher {
                             });
                         }
                     } else {
+                        // Remove address from localStorage if no UTXOs found
+                        const currentUTXOs = await getUTXOs(blockchain, network);
+                        delete currentUTXOs[address];
+                        await saveUTXOs(currentUTXOs, blockchain, network);
+
                         if (onProgress) {
                             onProgress({
                                 address,
@@ -172,7 +143,7 @@ export class UTXOFetcher {
                     processedCount++;
 
                     if (processedCount < filteredAddresses.length) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
+                        await new Promise(resolve => setTimeout(resolve, 50));
                     }
 
                 } catch (error) {
@@ -191,13 +162,13 @@ export class UTXOFetcher {
                     }
 
                     if (processedCount < filteredAddresses.length) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
+                        await new Promise(resolve => setTimeout(resolve, 50));
                     }
                 }
             }
 
-            console.log(`[UTXOFetcher] Storing final UTXO map with ${Object.keys(utxoMap).length} addresses`);
-            await saveUTXOs(utxoMap, blockchain, network);
+            // No need to store final UTXO map - individual addresses were already saved during progress
+            console.log(`[UTXOFetcher] Incremental refresh completed for ${Object.keys(utxoMap).length} addresses`);
 
             // Process UTXOs for received transaction detection
             if (Object.keys(utxoMap).length > 0) {

@@ -1,24 +1,16 @@
 import * as bitcoin from 'bitcoinjs-lib';
-import config from '@/config';
+import { QuickNodeService } from '@/services/shared/quicknode-service';
 
 /**
- * Fetches a transaction from mempool.space by its transaction ID
+ * Fetches a transaction using QuickNode service by its transaction ID
  * Includes detailed logging for debugging
  */
 export async function fetchTransaction(txid: string): Promise<bitcoin.Transaction | null> {
     try {
-        const mempoolApiUrl = config.bitcoin.getMempoolApiUrl();
-        if (!mempoolApiUrl) {
-            return null;
-        }
-
-        const url = `${mempoolApiUrl}/tx/${txid}/hex`;
-        const response = await fetch(url);
-        if (!response.ok) {
-            return null;
-        }
-
-        const txHex = await response.text();
+        const quickNodeService = new QuickNodeService();
+        
+        // Get transaction hex using QuickNode
+        const txHex = await quickNodeService.getTransactionHex(txid);
         if (!txHex) {
             return null;
         }
