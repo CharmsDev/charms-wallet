@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+export const runtime = 'edge';
+
 // Server-side proxy to QuickNode to bypass browser CORS restrictions.
 // Accepts a JSON body: { method: string, params?: any[], network?: 'mainnet'|'testnet' }
 export async function POST(request) {
