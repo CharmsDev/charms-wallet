@@ -3,6 +3,8 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { generateSeedPhrase, importSeedPhrase } from '@/utils/wallet';
 import { getSeedPhrase, clearSeedPhrase } from '@/services/storage';
+import * as bitcoin from 'bitcoinjs-lib';
+import { getNetwork } from '@/utils/addressUtils';
 
 // Create context
 const WalletContext = createContext();
@@ -122,9 +124,6 @@ export function WalletProvider({ children }) {
 
             for (const currentNetwork of networks) {
                 // Get the appropriate Bitcoin network object for address generation
-                const { default: bitcoin } = await import('bitcoinjs-lib');
-                const { getNetwork } = await import('@/utils/addressUtils');
-                
                 let targetNetwork;
                 if (currentNetwork === 'mainnet') {
                     targetNetwork = bitcoin.networks.bitcoin;
