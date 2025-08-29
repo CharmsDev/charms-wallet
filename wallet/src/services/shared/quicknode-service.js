@@ -9,62 +9,146 @@ import config from '@/config';
 export class QuickNodeService {
     constructor() {
         this.timeout = 10000; // 10 seconds timeout
+        this._routeMode = 'auto'; // 'auto' | 'proxy' | 'direct'
+        this._routeResolved = false;
     }
 
     /**
      * Check if QuickNode is available and configured for specific network
      */
     isAvailable(network) {
-        return config.bitcoin.hasQuickNode(network);
+        const url = config.bitcoin.getQuickNodeApiUrl(network);
+        return url !== null && url !== undefined && url.trim() !== '';
+    }
+
+    /**
+     * Initialize routing mode once (call this on app start if you want eager resolution)
+     */
+    async initRouting(network = null) {
+        await this.resolveRouteModeOnce(network);
+        return this._routeMode;
+    }
+
+    /**
+     * Decide once whether to use direct or proxy calls when mode is 'auto'.
+     * We try a small direct JSON-RPC call (getblockcount). If CORS/network blocks, we fallback to 'proxy'.
+     */
+    async resolveRouteModeOnce(network = null) {
+        if (this._routeResolved) return this._routeMode;
+
+        // Respect explicit configuration
+        // No env-based override; always auto-detect
+
+        // Auto-detect: attempt a direct probe
+        const url = config.bitcoin.getQuickNodeApiUrl(network || config.bitcoin.network);
+        if (!url) {
+            // No QuickNode config -> mark resolved but leave as 'proxy' to force server route if called
+            this._routeMode = 'proxy';
+            this._routeResolved = true;
+            return this._routeMode;
+        }
+
+        const probePayload = {
+            jsonrpc: '2.0',
+            id: Date.now(),
+            method: 'getblockcount',
+            params: [],
+        };
+
+        try {
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(probePayload),
+                signal: AbortSignal.timeout(3000),
+                mode: 'cors',
+            });
+            // If we got here without CORS/network exception, consider direct viable regardless of JSON body
+            if (resp.ok) {
+                this._routeMode = 'direct';
+            } else {
+                // Non-2xx still proves CORS not blocking; but prefer OK to be safe. If non-ok, fallback to proxy
+                this._routeMode = 'proxy';
+            }
+        } catch (e) {
+            // Any fetch/CORS failure => use proxy
+            this._routeMode = 'proxy';
+        }
+
+        this._routeResolved = true;
+        return this._routeMode;
     }
 
     /**
      * Make authenticated request to QuickNode
      */
     async makeRequest(method, params = [], network = null) {
+        // Guard: ensure QuickNode is configured for the selected network
         if (!this.isAvailable(network)) {
-            throw new Error(`QuickNode not configured for network: ${network || 'current'}`);
+            throw new Error(`QuickNode not configured for network: ${network || config.bitcoin.network}`);
         }
 
-        const url = config.bitcoin.getQuickNodeApiUrl(network);
-        if (!url) {
-            throw new Error(`QuickNode URL not available for network: ${network || config.bitcoin.network}`);
+        // Ensure routing is resolved once
+        await this.resolveRouteModeOnce(network);
+
+        const targetNetwork = network || config.bitcoin.network;
+
+        // Branch based on resolved mode
+        if (this._routeMode === 'direct') {
+            const url = config.bitcoin.getQuickNodeApiUrl(targetNetwork);
+            const payload = { jsonrpc: '2.0', id: Date.now(), method, params };
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(this.timeout),
+                    mode: 'cors',
+                });
+
+                if (!response.ok) {
+                    throw new Error(`QuickNode API error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (data && data.error) {
+                    const message = typeof data.error === 'string' ? data.error : (data.error.message || 'RPC error');
+                    throw new Error(`QuickNode RPC error: ${message}`);
+                }
+                return data?.result;
+            } catch (error) {
+                // If direct fails unexpectedly (e.g., deployment env), fallback to proxy for this call and stick to proxy for future
+                this._routeMode = 'proxy';
+                this._routeResolved = true;
+                // Continue to proxy path below
+            }
         }
 
-        const payload = {
-            jsonrpc: '2.0',
-            id: Date.now(),
-            method,
-            params
-        };
-
-        console.log(`[QuickNodeService] Making request to: ${url}`);
-        console.log(`[QuickNodeService] Target network: ${network || config.bitcoin.network}`);
-        console.log(`[QuickNodeService] Method: ${method}, Params:`, params);
-
+        // Proxy path (default/fallback)
+        const proxyUrl = '/api/quicknode';
+        const proxyPayload = { method, params, network: targetNetwork };
         try {
-            const response = await fetch(url, {
+            const response = await fetch(proxyUrl, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(payload),
-                signal: AbortSignal.timeout(this.timeout)
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(proxyPayload),
+                signal: AbortSignal.timeout(this.timeout),
             });
 
             if (!response.ok) {
-                throw new Error(`QuickNode API error: ${response.status}`);
+                throw new Error(`QuickNode proxy error: ${response.status}`);
             }
 
-            const data = await response.json();
-            
-            if (data.error) {
-                throw new Error(`QuickNode RPC error: ${data.error.message}`);
+            const rpc = await response.json();
+            if (rpc && rpc.error) {
+                const message = typeof rpc.error === 'string' ? rpc.error : (rpc.error.message || 'RPC error');
+                throw new Error(`QuickNode RPC error: ${message}`);
             }
-
-            return data.result;
+            return rpc?.result;
         } catch (error) {
-            console.error('[QuickNodeService] Request failed:', error);
+            if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                throw new Error('QuickNode proxy unavailable. Check network connection and API configuration.');
+            }
             throw error;
         }
     }
@@ -106,7 +190,6 @@ export class QuickNodeService {
             // object => still unspent
             return result === null;
         } catch (error) {
-            console.warn(`[QuickNodeService] Failed to check UTXO ${txid}:${vout}:`, error);
             return false; // Assume unspent if check fails
         }
     }
@@ -117,10 +200,8 @@ export class QuickNodeService {
     async broadcastTransaction(txHex, network = null) {
         try {
             const txid = await this.makeRequest('sendrawtransaction', [txHex], network);
-            console.log(`[QuickNodeService] Transaction broadcast successful: ${txid}`);
             return txid;
         } catch (error) {
-            console.error('[QuickNodeService] Broadcast failed:', error);
             throw error;
         }
     }
@@ -132,7 +213,6 @@ export class QuickNodeService {
         try {
             return await this.makeRequest('getrawtransaction', [txid, true], network);
         } catch (error) {
-            console.error(`[QuickNodeService] Failed to get transaction ${txid}:`, error);
             throw error;
         }
     }
@@ -144,7 +224,6 @@ export class QuickNodeService {
         try {
             return await this.makeRequest('getrawtransaction', [txid, false], network);
         } catch (error) {
-            console.error(`[QuickNodeService] Failed to get transaction hex ${txid}:`, error);
             throw error;
         }
     }
@@ -167,7 +246,6 @@ export class QuickNodeService {
             if (result.status === 'fulfilled') {
                 if (result.value.isSpent) {
                     spentUtxos.push(result.value.utxo);
-                    console.log(`[QuickNodeService] SPENT: ${result.value.utxo.txid}:${result.value.utxo.vout}`);
                 } else {
                     validUtxos.push(result.value.utxo);
                 }
@@ -176,8 +254,6 @@ export class QuickNodeService {
                 validUtxos.push(utxos[index]);
             }
         });
-
-        console.log(`[QuickNodeService] Verified ${utxos.length} UTXOs: ${validUtxos.length} valid, ${spentUtxos.length} spent`);
         
         return {
             validUtxos,
