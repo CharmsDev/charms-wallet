@@ -41,7 +41,6 @@ export class UTXOService {
             await saveUTXOs(utxoMap, blockchain, network);
             return utxoMap;
         } catch (error) {
-            console.error('Error fetching UTXOs:', error);
             return {};
         }
     }
@@ -213,8 +212,6 @@ export class UTXOService {
 
     async processTransactionCompletion(transactionData, updateAfterTransaction, blockchain, network) {
         try {
-            console.log('[UTXOService] Processing transaction completion:', transactionData.txid);
-
             // Prepare spent UTXOs for removal
             const spentUtxos = transactionData.utxos.map(utxo => ({
                 txid: utxo.txid,
@@ -222,15 +219,11 @@ export class UTXOService {
                 address: utxo.address
             }));
 
-            console.log('[UTXOService] Removing spent UTXOs:', spentUtxos);
-
             // Create potential new UTXOs from transaction outputs
             const newUtxos = await this.createNewUtxosFromTransaction(transactionData, blockchain, network);
 
             // Update UTXO store
             await updateAfterTransaction(spentUtxos, newUtxos, blockchain, network);
-
-            console.log('[UTXOService] UTXO state updated successfully');
 
             return {
                 success: true,
@@ -239,7 +232,6 @@ export class UTXOService {
             };
 
         } catch (error) {
-            console.error('[UTXOService] Error processing transaction completion:', error);
             throw error;
         }
     }
@@ -264,11 +256,6 @@ export class UTXOService {
 
                     // Check if this output goes to one of our addresses
                     if (output.address && walletAddresses.has(output.address)) {
-                        console.log('[UTXOService] Found change output:', {
-                            address: output.address,
-                            value: output.value,
-                            vout
-                        });
 
                         if (!newUtxos[output.address]) {
                             newUtxos[output.address] = [];
@@ -300,12 +287,6 @@ export class UTXOService {
                     const changeAddress = addresses.find(addr => addr.isChange)?.address || addresses[0]?.address;
 
                     if (changeAddress) {
-                        console.log('[UTXOService] Estimated change output:', {
-                            address: changeAddress,
-                            value: changeAmount,
-                            vout: 1 // Typically change is output 1
-                        });
-
                         newUtxos[changeAddress] = [{
                             txid: transactionData.txid,
                             vout: 1,
@@ -322,7 +303,6 @@ export class UTXOService {
             }
 
         } catch (error) {
-            console.warn('[UTXOService] Could not create new UTXOs from transaction:', error);
             // Return empty object - we'll get the real UTXOs on next refresh
         }
 
@@ -330,10 +310,7 @@ export class UTXOService {
     }
 
     scheduleDelayedRefresh(refreshFunction, delay = 3000) {
-        console.log(`[UTXOService] Scheduling UTXO refresh in ${delay}ms`);
-
         setTimeout(() => {
-            console.log('[UTXOService] Executing scheduled UTXO refresh');
             refreshFunction();
         }, delay);
     }
@@ -379,9 +356,7 @@ export class UTXOService {
             }
 
             localStorage.setItem(key, JSON.stringify(existing));
-            console.log(`[UTXOService] Marked ${utxos.length} UTXOs as pending for tx ${txid}`);
         } catch (error) {
-            console.error('[UTXOService] Failed to mark UTXOs as pending:', error);
         }
     }
 
@@ -399,9 +374,7 @@ export class UTXOService {
             }
 
             localStorage.setItem(key, JSON.stringify(existing));
-            console.log(`[UTXOService] Cleared ${cleared} pending UTXOs for tx ${txid}`);
         } catch (error) {
-            console.error('[UTXOService] Failed to clear pending UTXOs:', error);
         }
     }
 
@@ -420,7 +393,6 @@ export class UTXOService {
                     const utxoKey = `${utxo.txid}:${utxo.vout}`;
                     const isPending = pendingUtxos[utxoKey];
                     if (isPending) {
-                        console.log(`[UTXOService] Filtering out pending UTXO: ${utxoKey}`);
                         return false;
                     }
                     return true;
@@ -429,7 +401,6 @@ export class UTXOService {
 
             return filtered;
         } catch (error) {
-            console.error('[UTXOService] Failed to filter pending UTXOs:', error);
             return utxoMap;
         }
     }
@@ -452,10 +423,8 @@ export class UTXOService {
 
             if (cleaned > 0) {
                 localStorage.setItem(key, JSON.stringify(existing));
-                console.log(`[UTXOService] Cleaned up ${cleaned} old pending UTXOs`);
             }
         } catch (error) {
-            console.error('[UTXOService] Failed to cleanup old pending UTXOs:', error);
         }
     }
 }

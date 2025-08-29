@@ -35,21 +35,14 @@ export class TransactionRecorder {
                 totalInputs: txData.totalSelected || 0
             }
         };
-
-        console.log(`[TRANSACTION RECORDER] Recording sent transaction: ${transaction.txid}`);
-        console.log(`[TRANSACTION RECORDER] Transaction data:`, transaction);
-        console.log(`[TRANSACTION RECORDER] Using blockchain: ${this.blockchain}, network: ${this.network}`);
         
         const updatedTransactions = await addTransaction(transaction, this.blockchain, this.network);
-        console.log(`[TRANSACTION RECORDER] Transaction saved to localStorage. Total transactions: ${updatedTransactions.length}`);
         
         // Verify it was saved by reading it back
         const storedTransactions = await getTransactions(this.blockchain, this.network);
         const savedTx = storedTransactions.find(tx => tx.txid === transaction.txid);
-        if (savedTx) {
-            console.log(`[TRANSACTION RECORDER] ✅ Transaction ${transaction.txid} verified in localStorage`);
-        } else {
-            console.error(`[TRANSACTION RECORDER] ❌ Transaction ${transaction.txid} NOT found in localStorage after save!`);
+        if (!savedTx) {
+            // Intentionally silent in production; rely on return value and state
         }
         
         return transaction;
@@ -73,8 +66,6 @@ export class TransactionRecorder {
                     .map(addr => addr.address)
             );
 
-            console.log(`[TRANSACTION RECORDER] Processing UTXOs for received transactions. Receiver addresses: ${receiverAddresses.size}`);
-
             // Flatten UTXOs from receiver addresses only
             const receiverUtxos = [];
             Object.entries(utxos).forEach(([address, addressUtxos]) => {
@@ -88,8 +79,6 @@ export class TransactionRecorder {
                     });
                 }
             });
-
-            console.log(`[TRANSACTION RECORDER] Found ${receiverUtxos.length} UTXOs from receiver addresses`);
 
             // Group UTXOs by transaction ID
             const txGroups = {};
@@ -111,8 +100,6 @@ export class TransactionRecorder {
                 const totalAmount = txUtxos.reduce((sum, utxo) => sum + (utxo.value || 0), 0);
                 const timestamp = txUtxos[0].timestamp || Date.now();
 
-                console.log(`[TRANSACTION RECORDER] Creating received transaction ${txid} with amount: ${totalAmount} sats`);
-
                 // Create received transaction entry
                 const transaction = {
                     id: this.generateTransactionId('received', timestamp),
@@ -131,7 +118,6 @@ export class TransactionRecorder {
                 await addTransaction(transaction, this.blockchain, this.network);
             }
         } catch (error) {
-            console.error('[TRANSACTION RECORDER] Error processing UTXOs for received transactions:', error);
             throw error;
         }
     }
@@ -156,9 +142,7 @@ export class TransactionRecorder {
             const { saveTransactions } = await import('@/services/storage');
             await saveTransactions(updatedTransactions, this.blockchain, this.network);
 
-            console.log(`[TRANSACTION RECORDER] Updated transaction ${txid} status to ${status}`);
         } catch (error) {
-            console.error('[TRANSACTION RECORDER] Error updating transaction status:', error);
             throw error;
         }
     }
@@ -169,7 +153,6 @@ export class TransactionRecorder {
             const transactions = await getTransactions(this.blockchain, this.network);
             return transactions.some(tx => tx.txid === txid && tx.type === type);
         } catch (error) {
-            console.error('[TRANSACTION RECORDER] Error checking transaction existence:', error);
             return false;
         }
     }

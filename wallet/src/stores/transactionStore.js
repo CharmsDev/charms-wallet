@@ -27,7 +27,6 @@ const useTransactionStore = create((set, get) => ({
         // Check if network has changed - if so, clear existing transactions
         const networkKey = `${blockchain}-${network}`;
         if (state.currentNetwork && state.currentNetwork !== networkKey) {
-            console.log(`[TRANSACTION STORE] Network changed from ${state.currentNetwork} to ${networkKey}, clearing transactions`);
             set({
                 transactions: [],
                 initialized: false,
@@ -52,8 +51,6 @@ const useTransactionStore = create((set, get) => ({
         set({ isLoading: true, error: null });
 
         try {
-            console.log(`[TRANSACTION STORE] Loading transactions for ${blockchain}-${network}`);
-
             const storedTransactions = await getTransactions(blockchain, network);
 
             // Calculate pagination info
@@ -72,10 +69,7 @@ const useTransactionStore = create((set, get) => ({
                     totalPages
                 }
             });
-
-            console.log(`[TRANSACTION STORE] Loaded ${storedTransactions.length} transactions, ${totalPages} pages`);
         } catch (error) {
-            console.error('[TRANSACTION STORE] Error loading transactions:', error);
             set({
                 transactions: [],
                 isLoading: false,
@@ -88,8 +82,6 @@ const useTransactionStore = create((set, get) => ({
     // Record sent transaction (called by transaction orchestrator)
     recordSentTransaction: async (transactionData, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
-            console.log(`[TRANSACTION STORE] Recording sent transaction ${transactionData.txid}`);
-
             const updatedTransactions = await addTransactionToStorage(transactionData, blockchain, network);
 
             // Update pagination info
@@ -106,10 +98,7 @@ const useTransactionStore = create((set, get) => ({
                     totalPages
                 }
             });
-
-            console.log(`[TRANSACTION STORE] Sent transaction recorded, total: ${updatedTransactions.length}`);
         } catch (error) {
-            console.error('[TRANSACTION STORE] Error recording sent transaction:', error);
             set({ error: error.message });
         }
     },
@@ -117,8 +106,6 @@ const useTransactionStore = create((set, get) => ({
     // Add or update a transaction (legacy method for backward compatibility)
     addTransaction: async (transaction, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
-            console.log(`[TRANSACTION STORE] Adding transaction ${transaction.txid}`);
-
             const updatedTransactions = await addTransactionToStorage(transaction, blockchain, network);
 
             // Update pagination info
@@ -135,10 +122,7 @@ const useTransactionStore = create((set, get) => ({
                     totalPages
                 }
             });
-
-            console.log(`[TRANSACTION STORE] Transaction added, total: ${updatedTransactions.length}`);
         } catch (error) {
-            console.error('[TRANSACTION STORE] Error adding transaction:', error);
             set({ error: error.message });
         }
     },
@@ -146,8 +130,6 @@ const useTransactionStore = create((set, get) => ({
     // Update transaction status
     updateTransactionStatus: async (txid, status, confirmations, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
-            console.log(`[TRANSACTION STORE] Updating transaction ${txid} status to ${status}`);
-
             const updatedTransactions = await updateTransactionStatus(txid, status, confirmations, blockchain, network);
 
             set({
@@ -155,7 +137,6 @@ const useTransactionStore = create((set, get) => ({
                 error: null
             });
         } catch (error) {
-            console.error('[TRANSACTION STORE] Error updating transaction status:', error);
             set({ error: error.message });
         }
     },
@@ -163,8 +144,6 @@ const useTransactionStore = create((set, get) => ({
     // Process UTXOs to detect received transactions (excluding change addresses)
     processUTXOsForReceivedTransactions: async (utxos, addresses, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
-            console.log(`[TRANSACTION STORE] Processing UTXOs for received transactions`);
-
             const transactionRecorder = new TransactionRecorder(blockchain, network);
             await transactionRecorder.processUTXOsForReceivedTransactions(utxos, addresses);
 
@@ -172,7 +151,6 @@ const useTransactionStore = create((set, get) => ({
             await get().loadTransactions(blockchain, network);
 
         } catch (error) {
-            console.error('[TRANSACTION STORE] Error processing UTXOs for received transactions:', error);
             set({ error: error.message });
         }
     },
@@ -183,7 +161,6 @@ const useTransactionStore = create((set, get) => ({
             const transactionRecorder = new TransactionRecorder(blockchain, network);
             return await transactionRecorder.transactionExists(txid, type);
         } catch (error) {
-            console.error('[TRANSACTION STORE] Error checking transaction existence:', error);
             return false;
         }
     },

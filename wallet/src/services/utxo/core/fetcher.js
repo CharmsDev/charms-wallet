@@ -19,7 +19,6 @@ export class UTXOFetcher {
             }
             return [];
         } catch (error) {
-            console.error(`Error fetching UTXOs for ${address}:`, error);
             return [];
         }
     }
@@ -28,14 +27,16 @@ export class UTXOFetcher {
         try {
             // Use QuickNode service exclusively - no fallbacks
             if (!quickNodeService.isAvailable(network)) {
-                throw new Error(`QuickNode not configured for network: ${network}`);
+                return [];
             }
-
-            console.log(`[UTXOFetcher] Fetching UTXOs for ${address} on ${network} via QuickNode`);
             return await quickNodeService.getAddressUTXOs(address, network);
             
         } catch (error) {
-            console.error(`Error fetching Bitcoin UTXOs for ${address}:`, error);
+            // If it's a QuickNode configuration error, return empty array instead of throwing
+            if (error.message.includes('QuickNode not configured') || error.message.includes('QuickNode service unavailable')) {
+                return [];
+            }
+            
             return [];
         }
     }
@@ -62,7 +63,6 @@ export class UTXOFetcher {
                 }
             }));
         } catch (error) {
-            console.error(`Error fetching Cardano UTXOs for ${address}:`, error);
             return [];
         }
     }
@@ -86,6 +86,14 @@ export class UTXOFetcher {
         try {
             this.resetCancelFlag();
 
+            // Early check for Bitcoin networks - if QuickNode not available, skip entirely
+            if (blockchain === BLOCKCHAINS.BITCOIN) {
+                const { quickNodeService } = await import('@/services/shared/quicknode-service');
+                if (!quickNodeService.isAvailable(network)) {
+                    return {};
+                }
+            }
+
             const addressEntries = await getAddresses(blockchain, network);
             const filteredAddresses = addressEntries
                 .filter(entry => !entry.blockchain || entry.blockchain === blockchain)
@@ -100,7 +108,6 @@ export class UTXOFetcher {
 
             for (const address of filteredAddresses) {
                 if (this.cancelRequested) {
-                    console.log('[UTXOFetcher] Operation cancelled by user');
                     return utxoMap;
                 }
 
@@ -147,7 +154,6 @@ export class UTXOFetcher {
                     }
 
                 } catch (error) {
-                    console.error(`Error fetching UTXOs for address ${address}:`, error);
                     processedCount++;
 
                     if (onProgress) {
@@ -168,24 +174,19 @@ export class UTXOFetcher {
             }
 
             // No need to store final UTXO map - individual addresses were already saved during progress
-            console.log(`[UTXOFetcher] Incremental refresh completed for ${Object.keys(utxoMap).length} addresses`);
 
             // Process UTXOs for received transaction detection
             if (Object.keys(utxoMap).length > 0) {
                 try {
-                    console.log('[UTXOFetcher] Processing UTXOs for received transactions');
                     const transactionRecorder = new TransactionRecorder(blockchain, network);
                     await transactionRecorder.processUTXOsForReceivedTransactions(utxoMap, addressEntries);
-                    console.log('[UTXOFetcher] Received transaction detection completed');
                 } catch (error) {
-                    console.error('[UTXOFetcher] Error processing UTXOs for received transactions:', error);
                     // Don't fail the entire UTXO fetch if transaction processing fails
                 }
             }
 
             return utxoMap;
         } catch (error) {
-            console.error('Error in sequential UTXO fetch:', error);
             return {};
         }
     }
