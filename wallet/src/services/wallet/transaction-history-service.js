@@ -16,12 +16,15 @@ export class TransactionHistoryService {
     /**
      * Main function to recover transaction history for wallet
      */
-    async recoverTransactionHistory(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, progressCallback = null) {
+    async recoverTransactionHistory(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, progressCallback = null, maxAddresses = undefined) {
         console.log(`[TX-HISTORY] Starting transaction history recovery for ${blockchain}/${network}`);
         
         try {
-            // Get all wallet addresses
-            const addresses = await getAddresses(blockchain, network);
+            // Get wallet addresses and apply optional limit
+            let addresses = await getAddresses(blockchain, network);
+            if (maxAddresses && Number.isFinite(maxAddresses)) {
+                addresses = addresses.slice(0, maxAddresses);
+            }
             if (!addresses || addresses.length === 0) {
                 console.log('[TX-HISTORY] No addresses found, skipping history recovery');
                 return [];
@@ -37,6 +40,7 @@ export class TransactionHistoryService {
                 const address = addresses[i];
                 
                 if (progressCallback) {
+                    // Keep progress generic; caller may ignore numbers
                     progressCallback({
                         current: i + 1,
                         total: addresses.length,
@@ -105,16 +109,30 @@ export class TransactionHistoryService {
             // bb_getaddress returns address info including transaction list
             const addressInfo = await quickNodeService.makeRequest('bb_getaddress', [address], network);
             
-            if (!addressInfo || !addressInfo.txs) {
-                console.log(`[TX-HISTORY] No transactions found for address ${address}`);
+            if (!addressInfo) {
+                console.log(`[TX-HISTORY] No address info for ${address}`);
                 return [];
             }
 
-            console.log(`[TX-HISTORY] Found ${addressInfo.txs.length} transactions for ${address}`);
+            // Normalize tx list from provider response
+            let txIds = [];
+            if (Array.isArray(addressInfo.txs)) {
+                txIds = addressInfo.txs;
+            } else if (Array.isArray(addressInfo.transactions)) {
+                // Some providers return objects under 'transactions'
+                txIds = addressInfo.transactions.map(t => t.txid).filter(Boolean);
+            } else if (Array.isArray(addressInfo.txids)) {
+                txIds = addressInfo.txids;
+            } else {
+                console.log(`[TX-HISTORY] No tx list found for ${address}`);
+                return [];
+            }
+
+            console.log(`[TX-HISTORY] Found ${txIds.length} transactions for ${address}`);
             
             // Get detailed transaction information for each txid
             const transactions = [];
-            for (const txid of addressInfo.txs) {
+            for (const txid of txIds) {
                 try {
                     const txDetails = await quickNodeService.getTransaction(txid, network);
                     if (txDetails) {
