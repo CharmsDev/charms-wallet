@@ -243,6 +243,50 @@ export function generateInitialBitcoinAddresses(seedPhrase, onProgress, onComple
     generateChunk();
 }
 
+// Optimized generator: precompute seed and HD nodes once, supports limiting pairs
+export function generateInitialBitcoinAddressesFast(seedPhrase, onProgress, onComplete, targetNetwork = null, totalPairs = 256) {
+    let i = 0;
+    const addresses = [];
+    const chunkSize = 32; // larger chunks for speed while keeping UI responsive
+
+    (async () => {
+        // Precompute seed and HD nodes once
+        const network = targetNetwork || getNetwork();
+        const seed = await bip39.mnemonicToSeed(seedPhrase);
+        const masterNode = bip32.fromSeed(seed, network);
+        const derivationPath = (network.bech32 === 'bc') ? "m/86'/0'/0'" : "m/86'/1'/0'";
+        const accountNode = masterNode.derivePath(derivationPath);
+        const receiveChain = accountNode.derive(0);
+        const changeChain = accountNode.derive(1);
+
+        async function generateChunk() {
+            const limit = Math.min(i + chunkSize, totalPairs);
+            for (; i < limit; i++) {
+                // receiving (chain 0)
+                const recvNode = receiveChain.derive(i);
+                const recvXOnly = Buffer.from(recvNode.publicKey.slice(1, 33));
+                const recvAddr = bitcoin.payments.p2tr({ internalPubkey: recvXOnly, network }).address;
+                addresses.push({ address: recvAddr, index: i, isChange: false, created: new Date().toISOString() });
+
+                // change (chain 1)
+                const chgNode = changeChain.derive(i);
+                const chgXOnly = Buffer.from(chgNode.publicKey.slice(1, 33));
+                const chgAddr = bitcoin.payments.p2tr({ internalPubkey: chgXOnly, network }).address;
+                addresses.push({ address: chgAddr, index: i, isChange: true, created: new Date().toISOString() });
+
+                if (onProgress) onProgress(i + 1, totalPairs);
+            }
+            if (i < totalPairs) {
+                setTimeout(generateChunk, 0);
+            } else {
+                if (onComplete) onComplete(addresses);
+            }
+        }
+
+        generateChunk();
+    })();
+}
+
 /**
  * Group addresses into pairs and custom addresses
  * @param {Array} addresses - Array of address objects

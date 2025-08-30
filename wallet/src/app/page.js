@@ -53,19 +53,34 @@ export default function Home() {
   const [showTechnicalDashboard, setShowTechnicalDashboard] = useState(false);
 
   const handleSeedParam = (seedParam, hasWallet) => {
-    if (hasWallet) {
-      setShowWalletExistsModal(true);
-    } else {
-      try {
-        const decodedSeed = atob(seedParam);
-        handleImportWallet(decodedSeed);
+    const normalizeSeed = (s) => (s ? s.trim().toLowerCase().replace(/\s+/g, ' ') : '');
 
+    try {
+      const decodedSeed = atob(seedParam);
+
+      if (hasWallet) {
+        // If the incoming seed matches the existing wallet, do nothing (stay in wallet) and clear URL param
+        if (normalizeSeed(decodedSeed) === normalizeSeed(seedPhrase)) {
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.delete('seed');
+          window.history.replaceState({}, '', newUrl.toString());
+          return;
+        }
+        // Different wallet seed provided: show the existing modal
+        setShowWalletExistsModal(true);
+      } else {
+        // No wallet yet: proceed with import
+        handleImportWallet(decodedSeed);
         // Clear the seed from the URL to prevent re-import on refresh
         const newUrl = new URL(window.location.href);
         newUrl.searchParams.delete('seed');
         window.history.replaceState({}, '', newUrl.toString());
-      } catch (e) {
-        console.error('Failed to decode seed from URL:', e);
+      }
+    } catch (e) {
+      console.error('Failed to decode seed from URL:', e);
+      if (hasWallet) {
+        // Keep prior behavior if decoding fails and a wallet exists
+        setShowWalletExistsModal(true);
       }
     }
   };

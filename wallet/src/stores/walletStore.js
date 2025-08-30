@@ -94,9 +94,12 @@ export function WalletProvider({ children }) {
         try {
             setIsInitializing(true);
             setError(null);
+            const totalSteps = 7; // Creating/Validating, Deriving, Generating, Scanning UTXOs, Charms, Tx History, Finalizing
+            const setStepProgress = (currentStepIndex) => setInitializationProgress({ current: currentStepIndex, total: totalSteps });
 
             // Step 1: Create or validate seed phrase
             setInitializationStep(isImport ? 'Validating seed phrase...' : 'Creating wallet...');
+            setStepProgress(1);
             let finalSeedPhrase;
 
             if (isImport) {
@@ -109,17 +112,19 @@ export function WalletProvider({ children }) {
 
             // Step 2: Derive wallet information
             setInitializationStep('Deriving wallet information...');
+            setStepProgress(2);
 
-            // Step 3: Generate addresses for both mainnet and testnet
+            // Step 3: Generate addresses for both mainnet and testnet (FAST, LIMITED)
             setInitializationStep('Generating addresses for all networks...');
-            setInitializationProgress({ current: 0, total: 1024 }); // 512 addresses × 2 networks
+            // Use step-based progress (no numeric address counts)
+            setStepProgress(3);
 
             // Import dependencies dynamically to avoid circular imports
-            const { generateInitialBitcoinAddresses } = await import('@/utils/addressUtils');
+            const { generateInitialBitcoinAddressesFast } = await import('@/utils/addressUtils');
             const { saveAddresses } = await import('@/services/storage');
 
             const networks = ['mainnet', 'testnet'];
-            let totalAddressesGenerated = 0;
+            const pairsPerNetwork = 256; // 256 pairs (512 addrs) per network as requested
 
             for (const currentNetwork of networks) {
                 // Get the appropriate Bitcoin network object for address generation
@@ -130,45 +135,41 @@ export function WalletProvider({ children }) {
                     // Use our custom testnet4 network configuration
                     targetNetwork = getNetwork();
                 }
-                
+
                 await new Promise((resolve, reject) => {
-                    generateInitialBitcoinAddresses(
+                    generateInitialBitcoinAddressesFast(
                         finalSeedPhrase,
-                        // Progress callback
-                        (current, total) => {
-                            const networkAddresses = current * 2; // Each index generates 2 addresses
-                            const totalCurrent = totalAddressesGenerated + networkAddresses;
-                            setInitializationProgress({ current: totalCurrent, total: 1024 });
-                            setInitializationStep(`Generating ${currentNetwork} addresses... ${networkAddresses}/512`);
-                        },
+                        // Progress callback (keep generic)
+                        () => setInitializationStep(`Generating ${currentNetwork} addresses...`),
                         // Complete callback for this network
                         async (generatedAddresses) => {
                             try {
                                 setInitializationStep(`Saving ${currentNetwork} addresses...`);
                                 const addressesWithBlockchain = generatedAddresses.map(addr => ({ ...addr, blockchain }));
                                 await saveAddresses(addressesWithBlockchain, blockchain, currentNetwork);
-                                totalAddressesGenerated += 512; // 256 indexes × 2 addresses each
                                 resolve(); // Proceed to the next network
                             } catch (error) {
                                 reject(error);
                             }
                         },
-                        targetNetwork // Pass the specific network for address generation
+                        targetNetwork, // Pass the specific network for address generation
+                        pairsPerNetwork // limit pairs per network
                     );
                 });
             }
 
-            // Step 4: Quick UTXO scan for first 12 addresses
+            // Step 4: Quick UTXO scan for first 16 addresses
             setInitializationStep('Scanning addresses...');
+            setStepProgress(4);
 
             try {
                 const { refreshFirstAddresses } = await import('@/services/utxo/address-refresh-helper');
 
-                // Scan first 12 addresses on both networks
+                // Scan first 16 addresses on both networks
                 for (const currentNetwork of networks) {
                     try {
                         setInitializationStep('Refreshing UTXOs...');
-                        await refreshFirstAddresses(12, blockchain, currentNetwork);
+                        await refreshFirstAddresses(16, blockchain, currentNetwork);
                     } catch (error) {
                     }
                 }
@@ -180,6 +181,7 @@ export function WalletProvider({ children }) {
 
             // Step 5: Scan for Charms using existing service
             setInitializationStep('Scanning for Charms...');
+            setStepProgress(5);
 
             try {
                 const { charmsService } = await import('@/services/charms/charms');
@@ -205,8 +207,9 @@ export function WalletProvider({ children }) {
                 // Continue with initialization
             }
 
-            // Step 6: Recover transaction history
+            // Step 6: Recover transaction history (limited to first addresses)
             setInitializationStep('Recovering transaction history...');
+            setStepProgress(6);
 
             try {
                 const { transactionHistoryService } = await import('@/services/wallet/transaction-history-service');
@@ -222,13 +225,16 @@ export function WalletProvider({ children }) {
                             await transactionHistoryService.recoverTransactionHistory(
                                 blockchain, 
                                 currentNetwork,
+                                // Use generic, non-numeric messaging
                                 (progress) => {
                                     if (progress.stage === 'scanning') {
-                                        setInitializationStep(`Scanning ${currentNetwork} addresses: ${progress.current}/${progress.total}`);
+                                        setInitializationStep(`Scanning ${currentNetwork} transaction history...`);
                                     } else if (progress.stage === 'completed') {
-                                        setInitializationStep(`Found ${progress.transactionCount} transactions on ${currentNetwork}`);
+                                        setInitializationStep(`Transaction history scan complete for ${currentNetwork}`);
                                     }
-                                }
+                                },
+                                // Limit number of addresses scanned for history
+                                64 // first 64 addresses (32 pairs)
                             );
                         } else {
                             setInitializationStep(`${currentNetwork} transaction history already exists`);
@@ -245,6 +251,7 @@ export function WalletProvider({ children }) {
 
             // Step 7: Finalize setup
             setInitializationStep('Finalizing wallet setup...');
+            setStepProgress(7);
 
             setHasWallet(true);
             setIsInitializing(false);
