@@ -8,6 +8,7 @@ export const STORAGE_KEYS = {
     WALLET_ADDRESSES: 'wallet_addresses',
     UTXOS: 'wallet_utxos',
     TRANSACTIONS: 'wallet_transactions',
+    CHARMS: 'wallet_charms',
     ACTIVE_BLOCKCHAIN: 'active_blockchain',
     ACTIVE_NETWORK: 'active_network'
 };
@@ -230,4 +231,40 @@ export const clearAllWalletData = async (): Promise<void> => {
     );
     
     walletKeys.forEach(key => localStorage.removeItem(key));
+};
+
+// Charms storage functions
+export const saveCharms = async (charms: any[], blockchain: string = BLOCKCHAINS.BITCOIN, network: string = NETWORKS.BITCOIN.TESTNET): Promise<void> => {
+    try {
+        const key = `${blockchain}_${network}_${STORAGE_KEYS.CHARMS}`;
+        const charmsData = {
+            charms,
+            timestamp: Date.now(),
+            count: charms.length
+        };
+        localStorage.setItem(key, JSON.stringify(charmsData));
+        console.log(`[STORAGE] Saved ${charms.length} charms to ${key}`);
+    } catch (error) {
+        console.error('[STORAGE] Failed to save charms:', error);
+        throw error;
+    }
+};
+
+export const getCharms = async (blockchain: string = BLOCKCHAINS.BITCOIN, network: string = NETWORKS.BITCOIN.TESTNET): Promise<any[]> => {
+    try {
+        const key = `${blockchain}_${network}_${STORAGE_KEYS.CHARMS}`;
+        const stored = localStorage.getItem(key);
+        
+        if (!stored) {
+            console.log(`[STORAGE] No charms found for ${key}`);
+            return [];
+        }
+
+        const charmsData = JSON.parse(stored);
+        console.log(`[STORAGE] Loaded ${charmsData.count || 0} charms from ${key}`);
+        return charmsData.charms || [];
+    } catch (error) {
+        console.error('[STORAGE] Failed to load charms:', error);
+        return [];
+    }
 };

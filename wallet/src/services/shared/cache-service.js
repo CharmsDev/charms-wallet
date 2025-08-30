@@ -2,11 +2,18 @@
 
 /**
  * Unified cache service for all application caching needs
+ * Supports both memory and localStorage persistence
  */
 export class CacheService {
-    constructor(defaultTimeout = 30000) {
+    constructor(defaultTimeout = 30000, persistKey = null) {
         this.cache = new Map();
         this.defaultTimeout = defaultTimeout;
+        this.persistKey = persistKey;
+        
+        // Load from localStorage if persist key provided
+        if (this.persistKey) {
+            this.loadFromStorage();
+        }
     }
 
     // Check if cached item is still valid
@@ -28,10 +35,17 @@ export class CacheService {
 
     // Set cached item
     set(key, data) {
-        this.cache.set(key, {
+        const item = {
             data,
             timestamp: Date.now()
-        });
+        };
+        
+        this.cache.set(key, item);
+        
+        // Persist to localStorage if enabled
+        if (this.persistKey) {
+            this.saveToStorage();
+        }
     }
 
     // Get or fetch with cache
@@ -49,17 +63,54 @@ export class CacheService {
     // Clear specific key
     clear(key) {
         this.cache.delete(key);
+        
+        // Update localStorage if enabled
+        if (this.persistKey) {
+            this.saveToStorage();
+        }
     }
 
     // Clear all cache
     clearAll() {
         this.cache.clear();
+        
+        // Clear localStorage if enabled
+        if (this.persistKey) {
+            localStorage.removeItem(this.persistKey);
+        }
+    }
+
+    // Load cache from localStorage
+    loadFromStorage() {
+        try {
+            const stored = localStorage.getItem(this.persistKey);
+            if (stored) {
+                const data = JSON.parse(stored);
+                this.cache = new Map(data.entries || []);
+            }
+        } catch (error) {
+            console.warn('[CACHE] Failed to load from storage:', error);
+        }
+    }
+    
+    // Save cache to localStorage
+    saveToStorage() {
+        try {
+            const data = {
+                entries: Array.from(this.cache.entries()),
+                lastSaved: Date.now()
+            };
+            localStorage.setItem(this.persistKey, JSON.stringify(data));
+        } catch (error) {
+            console.warn('[CACHE] Failed to save to storage:', error);
+        }
     }
 
     // Get cache stats
     getStats() {
         return {
             size: this.cache.size,
+            persistKey: this.persistKey,
             entries: Array.from(this.cache.entries()).map(([key, value]) => ({
                 key,
                 age: Date.now() - value.timestamp,
@@ -70,7 +121,7 @@ export class CacheService {
 }
 
 // Export singleton instances for different use cases
-export const priceCache = new CacheService(60000); // 1 minute for price data
+export const priceCache = new CacheService(30000, 'btc_price_cache'); // 30 seconds for price data with persistence
 export const utxoCache = new CacheService(30000);  // 30 seconds for UTXO verification
 export const generalCache = new CacheService(30000); // 30 seconds general purpose
 

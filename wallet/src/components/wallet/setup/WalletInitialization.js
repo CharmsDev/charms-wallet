@@ -197,14 +197,14 @@ export default function WalletInitialization({
                         <div className={`w-3 h-3 rounded-full ${
                             initializationStep.includes('Finalizing')
                                 ? 'bg-primary-500'
-                                : progressPercentage === 100
+                                : initializationStep.includes('Finalizing') && progressPercentage === 100
                                     ? 'bg-green-500'
                                     : 'bg-gray-600'
                         }`}></div>
                         <span className={`text-sm ${
                             initializationStep.includes('Finalizing')
                                 ? 'text-primary-400 font-medium'
-                                : progressPercentage === 100
+                                : initializationStep.includes('Finalizing') && progressPercentage === 100
                                     ? 'text-green-400'
                                     : 'text-gray-400'
                         }`}>

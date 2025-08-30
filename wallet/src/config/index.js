@@ -19,7 +19,10 @@ const config = {
         isTestnet: () => config.bitcoin.network === 'testnet',
         isMainnet: () => config.bitcoin.network === 'mainnet',
 
-        // External API endpoints based on network
+        // QuickNode proxy URL - all traffic goes through local proxy
+        quicknodeProxyUrl: process.env.NEXT_PUBLIC_QUICKNODE_PROXY_URL,
+
+        // External API endpoints (used by proxy for routing)
         apis: {
             quicknode: {
                 mainnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_MAINNET_URL,
@@ -27,21 +30,14 @@ const config = {
             },
         },
 
-        // Get QuickNode API URL for specific network (accepts network parameter)
+        // Get QuickNode proxy URL (always use proxy)
         getQuickNodeApiUrl: (network = null) => {
-            const targetNetwork = network || config.bitcoin.network;
-            if (targetNetwork === 'mainnet' && config.bitcoin.apis.quicknode.mainnet) {
-                return config.bitcoin.apis.quicknode.mainnet;
-            }
-            if (targetNetwork === 'testnet' && config.bitcoin.apis.quicknode.testnet) {
-                return config.bitcoin.apis.quicknode.testnet;
-            }
-            return null;
+            return config.bitcoin.quicknodeProxyUrl;
         },
 
-        // Check if QuickNode is available for specific network
+        // Check if QuickNode proxy is available
         hasQuickNode: (network = null) => {
-            return config.bitcoin.getQuickNodeApiUrl(network) !== null;
+            return config.bitcoin.quicknodeProxyUrl !== null && config.bitcoin.quicknodeProxyUrl !== undefined;
         },
     },
 

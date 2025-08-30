@@ -109,7 +109,6 @@ export function WalletProvider({ children }) {
 
             // Step 2: Derive wallet information
             setInitializationStep('Deriving wallet information...');
-            await new Promise(resolve => setTimeout(resolve, 500)); // Small delay for UX
 
             // Step 3: Generate addresses for both mainnet and testnet
             setInitializationStep('Generating addresses for all networks...');
@@ -174,7 +173,7 @@ export function WalletProvider({ children }) {
                     }
                 }
 
-                await new Promise(resolve => setTimeout(resolve, 800));
+                // Continue without delay
             } catch (error) {
                 // Continue with initialization even if address scanning fails
             }
@@ -201,14 +200,51 @@ export function WalletProvider({ children }) {
                     }
                 }
 
-                await new Promise(resolve => setTimeout(resolve, 800));
+                // Continue without delay
             } catch (error) {
                 // Continue with initialization
             }
 
-            // Step 6: Finalize setup
+            // Step 6: Recover transaction history
+            setInitializationStep('Recovering transaction history...');
+
+            try {
+                const { transactionHistoryService } = await import('@/services/wallet/transaction-history-service');
+
+                for (const currentNetwork of networks) {
+                    try {
+                        setInitializationStep(`Scanning ${currentNetwork} transaction history...`);
+                        
+                        // Check if history recovery is needed
+                        const isRecoveryNeeded = await transactionHistoryService.isHistoryRecoveryNeeded(blockchain, currentNetwork);
+                        
+                        if (isRecoveryNeeded) {
+                            await transactionHistoryService.recoverTransactionHistory(
+                                blockchain, 
+                                currentNetwork,
+                                (progress) => {
+                                    if (progress.stage === 'scanning') {
+                                        setInitializationStep(`Scanning ${currentNetwork} addresses: ${progress.current}/${progress.total}`);
+                                    } else if (progress.stage === 'completed') {
+                                        setInitializationStep(`Found ${progress.transactionCount} transactions on ${currentNetwork}`);
+                                    }
+                                }
+                            );
+                        } else {
+                            setInitializationStep(`${currentNetwork} transaction history already exists`);
+                        }
+                    } catch (error) {
+                        console.error(`[WALLET] Error recovering ${currentNetwork} transaction history:`, error);
+                        // Continue with initialization even if history recovery fails
+                    }
+                }
+            } catch (error) {
+                console.error('[WALLET] Error importing transaction history service:', error);
+                // Continue with initialization
+            }
+
+            // Step 7: Finalize setup
             setInitializationStep('Finalizing wallet setup...');
-            await new Promise(resolve => setTimeout(resolve, 500)); // Final UX delay
 
             setHasWallet(true);
             setIsInitializing(false);
