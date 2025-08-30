@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useCharms } from '@/stores/charmsStore';
+import { useBlockchain } from '@/stores/blockchainStore';
 
 export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoading, network }) {
     const [showUSD, setShowUSD] = useState(false);
     const [trend, setTrend] = useState(null);
-    const { charms } = useCharms();
+    const { charms, loadCharms, loading: charmsLoading, initialized } = useCharms();
+    const { activeBlockchain, activeNetwork } = useBlockchain();
 
     // Format balance in BTC
     const formatBTC = (satoshis) => {
@@ -27,18 +29,32 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
         }).format(fiatValue);
     };
 
-    const getBroTokenBalance = () => {
-        const broCharm = charms.find(charm => 
+    // Memoize BRO token balance calculation to prevent redundant processing
+    const broBalance = useMemo(() => {
+        // Sum all BRO tokens across multiple charms
+        const broCharms = charms.filter(charm => 
             charm.amount?.ticker === 'CHARMS-TOKEN' || 
             charm.amount?.name?.toLowerCase().includes('bro')
         );
-        if (broCharm && broCharm.amount?.remaining) {
-            return broCharm.amount.remaining / 100000000;
-        }
-        return 0;
-    };
+        
+        const totalBalance = broCharms.reduce((total, charm) => {
+            if (charm.amount?.remaining) {
+                return total + (charm.amount.remaining / 100000000);
+            }
+            return total;
+        }, 0);
+        
+        console.log(`[BALANCE] Calculated BRO balance: ${broCharms.length} charms, total: ${totalBalance}`);
+        return totalBalance;
+    }, [charms]); // Only recalculate when charms array changes
 
-    const broBalance = getBroTokenBalance();
+    // Load charms only if not already initialized and we have no cached data
+    useEffect(() => {
+        if (activeBlockchain && activeNetwork && initialized && charms.length === 0 && !charmsLoading) {
+            console.log('[BALANCE] Loading charms for token balance calculation');
+            loadCharms();
+        }
+    }, [activeBlockchain, activeNetwork, initialized, charms.length, charmsLoading, loadCharms]);
 
     useEffect(() => {
         if (btcPrice && !priceLoading) {
@@ -110,10 +126,14 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
                                 <span className="text-sm font-medium text-dark-300">Bro Token</span>
                             </div>
                             <div className="text-2xl font-bold text-purple-400 mb-1">
-                                {broBalance.toFixed(2)} BRO
+                                {charmsLoading ? (
+                                    <div className="h-8 bg-dark-700 rounded animate-pulse w-24"></div>
+                                ) : (
+                                    `${broBalance.toFixed(2)} BRO`
+                                )}
                             </div>
                             <div className="text-sm text-dark-400">
-                                {broBalance > 0 ? 'Token Balance' : 'No tokens'}
+                                {charmsLoading ? 'Loading...' : (broBalance > 0 ? 'Token Balance' : 'No tokens')}
                             </div>
                         </div>
                     </div>

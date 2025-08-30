@@ -6,15 +6,33 @@ class CoinGeckoService {
     constructor() {
         this.baseUrl = 'https://api.coingecko.com/api/v3';
         this.lastFetchTime = 0;
-        this.rateLimitDelay = 10000; // 10 seconds between requests
-        this.retryAttempts = 3;
-        this.retryDelay = 5000; // 5 seconds between retries
+        this.rateLimitDelay = 30000; // 30 seconds between requests
+        this.retryAttempts = 1; // Reduce retries to prevent spam
+        this.retryDelay = 10000; // 10 seconds between retries
         this.cacheKey = 'bitcoin-price';
+        this.isBlocked = false; // Track if API is blocked
+        this.blockUntil = 0; // Timestamp when to try again
+        this.storageKey = 'coingecko_api_status';
+        
+        // Load persistent state from localStorage
+        this.loadState();
     }
 
-    // Check if we can make a request (rate limiting)
+    // Check if we can make a request (rate limiting + blocking)
     canMakeRequest() {
         const now = Date.now();
+        
+        // If API is blocked, check if block period has expired
+        if (this.isBlocked && now < this.blockUntil) {
+            return false;
+        }
+        
+        // Reset block if period expired
+        if (this.isBlocked && now >= this.blockUntil) {
+            this.isBlocked = false;
+            this.blockUntil = 0;
+        }
+        
         return now - this.lastFetchTime >= this.rateLimitDelay;
     }
 
@@ -37,75 +55,79 @@ class CoinGeckoService {
                 return cachedPrice;
             }
 
-            // Check rate limiting
+            // Check rate limiting and blocking
             if (!this.canMakeRequest()) {
-                const waitTime = this.rateLimitDelay - (Date.now() - this.lastFetchTime);
-
+                // Always return stale cache or fallback instead of waiting
                 const staleCachedPrice = priceCache.get(this.cacheKey, 300000); // 5 min stale cache
                 if (staleCachedPrice) {
                     return { ...staleCachedPrice, isStale: true };
                 }
-
-                // If no cache, wait and try
-                await new Promise(resolve => setTimeout(resolve, waitTime));
+                
+                // Return fallback immediately if blocked
+                return this.getFallbackPrice();
             }
 
-            // Attempt to fetch with retries
-            for (let attempt = 1; attempt <= this.retryAttempts; attempt++) {
-                try {
-
-                    const response = await fetch(
-                        `${this.baseUrl}/simple/price?ids=bitcoin&vs_currencies=usd,eur`,
-                        {
-                            method: 'GET',
-                            headers: {
-                                'Accept': 'application/json',
-                            },
-                            // Add timeout
-                            signal: AbortSignal.timeout(10000) // 10 second timeout
-                        }
-                    );
-
-                    if (!response.ok) {
-                        if (response.status === 429) {
-                            this.rateLimitDelay = Math.min(this.rateLimitDelay * 2, 60000); // Max 1 minute
-                            throw new Error(`Rate limited: ${response.status}`);
-                        }
-                        throw new Error(`HTTP error: ${response.status}`);
+            // Single attempt to fetch (no retries to prevent spam)
+            try {
+                const response = await fetch(
+                    `${this.baseUrl}/simple/price?ids=bitcoin&vs_currencies=usd,eur`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json',
+                        },
+                        signal: AbortSignal.timeout(8000) // 8 second timeout
                     }
+                );
 
-                    const data = await response.json();
-
-                    if (!data.bitcoin) {
-                        throw new Error('Invalid response format');
+                if (!response.ok) {
+                    if (response.status === 429) {
+                        // Block API calls for 10 minutes on rate limit
+                        this.isBlocked = true;
+                        this.blockUntil = Date.now() + 600000; // 10 minutes
+                        this.saveState(); // Persist blocking state
+                        throw new Error('Rate limited - API blocked temporarily');
                     }
-
-                    // Success - reset rate limit delay and cache result
-                    this.rateLimitDelay = 10000; // Reset to default
-                    this.lastFetchTime = Date.now();
-                    const priceData = {
-                        usd: data.bitcoin.usd,
-                        eur: data.bitcoin.eur,
-                        lastUpdated: this.lastFetchTime,
-                        isFallback: false
-                    };
-
-                    priceCache.set(this.cacheKey, priceData);
-                    return priceData;
-
-                } catch (error) {
-
-                    if (attempt < this.retryAttempts) {
-                        await new Promise(resolve => setTimeout(resolve, this.retryDelay));
-                    }
+                    throw new Error(`HTTP error: ${response.status}`);
                 }
+
+                const data = await response.json();
+
+                if (!data.bitcoin) {
+                    throw new Error('Invalid response format');
+                }
+
+                // Success - reset delays and cache result
+                this.rateLimitDelay = 30000; // Reset to default
+                this.lastFetchTime = Date.now();
+                this.isBlocked = false;
+                this.blockUntil = 0;
+                this.saveState(); // Persist success state
+                
+                const priceData = {
+                    usd: data.bitcoin.usd,
+                    eur: data.bitcoin.eur,
+                    lastUpdated: this.lastFetchTime,
+                    isFallback: false
+                };
+
+                priceCache.set(this.cacheKey, priceData);
+                return priceData;
+
+            } catch (error) {
+                // Handle CORS and network errors by blocking API
+                if (error.name === 'TypeError' || error.message.includes('CORS') || error.message.includes('Failed to fetch')) {
+                    this.isBlocked = true;
+                    this.blockUntil = Date.now() + 600000; // 10 minutes for CORS/network issues
+                    this.saveState(); // Persist blocking state
+                }
+                throw error;
             }
 
-            // All attempts failed
-            throw new Error('All fetch attempts failed');
 
         } catch (error) {
-
+            // Silent error handling - no console logs to prevent spam
+            
             // Return cached price if available
             const staleCachedPrice = priceCache.get(this.cacheKey, 300000); // 5 min stale cache
             if (staleCachedPrice) {
@@ -150,6 +172,43 @@ class CoinGeckoService {
         this.lastFetchTime = 0;
     }
 
+    // Load state from localStorage
+    loadState() {
+        try {
+            const stored = localStorage.getItem(this.storageKey);
+            if (stored) {
+                const state = JSON.parse(stored);
+                this.isBlocked = state.isBlocked || false;
+                this.blockUntil = state.blockUntil || 0;
+                this.lastFetchTime = state.lastFetchTime || 0;
+                
+                // If block period expired, reset
+                if (this.isBlocked && Date.now() >= this.blockUntil) {
+                    this.isBlocked = false;
+                    this.blockUntil = 0;
+                    this.saveState();
+                }
+            }
+        } catch (error) {
+            // Silent fail - use defaults
+        }
+    }
+    
+    // Save state to localStorage
+    saveState() {
+        try {
+            const state = {
+                isBlocked: this.isBlocked,
+                blockUntil: this.blockUntil,
+                lastFetchTime: this.lastFetchTime,
+                savedAt: Date.now()
+            };
+            localStorage.setItem(this.storageKey, JSON.stringify(state));
+        } catch (error) {
+            // Silent fail
+        }
+    }
+
     // Get cache status
     getCacheStatus() {
         const cachedPrice = priceCache.get(this.cacheKey);
@@ -157,6 +216,8 @@ class CoinGeckoService {
             hasCache: !!cachedPrice,
             isValid: !!cachedPrice,
             canRequest: this.canMakeRequest(),
+            isBlocked: this.isBlocked,
+            blockUntil: this.blockUntil,
             lastFetch: this.lastFetchTime,
             nextRequestIn: Math.max(0, this.rateLimitDelay - (Date.now() - this.lastFetchTime))
         };

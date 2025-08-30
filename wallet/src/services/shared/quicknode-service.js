@@ -4,178 +4,113 @@ import config from '@/config';
 
 /**
  * QuickNode Bitcoin API Service
- * Centralized interface for all QuickNode API interactions
+ * All traffic goes through local proxy
  */
 export class QuickNodeService {
     constructor() {
         this.timeout = 10000; // 10 seconds timeout
-        this._routeMode = 'auto'; // 'auto' | 'proxy' | 'direct'
-        this._routeResolved = false;
+        console.log('[QUICKNODE] Service initialized - PROXY MODE (all traffic through local proxy)');
     }
 
     /**
-     * Check if QuickNode is available and configured for specific network
+     * Check if QuickNode proxy is available
      */
     isAvailable(network) {
-        const url = config.bitcoin.getQuickNodeApiUrl(network);
-        return url !== null && url !== undefined && url.trim() !== '';
+        const url = config.bitcoin.getQuickNodeApiUrl();
+        const available = url !== null && url !== undefined && url.trim() !== '';
+        console.log(`[QUICKNODE] isAvailable(${network}): ${available}, Proxy URL: ${url ? 'configured' : 'not configured'}`);
+        return available;
     }
 
-    /**
-     * Initialize routing mode once (call this on app start if you want eager resolution)
-     */
-    async initRouting(network = null) {
-        await this.resolveRouteModeOnce(network);
-        return this._routeMode;
-    }
 
     /**
-     * Decide once whether to use direct or proxy calls when mode is 'auto'.
-     * We try a small direct JSON-RPC call (getblockcount). If CORS/network blocks, we fallback to 'proxy'.
-     */
-    async resolveRouteModeOnce(network = null) {
-        if (this._routeResolved) return this._routeMode;
-
-        // Respect explicit configuration
-        // No env-based override; always auto-detect
-
-        // Auto-detect: attempt a direct probe
-        const url = config.bitcoin.getQuickNodeApiUrl(network || config.bitcoin.network);
-        if (!url) {
-            // No QuickNode config -> mark resolved but leave as 'proxy' to force server route if called
-            this._routeMode = 'proxy';
-            this._routeResolved = true;
-            return this._routeMode;
-        }
-
-        const probePayload = {
-            jsonrpc: '2.0',
-            id: Date.now(),
-            method: 'getblockcount',
-            params: [],
-        };
-
-        try {
-            const resp = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(probePayload),
-                signal: AbortSignal.timeout(3000),
-                mode: 'cors',
-            });
-            // If we got here without CORS/network exception, consider direct viable regardless of JSON body
-            if (resp.ok) {
-                this._routeMode = 'direct';
-            } else {
-                // Non-2xx still proves CORS not blocking; but prefer OK to be safe. If non-ok, fallback to proxy
-                this._routeMode = 'proxy';
-            }
-        } catch (e) {
-            // Any fetch/CORS failure => use proxy
-            this._routeMode = 'proxy';
-        }
-
-        this._routeResolved = true;
-        return this._routeMode;
-    }
-
-    /**
-     * Make authenticated request to QuickNode
+     * Make request to QuickNode through local proxy
      */
     async makeRequest(method, params = [], network = null) {
-        // Guard: ensure QuickNode is configured for the selected network
-        if (!this.isAvailable(network)) {
-            throw new Error(`QuickNode not configured for network: ${network || config.bitcoin.network}`);
-        }
-
-        // Ensure routing is resolved once
-        await this.resolveRouteModeOnce(network);
-
         const targetNetwork = network || config.bitcoin.network;
-
-        // Branch based on resolved mode
-        if (this._routeMode === 'direct') {
-            const url = config.bitcoin.getQuickNodeApiUrl(targetNetwork);
-            const payload = { jsonrpc: '2.0', id: Date.now(), method, params };
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                    signal: AbortSignal.timeout(this.timeout),
-                    mode: 'cors',
-                });
-
-                if (!response.ok) {
-                    throw new Error(`QuickNode API error: ${response.status}`);
-                }
-
-                const data = await response.json();
-                if (data && data.error) {
-                    const message = typeof data.error === 'string' ? data.error : (data.error.message || 'RPC error');
-                    throw new Error(`QuickNode RPC error: ${message}`);
-                }
-                return data?.result;
-            } catch (error) {
-                // If direct fails unexpectedly (e.g., deployment env), fallback to proxy for this call and stick to proxy for future
-                this._routeMode = 'proxy';
-                this._routeResolved = true;
-                // Continue to proxy path below
-            }
+        console.log(`[QUICKNODE] makeRequest: ${method}, network: ${targetNetwork} (via proxy)`);
+        
+        // Guard: ensure QuickNode proxy is configured
+        if (!this.isAvailable()) {
+            throw new Error(`QuickNode proxy not configured`);
         }
 
-        // Proxy path (default/fallback)
-        const proxyUrl = '/api/quicknode';
-        const proxyPayload = { method, params, network: targetNetwork };
+        const proxyUrl = config.bitcoin.getQuickNodeApiUrl();
+        const payload = { 
+            jsonrpc: '2.0', 
+            id: Date.now(), 
+            method, 
+            params,
+            network: targetNetwork // Pass network to proxy for routing
+        };
+        
+        console.log(`[QUICKNODE] Making proxy request to: ${proxyUrl}`);
+        
         try {
             const response = await fetch(proxyUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(proxyPayload),
+                body: JSON.stringify(payload),
                 signal: AbortSignal.timeout(this.timeout),
             });
+
+            console.log(`[QUICKNODE] Proxy response status: ${response.status}`);
 
             if (!response.ok) {
                 throw new Error(`QuickNode proxy error: ${response.status}`);
             }
 
-            const rpc = await response.json();
-            if (rpc && rpc.error) {
-                const message = typeof rpc.error === 'string' ? rpc.error : (rpc.error.message || 'RPC error');
+            const data = await response.json();
+            if (data && data.error) {
+                const message = typeof data.error === 'string' ? data.error : (data.error.message || 'RPC error');
                 throw new Error(`QuickNode RPC error: ${message}`);
             }
-            return rpc?.result;
+            return data?.result;
         } catch (error) {
-            if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                throw new Error('QuickNode proxy unavailable. Check network connection and API configuration.');
-            }
+            console.error(`[QUICKNODE] Proxy call failed:`, error);
             throw error;
         }
     }
 
     /**
-     * Get UTXO information for an address using Blockbook RPC
+     * Get UTXO information for an address using QuickNode Blockbook add-on
+     * NOTE: Using paid Blockbook add-on in QuickNode Pro account for bb_getutxos method
      */
     async getAddressUTXOs(address, network = null) {
-        // Use bb_getUTXOs with Blockbook RPC (includes mempool + confirmed)
-        const utxos = await this.makeRequest('bb_getUTXOs', [address, { confirmed: false }], network);
+        console.log(`[QUICKNODE] getAddressUTXOs for address: ${address}, network: ${network}`);
         
-        // Convert QuickNode Blockbook format to our standard format
-        return utxos.map(utxo => ({
-            txid: utxo.txid,
-            vout: utxo.vout,
-            value: parseInt(utxo.value, 10), // Convert string to number (satoshis)
-            address: address,
-            confirmations: utxo.confirmations ?? 0,
-            blockHeight: utxo.height,
-            coinbase: utxo.coinbase || false,
-            status: {
-                confirmed: (utxo.confirmations ?? 0) > 0,
-                block_height: utxo.height || null,
-                block_hash: null,
-                block_time: null
+        try {
+            // Use bb_getutxos with QuickNode Blockbook add-on (paid feature)
+            // This requires Blockbook add-on enabled in QuickNode Pro account
+            const utxos = await this.makeRequest('bb_getutxos', [address], network);
+            
+            console.log(`[QUICKNODE] bb_getutxos result:`, utxos);
+            
+            if (!utxos || utxos.length === 0) {
+                console.log(`[QUICKNODE] No UTXOs found for address ${address}`);
+                return [];
             }
-        }));
+            
+            // Convert QuickNode Blockbook format to our standard format
+            return utxos.map(utxo => ({
+                txid: utxo.txid,
+                vout: utxo.vout,
+                value: parseInt(utxo.value, 10), // Convert string to number (satoshis)
+                address: address,
+                confirmations: utxo.confirmations ?? 0,
+                blockHeight: utxo.height,
+                coinbase: utxo.coinbase || false,
+                status: {
+                    confirmed: (utxo.confirmations ?? 0) > 0,
+                    block_height: utxo.height || null,
+                    block_hash: null,
+                    block_time: null
+                }
+            }));
+        } catch (error) {
+            console.error(`[QUICKNODE] Error getting UTXOs for ${address}:`, error);
+            throw error;
+        }
     }
 
     /**

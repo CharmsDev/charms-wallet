@@ -45,7 +45,7 @@ lerna-debug.log*
 yarn-error.log*
 
 # Configuration and temporary files
-.env
+.envXXX
 .env.local
 .env.development.local
 .env.test.local
