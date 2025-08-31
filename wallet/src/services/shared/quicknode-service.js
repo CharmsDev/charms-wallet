@@ -4,60 +4,55 @@ import config from '@/config';
 
 /**
  * QuickNode Bitcoin API Service
- * All traffic goes through local proxy
+ * Direct provider mode: browser calls QuickNode endpoints directly
  */
 export class QuickNodeService {
     constructor() {
         this.timeout = 10000; // 10 seconds timeout
-        console.log('[QUICKNODE] Service initialized - PROXY MODE (all traffic through local proxy)');
     }
 
     /**
-     * Check if QuickNode proxy is available
+     * Check if QuickNode direct configuration is available
      */
     isAvailable(network) {
-        const url = config.bitcoin.getQuickNodeApiUrl();
-        const available = url !== null && url !== undefined && url.trim() !== '';
-        console.log(`[QUICKNODE] isAvailable(${network}): ${available}, Proxy URL: ${url ? 'configured' : 'not configured'}`);
-        return available;
+        const url = config.bitcoin.getQuickNodeApiUrl(network);
+        const key = config.bitcoin.getQuickNodeApiKey(network);
+        return !!(url && url.trim() !== '' && key && key.trim() !== '');
     }
 
 
     /**
-     * Make request to QuickNode through local proxy
+     * Make request directly to QuickNode (Basic Auth)
      */
     async makeRequest(method, params = [], network = null) {
         const targetNetwork = network || config.bitcoin.network;
-        console.log(`[QUICKNODE] makeRequest: ${method}, network: ${targetNetwork} (via proxy)`);
         
-        // Guard: ensure QuickNode proxy is configured
-        if (!this.isAvailable()) {
-            throw new Error(`QuickNode proxy not configured`);
+        // Guard: ensure QuickNode is configured
+        if (!this.isAvailable(targetNetwork)) {
+            throw new Error(`QuickNode not configured`);
         }
 
-        const proxyUrl = config.bitcoin.getQuickNodeApiUrl();
-        const payload = { 
-            jsonrpc: '2.0', 
-            id: Date.now(), 
-            method, 
-            params,
-            network: targetNetwork // Pass network to proxy for routing
-        };
-        
-        console.log(`[QUICKNODE] Making proxy request to: ${proxyUrl}`);
+        const url = config.bitcoin.getQuickNodeApiUrl(targetNetwork);
+        const apiKey = config.bitcoin.getQuickNodeApiKey(targetNetwork);
+        const payload = { jsonrpc: '2.0', id: Date.now(), method, params };
         
         try {
-            const response = await fetch(proxyUrl, {
+            const headers = { 'Content-Type': 'application/json' };
+            // Use Basic Auth with API key as username and empty password
+            try {
+                const token = typeof btoa === 'function' ? btoa(`${apiKey}:`) : Buffer.from(`${apiKey}:`).toString('base64');
+                headers['Authorization'] = `Basic ${token}`;
+            } catch (_) {}
+
+            const response = await fetch(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify(payload),
                 signal: AbortSignal.timeout(this.timeout),
             });
 
-            console.log(`[QUICKNODE] Proxy response status: ${response.status}`);
-
             if (!response.ok) {
-                throw new Error(`QuickNode proxy error: ${response.status}`);
+                throw new Error(`QuickNode error: ${response.status}`);
             }
 
             const data = await response.json();
@@ -67,7 +62,7 @@ export class QuickNodeService {
             }
             return data?.result;
         } catch (error) {
-            console.error(`[QUICKNODE] Proxy call failed:`, error);
+            console.error(`[QuickNodeService] Direct call failed:`, error);
             throw error;
         }
     }
@@ -77,17 +72,11 @@ export class QuickNodeService {
      * NOTE: Using paid Blockbook add-on in QuickNode Pro account for bb_getutxos method
      */
     async getAddressUTXOs(address, network = null) {
-        console.log(`[QUICKNODE] getAddressUTXOs for address: ${address}, network: ${network}`);
-        
         try {
             // Use bb_getutxos with QuickNode Blockbook add-on (paid feature)
             // This requires Blockbook add-on enabled in QuickNode Pro account
             const utxos = await this.makeRequest('bb_getutxos', [address], network);
-            
-            console.log(`[QUICKNODE] bb_getutxos result:`, utxos);
-            
             if (!utxos || utxos.length === 0) {
-                console.log(`[QUICKNODE] No UTXOs found for address ${address}`);
                 return [];
             }
             
@@ -108,7 +97,7 @@ export class QuickNodeService {
                 }
             }));
         } catch (error) {
-            console.error(`[QUICKNODE] Error getting UTXOs for ${address}:`, error);
+            console.error(`[QuickNodeService] Error getting UTXOs for ${address}:`, error);
             throw error;
         }
     }
