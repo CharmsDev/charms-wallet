@@ -17,7 +17,7 @@ import SendBitcoinDialog from '../utxos/SendBitcoinDialog';
 import ReceiveBitcoinDialog from './components/ReceiveBitcoinDialog';
 import SettingsDialog from './components/SettingsDialog';
 
-export default function UserDashboard({ seedPhrase, walletInfo, derivationLoading, createSuccess, onToggleTechnical }) {
+export default function UserDashboard({ seedPhrase, walletInfo, derivationLoading, createSuccess }) {
     const [showSendDialog, setShowSendDialog] = useState(false);
     const [showReceiveDialog, setShowReceiveDialog] = useState(false);
     const [showSettingsDialog, setShowSettingsDialog] = useState(false);
@@ -114,15 +114,6 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                             <div className={`w-2 h-2 rounded-full ${activeNetwork === 'mainnet' ? 'bg-green-500' : 'bg-orange-500'}`}></div>
                             <span className="capitalize">{activeNetwork}</span>
                         </div>
-                        {onToggleTechnical && (
-                            <button
-                                onClick={onToggleTechnical}
-                                className="text-xs text-dark-500 hover:text-dark-300 transition-colors"
-                                title="Switch to technical dashboard"
-                            >
-                                Tech Mode
-                            </button>
-                        )}
                     </div>
                 </div>
 
@@ -177,6 +168,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                         <WalletSeed
                             hasWallet={hasWallet}
                             seedPhrase={seedPhrase}
+                            walletInfo={walletInfo}
                         />
 
                         {/* Security Status */}

@@ -1,22 +1,17 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function WalletSeed({ hasWallet, seedPhrase }) {
-    const [showSeedPhrase, setShowSeedPhrase] = useState(false);
+export default function WalletSeed({ hasWallet, seedPhrase, walletInfo }) {
     const router = useRouter();
 
-    const copyToClipboard = async (text) => {
-        try {
-            await navigator.clipboard.writeText(text);
-        } catch (err) {
-            console.error('Failed to copy:', err);
-        }
-    };
 
     const handleShowInstructions = () => {
         router.push('/wallet-setup-instructions');
+    };
+
+    const handleShowWalletInfo = () => {
+        router.push('/wallet-information');
     };
 
     if (!hasWallet || !seedPhrase) {
@@ -36,42 +31,22 @@ export default function WalletSeed({ hasWallet, seedPhrase }) {
         <div className="card p-6">
             <h3 className="text-lg font-semibold gradient-text mb-4">Wallet Keys</h3>
             
-            {/* Seed Phrase Section */}
+            {/* Wallet Information Section */}
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h4 className="text-sm font-medium text-white">Seed Phrase</h4>
-                        <p className="text-xs text-dark-400">Your wallet recovery phrase</p>
+                        <h4 className="text-sm font-medium text-white">Wallet Information</h4>
+                        <p className="text-xs text-dark-400">View seed phrase, public keys, and technical details</p>
                     </div>
                     <div className="text-2xl">🔐</div>
                 </div>
 
                 <button
-                    onClick={() => setShowSeedPhrase(!showSeedPhrase)}
+                    onClick={handleShowWalletInfo}
                     className="w-full btn btn-secondary text-sm"
                 >
-                    {showSeedPhrase ? 'Hide' : 'Show'} Seed Phrase
+                    View Wallet Information
                 </button>
-
-                {showSeedPhrase && (
-                    <div className="glass-effect p-4 rounded-lg border-l-4 border-yellow-500">
-                        <div className="flex items-start space-x-2 mb-3">
-                            <span className="text-yellow-400">⚠️</span>
-                            <p className="text-xs text-yellow-400 font-medium">
-                                Keep your seed phrase secure and private
-                            </p>
-                        </div>
-                        <div className="bg-dark-900 p-3 rounded font-mono text-xs break-all mb-3">
-                            {seedPhrase}
-                        </div>
-                        <button
-                            onClick={() => copyToClipboard(seedPhrase)}
-                            className="w-full btn btn-primary text-xs py-2"
-                        >
-                            📋 Copy Seed Phrase
-                        </button>
-                    </div>
-                )}
 
                 {/* Bitcoin Core Integration */}
                 <div className="mt-6 pt-4 border-t border-dark-700">
@@ -89,10 +64,11 @@ export default function WalletSeed({ hasWallet, seedPhrase }) {
                     
                     <button
                         onClick={handleShowInstructions}
-                        className="w-full btn btn-outline text-sm"
+                        className="w-full btn btn-secondary text-sm"
                     >
                         📖 View Setup Instructions
                     </button>
+                    
                 </div>
 
                 {/* Security Tips */}

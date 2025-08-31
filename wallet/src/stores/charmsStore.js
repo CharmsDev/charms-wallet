@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect } from 'react';
 import { charmsService } from '@/services/charms/charms';
+import charmsExplorerAPI from '@/services/charms/charms-explorer-api';
 import { useUTXOs } from './utxoStore';
 import { useBlockchain } from './blockchainStore';
 import { getCharms, saveCharms } from '@/services/storage';
@@ -47,9 +48,12 @@ export function CharmsProvider({ children }) {
     const loadCharmsFromCache = async () => {
         try {
             const cachedCharms = await getCharms(activeBlockchain, activeNetwork);
+            
             if (cachedCharms && cachedCharms.length > 0) {
-                setCharms(cachedCharms);
-                console.log(`[CHARMS] Loaded ${cachedCharms.length} charms from cache`);
+                // Enhance cached charms with reference NFT data
+                const enhancedCharms = await charmsExplorerAPI.processCharmsWithReferenceData(cachedCharms);
+                setCharms(enhancedCharms);
+                console.log(`[CHARMS] Loaded ${enhancedCharms.length} charms from cache (enhanced with reference data)`);
             }
             setInitialized(true);
         } catch (error) {
@@ -76,11 +80,13 @@ export function CharmsProvider({ children }) {
             const charmsNetwork = activeNetwork === 'testnet' ? 'testnet4' : 'mainnet';
             const fetchedCharms = await charmsService.getCharmsByUTXOs(utxos, charmsNetwork);
             
-            setCharms(fetchedCharms);
+            // Enhance fetched charms with reference NFT data
+            const enhancedCharms = await charmsExplorerAPI.processCharmsWithReferenceData(fetchedCharms);
+            setCharms(enhancedCharms);
             
-            // Cache the results
-            await saveCharms(fetchedCharms, activeBlockchain, activeNetwork);
-            console.log(`[CHARMS] Loaded and cached ${fetchedCharms.length} charms`);
+            // Cache the enhanced results
+            await saveCharms(enhancedCharms, activeBlockchain, activeNetwork);
+            console.log(`[CHARMS] Loaded and cached ${enhancedCharms.length} charms (enhanced with reference data)`);
         } catch (error) {
             console.error('[CHARMS] Failed to load charms:', error);
             setError('Failed to load charms');
