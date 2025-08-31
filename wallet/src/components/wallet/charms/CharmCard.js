@@ -11,12 +11,13 @@ export default function CharmCard({ charm }) {
     const [showTransferDialog, setShowTransferDialog] = useState(false);
     const [imageError, setImageError] = useState(false);
 
-    // Get charm metadata
-    const name = charm.amount.name;
-    const description = charm.amount.description;
-    const image = !imageError && charm.amount.image;
-    const url = charm.amount.url;
+    // Extract charm metadata with priority for enhanced data
+    const name = charm.name || charm.amount?.name;
+    const description = charm.description || charm.amount?.description;
+    const image = !imageError && (charm.image || charm.amount?.image);
+    const displayAmount = charm.isBroToken ? charm.displayAmount : charm.amount?.remaining;
     const placeholderImage = "https://charms.dev/_astro/logo-charms-dark.Ceshk2t3.png";
+    const url = charm.url || charm.amount?.url;
 
     return (
         <div className="card card-hover flex flex-col h-full">
@@ -50,8 +51,11 @@ export default function CharmCard({ charm }) {
                     </div>
                     {!isNftCharm && (
                         <div className="text-right">
-                            <span className="text-lg font-bold text-bitcoin-400 bitcoin-glow-text">{charm.amount.remaining}</span>
-                            <p className="text-xs text-dark-300">{charm.amount.ticker}</p>
+                            <span className="text-lg font-bold text-bitcoin-400 bitcoin-glow-text">{displayAmount}</span>
+                            <p className="text-xs text-dark-300">{charm.amount?.ticker}</p>
+                            {charm.isBroToken && (
+                                <p className="text-xs text-primary-400">BRO</p>
+                            )}
                         </div>
                     )}
                 </div>
