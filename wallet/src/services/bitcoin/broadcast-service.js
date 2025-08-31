@@ -2,6 +2,8 @@
 
 import config from '@/config';
 import { quickNodeService } from '@/services/shared/quicknode-service';
+import { utxoVerifier } from '@/services/utxo/core/verifier';
+import { BLOCKCHAINS } from '@/stores/blockchainStore';
 export class BitcoinBroadcastService {
     constructor() {
         this.maxRetries = 2;
@@ -41,7 +43,12 @@ export class BitcoinBroadcastService {
 
         } catch (error) {
             if (error.message.includes('bad-txns-inputs-missingorspent')) {
-                this.markUtxosAsSpent(selectedUtxos);
+                // Immediately remove spent UTXOs from storage/state (no blacklist)
+                try {
+                    for (const utxo of selectedUtxos) {
+                        await utxoVerifier.removeUtxo(utxo.txid, utxo.vout, BLOCKCHAINS.BITCOIN, network);
+                    }
+                } catch (_) {}
                 
                 if (utxoUpdateCallback) {
                     try {
@@ -55,36 +62,6 @@ export class BitcoinBroadcastService {
             }
 
             throw error;
-        }
-    }
-
-    markUtxosAsSpent(utxos) {
-        try {
-            const spentKey = 'bitcoin_spent_utxos';
-            const existing = JSON.parse(localStorage.getItem(spentKey) || '{}');
-            
-            for (const utxo of utxos) {
-                const utxoId = `${utxo.txid}:${utxo.vout}`;
-                existing[utxoId] = {
-                    txid: utxo.txid,
-                    vout: utxo.vout,
-                    timestamp: Date.now()
-                };
-            }
-            
-            localStorage.setItem(spentKey, JSON.stringify(existing));
-        } catch (error) {
-            // Silent fail
-        }
-    }
-
-    static isUtxoSpent(txid, vout) {
-        try {
-            const spentKey = 'bitcoin_spent_utxos';
-            const spent = JSON.parse(localStorage.getItem(spentKey) || '{}');
-            return !!spent[`${txid}:${vout}`];
-        } catch (error) {
-            return false;
         }
     }
 }
