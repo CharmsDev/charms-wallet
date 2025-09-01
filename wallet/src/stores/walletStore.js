@@ -136,10 +136,10 @@ export function WalletProvider({ children }) {
         createWallet,
         importWallet,
         clearWallet,
+        initializeWallet,
         isInitializing,
         initializationStep,
-        initializationProgress,
-        initializeWalletComplete
+        initializationProgress
     };
 
     return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
