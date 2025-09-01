@@ -31,30 +31,63 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
 
     // Memoize BRO token balance calculation to prevent redundant processing
     const broBalance = useMemo(() => {
-        // Sum all BRO tokens across multiple charms
-        const broCharms = charms.filter(charm => 
-            charm.amount?.ticker === 'CHARMS-TOKEN' || 
-            charm.amount?.name?.toLowerCase().includes('bro')
-        );
+        
+        // Sum all BRO tokens across multiple charms - use enhanced data if available
+        const broCharms = charms.filter(charm => {
+            const isBro = charm.isBroToken || 
+                         charm.amount?.ticker === 'CHARMS-TOKEN' || 
+                         charm.amount?.ticker === '$BRO' ||
+                         charm.amount?.name?.toLowerCase().includes('bro');
+            
+            console.log('[BALANCE] Checking charm:', {
+                isBroToken: charm.isBroToken,
+                ticker: charm.amount?.ticker,
+                name: charm.amount?.name,
+                isBro: isBro,
+                remaining: charm.amount?.remaining
+            });
+            
+            return isBro;
+        });
         
         const totalBalance = broCharms.reduce((total, charm) => {
-            if (charm.amount?.remaining) {
-                return total + (charm.amount.remaining / 100000000);
+            let charmBalance = 0;
+            
+            // Use displayAmount directly - it's already properly converted
+            if (charm.displayAmount) {
+                charmBalance = parseFloat(charm.displayAmount);
+            } else if (charm.amount?.remaining) {
+                const remainingValue = parseFloat(charm.amount.remaining);
+                if (remainingValue > 1000) {
+                    // Large raw number needs conversion
+                    charmBalance = remainingValue / Math.pow(10, 8);
+                } else {
+                    // Already converted
+                    charmBalance = remainingValue;
+                }
             }
-            return total;
+            
+            return total + charmBalance;
         }, 0);
         
-        console.log(`[BALANCE] Calculated BRO balance: ${broCharms.length} charms, total: ${totalBalance}`);
         return totalBalance;
     }, [charms]); // Only recalculate when charms array changes
 
-    // Load charms only if not already initialized and we have no cached data
+    // Load charms when wallet is initialized or network changes
     useEffect(() => {
-        if (activeBlockchain && activeNetwork && initialized && charms.length === 0 && !charmsLoading) {
-            console.log('[BALANCE] Loading charms for token balance calculation');
-            loadCharms();
+        if (activeBlockchain && activeNetwork && initialized && !charmsLoading) {
+            // Always load charms when network changes or wallet is initialized
+            if (charms.length === 0) {
+                loadCharms();
+            }
         }
-    }, [activeBlockchain, activeNetwork, initialized, charms.length, charmsLoading, loadCharms]);
+    }, [activeBlockchain, activeNetwork, initialized, charmsLoading, loadCharms]);
+
+    // Force balance recalculation when charms change
+    useEffect(() => {
+        if (charms.length > 0) {
+        }
+    }, [charms]);
 
     useEffect(() => {
         if (btcPrice && !priceLoading) {
@@ -120,16 +153,27 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
                         {/* Bro Token Balance */}
                         <div className="glass-effect p-4 rounded-xl border border-dark-600">
                             <div className="flex items-center space-x-2 mb-2">
-                                <div className="w-6 h-6 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
-                                    <span className="text-xs font-bold text-white">B</span>
+                                <div className="w-6 h-6 rounded-full overflow-hidden">
+                                    <img 
+                                        src="https://bro.charms.dev/assets/bro-token-DsXLIv23.jpg" 
+                                        alt="Bro Token" 
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                            e.target.style.display = 'none';
+                                            e.target.nextSibling.style.display = 'flex';
+                                        }}
+                                    />
+                                    <div className="w-6 h-6 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center" style={{display: 'none'}}>
+                                        <span className="text-xs font-bold text-white">B</span>
+                                    </div>
                                 </div>
-                                <span className="text-sm font-medium text-dark-300">Bro Token</span>
+                                <span className="text-sm font-medium text-dark-300">Bro</span>
                             </div>
                             <div className="text-2xl font-bold text-purple-400 mb-1">
                                 {charmsLoading ? (
                                     <div className="h-8 bg-dark-700 rounded animate-pulse w-24"></div>
                                 ) : (
-                                    `${broBalance.toFixed(2)} BRO`
+                                    `${broBalance.toFixed(2)} $BRO`
                                 )}
                             </div>
                             <div className="text-sm text-dark-400">

@@ -22,7 +22,6 @@ export function SuccessDialog({
     useEffect(() => {
         const refreshAfterTransaction = async () => {
             try {
-                console.log('[SUCCESS DIALOG] Refreshing after transaction:', txId);
                 
                 // Refresh change address and destination address (if ours)
                 await refreshTransactionAddresses(
@@ -38,7 +37,6 @@ export function SuccessDialog({
                 // Reload transactions to show the sent transaction immediately
                 await loadTransactions(activeBlockchain, activeNetwork);
                 
-                console.log('[SUCCESS DIALOG] Successfully refreshed UTXOs and transactions');
             } catch (error) {
                 console.error('[SUCCESS DIALOG] Error refreshing addresses:', error);
             }

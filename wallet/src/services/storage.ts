@@ -243,7 +243,6 @@ export const saveCharms = async (charms: any[], blockchain: string = BLOCKCHAINS
             count: charms.length
         };
         localStorage.setItem(key, JSON.stringify(charmsData));
-        console.log(`[STORAGE] Saved ${charms.length} charms to ${key}`);
     } catch (error) {
         console.error('[STORAGE] Failed to save charms:', error);
         throw error;
@@ -256,12 +255,10 @@ export const getCharms = async (blockchain: string = BLOCKCHAINS.BITCOIN, networ
         const stored = localStorage.getItem(key);
         
         if (!stored) {
-            console.log(`[STORAGE] No charms found for ${key}`);
             return [];
         }
 
         const charmsData = JSON.parse(stored);
-        console.log(`[STORAGE] Loaded ${charmsData.count || 0} charms from ${key}`);
         return charmsData.charms || [];
     } catch (error) {
         console.error('[STORAGE] Failed to load charms:', error);

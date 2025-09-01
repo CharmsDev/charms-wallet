@@ -41,7 +41,7 @@ export const useBlockchain = () => {
 export function BlockchainProvider({ children }) {
     // State for active blockchain and network
     const [activeBlockchain, setActiveBlockchain] = useState(BLOCKCHAINS.BITCOIN);
-    const [activeNetwork, setActiveNetwork] = useState(NETWORKS.BITCOIN.TESTNET);
+    const [activeNetwork, setActiveNetwork] = useState(NETWORKS.BITCOIN.MAINNET);
     const [isLoading, setIsLoading] = useState(true);
 
     // Load saved blockchain and network preferences on mount
@@ -59,9 +59,9 @@ export function BlockchainProvider({ children }) {
             } else {
                 // Set default network based on blockchain
                 if (savedBlockchain === BLOCKCHAINS.CARDANO) {
-                    setActiveNetwork(NETWORKS.CARDANO.TESTNET);
+                    setActiveNetwork(NETWORKS.CARDANO.MAINNET);
                 } else {
-                    setActiveNetwork(NETWORKS.BITCOIN.TESTNET);
+                    setActiveNetwork(NETWORKS.BITCOIN.MAINNET);
                 }
             }
 
@@ -76,13 +76,13 @@ export function BlockchainProvider({ children }) {
         localStorage.setItem(STORAGE_KEYS.ACTIVE_BLOCKCHAIN, blockchain);
         setActiveBlockchain(blockchain);
 
-        // Update network to match the blockchain's default testnet
+        // Update network to match the blockchain's default mainnet
         if (blockchain === BLOCKCHAINS.BITCOIN) {
-            setActiveNetwork(NETWORKS.BITCOIN.TESTNET);
-            localStorage.setItem(STORAGE_KEYS.ACTIVE_NETWORK, NETWORKS.BITCOIN.TESTNET);
+            setActiveNetwork(NETWORKS.BITCOIN.MAINNET);
+            localStorage.setItem(STORAGE_KEYS.ACTIVE_NETWORK, NETWORKS.BITCOIN.MAINNET);
         } else if (blockchain === BLOCKCHAINS.CARDANO) {
-            setActiveNetwork(NETWORKS.CARDANO.TESTNET);
-            localStorage.setItem(STORAGE_KEYS.ACTIVE_NETWORK, NETWORKS.CARDANO.TESTNET);
+            setActiveNetwork(NETWORKS.CARDANO.MAINNET);
+            localStorage.setItem(STORAGE_KEYS.ACTIVE_NETWORK, NETWORKS.CARDANO.MAINNET);
         }
     };
 

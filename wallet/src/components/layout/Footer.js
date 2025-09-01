@@ -7,7 +7,7 @@ export default function Footer() {
                         2025 Charms Wallet. All rights reserved.
                     </div>
                     <div className="text-sm text-dark-300">
-                        <span className="bitcoin-glow-text text-bitcoin-400">Version 0.3.4</span>
+                        <span className="bitcoin-glow-text text-bitcoin-400">Version 0.4.0</span>
                     </div>
                 </div>
             </div>

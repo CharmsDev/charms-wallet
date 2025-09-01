@@ -59,10 +59,14 @@ export default function CharmsList() {
 
                 <button
                     onClick={refreshCharms}
-                    className="btn btn-primary"
+                    className="btn btn-primary flex items-center gap-2"
                     disabled={isLoading}
+                    aria-busy={isLoading}
                 >
-                    {isLoading ? 'Loading...' : 'Refresh'}
+                    {isLoading && (
+                        <span className="inline-block animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white" />
+                    )}
+                    {isLoading ? 'Refreshing…' : 'Refresh'}
                 </button>
             </div>
 
