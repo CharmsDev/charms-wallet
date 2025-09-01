@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { generateSeedPhrase, importSeedPhrase } from '@/utils/wallet';
 import { getSeedPhrase, clearSeedPhrase } from '@/services/storage';
-import { walletInitializationService } from '@/services/wallet/wallet-initialization-service';
+import { WalletInitializationService } from '@/services/wallet/wallet-initialization-service';
 
 // Create context
 const WalletContext = createContext();
@@ -100,9 +100,26 @@ export function WalletProvider({ children }) {
                 isImport,
                 'bitcoin',
                 'testnet',
-                (step, progress) => {
-                    setInitializationStep(step);
-                    setInitializationProgress(progress);
+                (step, progressOrMessage) => {
+                    // The service currently calls onStepChange(stepNumber, messageString)
+                    // Normalize to: initializationStep = message (string), initializationProgress = { current, total }
+                    if (typeof progressOrMessage === 'string') {
+                        // Set human-readable step message
+                        setInitializationStep(progressOrMessage);
+                        // Derive coarse progress from step index (7 visible steps)
+                        const totalSteps = 7;
+                        const current = Math.min(Number(step) || 0, totalSteps);
+                        setInitializationProgress({ current, total: totalSteps });
+                    } else if (progressOrMessage && typeof progressOrMessage === 'object') {
+                        // Pass through object progress if the service ever sends it
+                        setInitializationProgress({ ...progressOrMessage });
+                        // If step is a string message in this mode, reflect it; otherwise leave as-is
+                        setInitializationStep(typeof step === 'string' ? step : '');
+                    } else {
+                        // Fallback safe state
+                        setInitializationProgress({ current: 0, total: 0 });
+                        setInitializationStep('');
+                    }
                 },
                 (errorMessage) => {
                     setError(errorMessage);
@@ -137,6 +154,7 @@ export function WalletProvider({ children }) {
         importWallet,
         clearWallet,
         initializeWallet,
+        initializeWalletComplete: initializeWallet, // Alias for backward compatibility
         isInitializing,
         initializationStep,
         initializationProgress

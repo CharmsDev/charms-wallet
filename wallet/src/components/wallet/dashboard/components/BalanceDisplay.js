@@ -7,7 +7,7 @@ import { useBlockchain } from '@/stores/blockchainStore';
 export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoading, network }) {
     const [showUSD, setShowUSD] = useState(false);
     const [trend, setTrend] = useState(null);
-    const { charms, loadCharms, loading: charmsLoading, initialized } = useCharms();
+    const { charms, loadCharms, isLoading: charmsLoading, initialized } = useCharms();
     const { activeBlockchain, activeNetwork } = useBlockchain();
 
     // Format balance in BTC
@@ -38,15 +38,6 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
                          charm.amount?.ticker === 'CHARMS-TOKEN' || 
                          charm.amount?.ticker === '$BRO' ||
                          charm.amount?.name?.toLowerCase().includes('bro');
-            
-            console.log('[BALANCE] Checking charm:', {
-                isBroToken: charm.isBroToken,
-                ticker: charm.amount?.ticker,
-                name: charm.amount?.name,
-                isBro: isBro,
-                remaining: charm.amount?.remaining
-            });
-            
             return isBro;
         });
         
@@ -76,12 +67,11 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
     // Load charms when wallet is initialized or network changes
     useEffect(() => {
         if (activeBlockchain && activeNetwork && initialized && !charmsLoading) {
-            // Always load charms when network changes or wallet is initialized
             if (charms.length === 0) {
                 loadCharms();
             }
         }
-    }, [activeBlockchain, activeNetwork, initialized, charmsLoading, loadCharms]);
+    }, [activeBlockchain, activeNetwork, initialized, charmsLoading, charms.length]);
 
     // Force balance recalculation when charms change
     useEffect(() => {

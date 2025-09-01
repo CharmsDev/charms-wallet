@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { charmsService } from '@/services/charms/charms';
 import charmsExplorerAPI from '@/services/charms/charms-explorer-api';
 import { useUTXOs } from './utxoStore';
@@ -23,6 +23,8 @@ export function CharmsProvider({ children }) {
     const [error, setError] = useState(null);
     const [initialized, setInitialized] = useState(false);
     const [currentNetwork, setCurrentNetwork] = useState(null);
+    const fetchPromiseRef = useRef(null);
+    const lastFetchRef = useRef({ sig: null, at: 0 });
     const { utxos } = useUTXOs();
     const { activeNetwork, activeBlockchain } = useBlockchain();
 
@@ -43,6 +45,14 @@ export function CharmsProvider({ children }) {
             loadCharmsFromCache();
         }
     }, [activeNetwork, activeBlockchain]);
+
+    // After cache initialization: if we have UTXOs but no charms in cache, fetch from API
+    useEffect(() => {
+        // Only trigger when cache has been checked, not currently loading, and charms are empty
+        if (initialized && !isLoading && charms.length === 0 && Object.keys(utxos).length > 0) {
+            loadCharms(false);
+        }
+    }, [initialized, isLoading, charms.length, utxos, activeNetwork, activeBlockchain]);
 
     // Load charms from localStorage cache
     const loadCharmsFromCache = async () => {
@@ -69,34 +79,45 @@ export function CharmsProvider({ children }) {
 
     // Load charms from API and cache them
     const loadCharms = async (forceRefresh = false) => {
-        // If already loading or no UTXOs available, skip
-        if (isLoading || Object.keys(utxos).length === 0) {
-            return;
+        // If no UTXOs available, skip
+        if (Object.keys(utxos).length === 0) return;
+
+        // Compute a short-lived fetch signature to avoid refetching for the same inputs
+        const txIds = Array.from(new Set(Object.values(utxos).flat().map(u => u.txid))).sort();
+        const sig = `${activeBlockchain}-${activeNetwork}:${txIds.join(',')}`;
+        const now = Date.now();
+
+        // If not forcing refresh and we recently fetched the same signature, skip (30s)
+        if (!forceRefresh && lastFetchRef.current.sig === sig && (now - lastFetchRef.current.at) < 30000) {
+            return fetchPromiseRef.current || undefined;
         }
 
-        // If not forcing refresh and we have cached charms, use them
-        if (!forceRefresh && charms.length > 0) {
-            return;
+        // If a fetch is already in-flight for this signature, reuse it
+        if (fetchPromiseRef.current && isLoading) {
+            return fetchPromiseRef.current;
         }
 
-        try {
-            setIsLoading(true);
-            setError(null);
-            const charmsNetwork = activeNetwork === 'testnet' ? 'testnet4' : 'mainnet';
-            const fetchedCharms = await charmsService.getCharmsByUTXOs(utxos, charmsNetwork);
-            
-            // Enhance fetched charms with reference NFT data
-            const enhancedCharms = await charmsExplorerAPI.processCharmsWithReferenceData(fetchedCharms);
-            setCharms(enhancedCharms);
-            
-            // Cache the enhanced results
-            await saveCharms(enhancedCharms, activeBlockchain, activeNetwork);
-        } catch (error) {
-            console.error('[CHARMS] Failed to load charms:', error);
-            setError('Failed to load charms');
-        } finally {
-            setIsLoading(false);
-        }
+        const run = async () => {
+            try {
+                setIsLoading(true);
+                setError(null);
+                const charmsNetwork = activeNetwork === 'testnet' ? 'testnet4' : 'mainnet';
+                const fetchedCharms = await charmsService.getCharmsByUTXOs(utxos, charmsNetwork);
+                const enhancedCharms = await charmsExplorerAPI.processCharmsWithReferenceData(fetchedCharms);
+                setCharms(enhancedCharms);
+                await saveCharms(enhancedCharms, activeBlockchain, activeNetwork);
+            } catch (error) {
+                console.error('[CHARMS] Failed to load charms:', error);
+                setError('Failed to load charms');
+            } finally {
+                setIsLoading(false);
+                lastFetchRef.current = { sig, at: Date.now() };
+                fetchPromiseRef.current = null;
+            }
+        };
+
+        fetchPromiseRef.current = run();
+        return fetchPromiseRef.current;
     };
 
     const refreshCharms = async () => {

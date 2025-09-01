@@ -9,6 +9,11 @@ import config from '@/config';
 export class QuickNodeService {
     constructor() {
         this.timeout = 10000; // 10 seconds timeout
+        // Simple in-memory cache and inflight tracking to prevent duplicate requests
+        this.txHexCache = new Map(); // key: `${network}:${txid}` -> { value, expiry }
+        this.txCacheTTL = 60 * 1000; // 60s TTL for tx hex
+        this.inflight = new Map(); // key -> Promise
+        this.retryDelays = [300, 700, 1500]; // backoff for 429/5xx
     }
 
     /**
@@ -36,14 +41,14 @@ export class QuickNodeService {
         const apiKey = config.bitcoin.getQuickNodeApiKey(targetNetwork);
         const payload = { jsonrpc: '2.0', id: Date.now(), method, params };
         
+        const headers = { 'Content-Type': 'application/json' };
+        // Use Basic Auth with API key as username and empty password
         try {
-            const headers = { 'Content-Type': 'application/json' };
-            // Use Basic Auth with API key as username and empty password
-            try {
-                const token = typeof btoa === 'function' ? btoa(`${apiKey}:`) : Buffer.from(`${apiKey}:`).toString('base64');
-                headers['Authorization'] = `Basic ${token}`;
-            } catch (_) {}
+            const token = typeof btoa === 'function' ? btoa(`${apiKey}:`) : Buffer.from(`${apiKey}:`).toString('base64');
+            headers['Authorization'] = `Basic ${token}`;
+        } catch (_) {}
 
+        const attempt = async () => {
             const response = await fetch(url, {
                 method: 'POST',
                 headers,
@@ -52,6 +57,12 @@ export class QuickNodeService {
             });
 
             if (!response.ok) {
+                // 429/5xx -> allow retry
+                if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
+                    const err = new Error(`QuickNode retryable error: ${response.status}`);
+                    err.status = response.status;
+                    throw err;
+                }
                 throw new Error(`QuickNode error: ${response.status}`);
             }
 
@@ -61,10 +72,25 @@ export class QuickNodeService {
                 throw new Error(`QuickNode RPC error: ${message}`);
             }
             return data?.result;
-        } catch (error) {
-            console.error(`[QuickNodeService] Direct call failed:`, error);
-            throw error;
+        };
+
+        let lastError = null;
+        for (let i = 0; i <= this.retryDelays.length; i++) {
+            try {
+                return await attempt();
+            } catch (error) {
+                lastError = error;
+                const isRetryable = error && (error.status === 429 || (error.status >= 500 && error.status < 600));
+                if (i < this.retryDelays.length && isRetryable) {
+                    await new Promise(res => setTimeout(res, this.retryDelays[i]));
+                    continue;
+                }
+                console.error(`[QuickNodeService] Direct call failed:`, error);
+                throw error;
+            }
         }
+        // Should not reach here, throw last error
+        throw lastError || new Error('QuickNode request failed');
     }
 
     /**
@@ -145,11 +171,34 @@ export class QuickNodeService {
      * Get raw transaction hex
      */
     async getTransactionHex(txid, network = null) {
-        try {
-            return await this.makeRequest('getrawtransaction', [txid, false], network);
-        } catch (error) {
-            throw error;
+        const targetNetwork = network || config.bitcoin.network;
+        const key = `${targetNetwork}:${txid}`;
+        const now = Date.now();
+
+        // Serve from cache if fresh
+        const cached = this.txHexCache.get(key);
+        if (cached && cached.expiry > now) {
+            return cached.value;
         }
+
+        // Deduplicate inflight
+        if (this.inflight.has(key)) {
+            return this.inflight.get(key);
+        }
+
+        const p = (async () => {
+            const result = await this.makeRequest('getrawtransaction', [txid, false], targetNetwork);
+            // Cache result
+            this.txHexCache.set(key, { value: result, expiry: now + this.txCacheTTL });
+            return result;
+        })()
+            .finally(() => {
+                // Clear inflight after completion
+                this.inflight.delete(key);
+            });
+
+        this.inflight.set(key, p);
+        return p;
     }
 
     /**

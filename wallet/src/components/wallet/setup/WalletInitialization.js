@@ -7,18 +7,42 @@ export default function WalletInitialization({
     initializationProgress,
     onComplete
 }) {
-    const [currentStep, setCurrentStep] = useState(0);
-    const [currentMessage, setCurrentMessage] = useState('');
+    // Define the initialization steps
+    const initializationSteps = [
+        'Create wallet & seed phrase',
+        'Derive wallet information', 
+        'Generate addresses',
+        'Scan addresses',
+        'Scan for Charms',
+        'Scan for transaction history',
+        'Finalize setup'
+    ];
 
-    const handleStepChange = (step, message) => {
-        setCurrentStep(step);
-        setCurrentMessage(message);
-    };
+    // Derive current step index from the incoming message; fallback to numeric progress
+    const message = typeof initializationStep === 'string' ? initializationStep : '';
+    const normalizedMsg = message.toLowerCase();
+    const derivedStepFromMsg = (() => {
+        if (!normalizedMsg) return null;
+        if (normalizedMsg.includes('creating seed') || normalizedMsg.includes('validating seed')) return 0;
+        if (normalizedMsg.includes('deriving wallet')) return 1;
+        if (normalizedMsg.includes('generating addresses')) return 2;
+        if (normalizedMsg.includes('scanning addresses')) return 3;
+        if (normalizedMsg.includes('scanning for charms')) return 4;
+        if (normalizedMsg.includes('scanning for transaction history')) return 5;
+        if (normalizedMsg.includes('finalizing')) return 6;
+        return null;
+    })();
+
+    const derivedStepFromProgress = initializationProgress && initializationProgress.total > 0
+        ? Math.max(0, Math.min((initializationProgress.current || 0) - 1, initializationSteps.length - 1))
+        : 0;
+
+    const currentStepIndex = derivedStepFromMsg !== null ? derivedStepFromMsg : derivedStepFromProgress;
 
     const newStepStates = initializationSteps.map((_, index) => {
-        if (index < currentStep) {
+        if (index < currentStepIndex) {
             return 'completed';
-        } else if (index === currentStep) {
+        } else if (index === currentStepIndex) {
             return 'active';
         } else {
             return 'pending';
@@ -29,7 +53,7 @@ export default function WalletInitialization({
     useEffect(() => {
         if (initializationProgress.current === initializationProgress.total &&
             initializationProgress.total > 0 &&
-            initializationStep.includes('Finalizing')) {
+            typeof initializationStep === 'string' && initializationStep.includes('Finalizing')) {
             // Small delay before transitioning to show completion
             const timer = setTimeout(() => {
                 onComplete();
@@ -88,7 +112,7 @@ export default function WalletInitialization({
                 {/* Current Step */}
                 <div className="text-center space-y-4">
                     <p className="text-lg font-medium text-gray-300">
-                        {currentMessage || 'Preparing...'}
+                        {message || 'Preparing...'}
                     </p>
 
                     {/* Progress bar for address generation */}
@@ -240,7 +264,7 @@ export default function WalletInitialization({
                                     : 'bg-gray-600'
                         }`}></div>
                         <span className={`text-sm ${
-                            initializationStep.includes('Finalize setup')
+                            typeof initializationStep === 'string' && initializationStep.includes('Finalize setup')
                                 ? 'text-primary-400 font-medium'
                                 : progressPercentage === 100
                                     ? 'text-green-400'
