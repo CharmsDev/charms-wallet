@@ -5,14 +5,14 @@
 
 // BRO Token hardcoded data for mocking
 const BRO_TOKEN_DATA = {
-    name: "BRO Token",
+    name: "Bro",
     decimals: 8,
     image: "https://bro.charms.dev/assets/bro-token-DsXLIv23.jpg",
     description: ""
 };
 
 // BRO Token App ID (you'll need to replace this with the actual App ID)
-let BRO_TOKEN_APP_ID = "BRO_TOKEN_APP_ID"; // TODO: Replace with actual BRO token App ID
+let BRO_TOKEN_APP_ID = "6274399ab68d4a35e5193394aded0bed548453f6ebb7ea46dd2ca0c251f74580/b19151a83d13151dba4b493fe3cf7895eac22d57a7ee14c5f74484b583a2e90b"; // Mainnet App ID
 
 class CharmsExplorerAPI {
     constructor() {
@@ -85,11 +85,43 @@ class CharmsExplorerAPI {
      * @returns {Object} Enhanced charm data with BRO token information
      */
     getBroTokenData(charmData) {
-        // Calculate display amount using decimals
-        const rawAmount = charmData.amount?.remaining || charmData.amount || 0;
-        const displayAmount = rawAmount ? 
-            (rawAmount / Math.pow(10, BRO_TOKEN_DATA.decimals)).toFixed(BRO_TOKEN_DATA.decimals) : 
-            rawAmount;
+        // Normalize amount from cache/service. Cached charms may already store a converted decimal string
+        // in amount.remaining (e.g., "0.00000056") instead of the raw integer. Detect and handle both.
+        const sourceRemaining = (charmData.amount && charmData.amount.remaining != null)
+            ? charmData.amount.remaining
+            : (charmData.amount ?? 0);
+
+        let rawAmount = 0; // integer representation we will store alongside
+        let displayAmount = 0; // human-readable number we want to show
+
+        const isStringInput = typeof sourceRemaining === 'string';
+        const parsed = isStringInput ? parseFloat(sourceRemaining) : sourceRemaining;
+
+        try {
+        } catch (e) { /* noop for SSR */ }
+
+        if (!sourceRemaining || isNaN(parsed)) {
+            rawAmount = 0;
+            displayAmount = 0;
+        } else if (isStringInput) {
+            // Any string numeric from cache is considered a display unit already (e.g., '56.25' or '0.00000056')
+            // Reconstruct raw from display
+            displayAmount = parsed;
+            rawAmount = Math.round(parsed * Math.pow(10, BRO_TOKEN_DATA.decimals));
+        } else {
+            // Assume raw integer value (e.g., 5625000000) and convert to decimal display
+            rawAmount = parsed;
+            displayAmount = rawAmount / Math.pow(10, BRO_TOKEN_DATA.decimals);
+        }
+
+        // Format: avoid forcing 8 decimals; let UI format. Keep up to 8, trim trailing zeros.
+        const displayAmountStr = (() => {
+            const num = Number(displayAmount);
+            if (Number.isInteger(num)) return String(num);
+            return num.toFixed(8).replace(/\.0+$/,'').replace(/(\.[0-9]*?)0+$/,'$1');
+        })();
+        try {
+        } catch (e) { /* noop for SSR */ }
         
         return {
             ...charmData,
@@ -97,7 +129,7 @@ class CharmsExplorerAPI {
             decimals: BRO_TOKEN_DATA.decimals,
             image: BRO_TOKEN_DATA.image,
             description: BRO_TOKEN_DATA.description,
-            displayAmount: displayAmount,
+            displayAmount: displayAmountStr,
             // Keep original amount for calculations
             rawAmount: rawAmount,
             // Mark as BRO token for special handling
@@ -108,7 +140,9 @@ class CharmsExplorerAPI {
                 name: BRO_TOKEN_DATA.name,
                 image: BRO_TOKEN_DATA.image,
                 description: BRO_TOKEN_DATA.description,
-                remaining: displayAmount
+                remaining: displayAmountStr,
+                ticker: "$BRO",
+                originalRemaining: rawAmount // Keep original raw amount for calculations
             } : undefined
         };
     }

@@ -7,6 +7,24 @@ export default function WalletInitialization({
     initializationProgress,
     onComplete
 }) {
+    const [currentStep, setCurrentStep] = useState(0);
+    const [currentMessage, setCurrentMessage] = useState('');
+
+    const handleStepChange = (step, message) => {
+        setCurrentStep(step);
+        setCurrentMessage(message);
+    };
+
+    const newStepStates = initializationSteps.map((_, index) => {
+        if (index < currentStep) {
+            return 'completed';
+        } else if (index === currentStep) {
+            return 'active';
+        } else {
+            return 'pending';
+        }
+    });
+
     // Auto-complete when progress reaches 100%
     useEffect(() => {
         if (initializationProgress.current === initializationProgress.total &&
@@ -70,7 +88,7 @@ export default function WalletInitialization({
                 {/* Current Step */}
                 <div className="text-center space-y-4">
                     <p className="text-lg font-medium text-gray-300">
-                        {initializationStep || 'Preparing...'}
+                        {currentMessage || 'Preparing...'}
                     </p>
 
                     {/* Progress bar for address generation */}
@@ -95,17 +113,17 @@ export default function WalletInitialization({
                     {/* Step 1: Create wallet & seed phrase */}
                     <div className="flex items-center space-x-3">
                         <div className={`w-3 h-3 rounded-full ${
-                            initializationStep.includes('Creating') || initializationStep.includes('Validating')
-                                ? 'bg-primary-500'
-                                : initializationStep.includes('Deriving') || initializationStep.includes('Generating') || initializationStep.includes('Saving') || initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
-                                    ? 'bg-green-500'
+                            newStepStates[0] === 'completed'
+                                ? 'bg-green-500'
+                                : newStepStates[0] === 'active'
+                                    ? 'bg-primary-500'
                                     : 'bg-gray-600'
                         }`}></div>
                         <span className={`text-sm ${
-                            initializationStep.includes('Creating') || initializationStep.includes('Validating')
-                                ? 'text-primary-400 font-medium'
-                                : initializationStep.includes('Deriving') || initializationStep.includes('Generating') || initializationStep.includes('Saving') || initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
-                                    ? 'text-green-400'
+                            newStepStates[0] === 'completed'
+                                ? 'text-green-400'
+                                : newStepStates[0] === 'active'
+                                    ? 'text-primary-400 font-medium'
                                     : 'text-gray-400'
                         }`}>
                             Create wallet & seed phrase
@@ -115,17 +133,17 @@ export default function WalletInitialization({
                     {/* Step 2: Derive wallet information */}
                     <div className="flex items-center space-x-3">
                         <div className={`w-3 h-3 rounded-full ${
-                            initializationStep.includes('Deriving')
-                                ? 'bg-primary-500'
-                                : initializationStep.includes('Generating') || initializationStep.includes('Saving') || initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
-                                    ? 'bg-green-500'
+                            newStepStates[1] === 'completed'
+                                ? 'bg-green-500'
+                                : newStepStates[1] === 'active'
+                                    ? 'bg-primary-500'
                                     : 'bg-gray-600'
                         }`}></div>
                         <span className={`text-sm ${
-                            initializationStep.includes('Deriving')
-                                ? 'text-primary-400 font-medium'
-                                : initializationStep.includes('Generating') || initializationStep.includes('Saving') || initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
-                                    ? 'text-green-400'
+                            newStepStates[1] === 'completed'
+                                ? 'text-green-400'
+                                : newStepStates[1] === 'active'
+                                    ? 'text-primary-400 font-medium'
                                     : 'text-gray-400'
                         }`}>
                             Derive wallet information
@@ -135,17 +153,17 @@ export default function WalletInitialization({
                     {/* Step 3: Generate addresses */}
                     <div className="flex items-center space-x-3">
                         <div className={`w-3 h-3 rounded-full ${
-                            initializationStep.includes('Generating') || initializationStep.includes('Saving')
-                                ? 'bg-primary-500'
-                                : initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
-                                    ? 'bg-green-500'
+                            newStepStates[2] === 'completed'
+                                ? 'bg-green-500'
+                                : newStepStates[2] === 'active'
+                                    ? 'bg-primary-500'
                                     : 'bg-gray-600'
                         }`}></div>
                         <span className={`text-sm ${
-                            initializationStep.includes('Generating') || initializationStep.includes('Saving')
-                                ? 'text-primary-400 font-medium'
-                                : initializationStep.includes('Scanning') || initializationStep.includes('Refreshing') || initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
-                                    ? 'text-green-400'
+                            newStepStates[2] === 'completed'
+                                ? 'text-green-400'
+                                : newStepStates[2] === 'active'
+                                    ? 'text-primary-400 font-medium'
                                     : 'text-gray-400'
                         }`}>
                             Generate addresses
@@ -155,17 +173,17 @@ export default function WalletInitialization({
                     {/* Step 4: Scan addresses */}
                     <div className="flex items-center space-x-3">
                         <div className={`w-3 h-3 rounded-full ${
-                            initializationStep.includes('Scanning') || initializationStep.includes('Refreshing')
-                                ? 'bg-primary-500'
-                                : initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
-                                    ? 'bg-green-500'
+                            newStepStates[3] === 'completed'
+                                ? 'bg-green-500'
+                                : newStepStates[3] === 'active'
+                                    ? 'bg-primary-500'
                                     : 'bg-gray-600'
                         }`}></div>
                         <span className={`text-sm ${
-                            initializationStep.includes('Scanning') || initializationStep.includes('Refreshing')
-                                ? 'text-primary-400 font-medium'
-                                : initializationStep.includes('Processing') || initializationStep.includes('Finalizing')
-                                    ? 'text-green-400'
+                            newStepStates[3] === 'completed'
+                                ? 'text-green-400'
+                                : newStepStates[3] === 'active'
+                                    ? 'text-primary-400 font-medium'
                                     : 'text-gray-400'
                         }`}>
                             Scan addresses
@@ -175,36 +193,56 @@ export default function WalletInitialization({
                     {/* Step 5: Scan for Charms */}
                     <div className="flex items-center space-x-3">
                         <div className={`w-3 h-3 rounded-full ${
-                            initializationStep.includes('Processing') && initializationStep.includes('Charms')
-                                ? 'bg-primary-500'
-                                : initializationStep.includes('Finalizing')
-                                    ? 'bg-green-500'
+                            newStepStates[4] === 'completed'
+                                ? 'bg-green-500'
+                                : newStepStates[4] === 'active'
+                                    ? 'bg-primary-500'
                                     : 'bg-gray-600'
                         }`}></div>
                         <span className={`text-sm ${
-                            initializationStep.includes('Processing') && initializationStep.includes('Charms')
-                                ? 'text-primary-400 font-medium'
-                                : initializationStep.includes('Finalizing')
-                                    ? 'text-green-400'
+                            newStepStates[4] === 'completed'
+                                ? 'text-green-400'
+                                : newStepStates[4] === 'active'
+                                    ? 'text-primary-400 font-medium'
                                     : 'text-gray-400'
                         }`}>
                             Scan for Charms
                         </span>
                     </div>
 
-                    {/* Step 6: Finalize setup */}
+                    {/* Step 6: Scan for transaction history */}
                     <div className="flex items-center space-x-3">
                         <div className={`w-3 h-3 rounded-full ${
-                            initializationStep.includes('Finalizing')
-                                ? 'bg-primary-500'
-                                : initializationStep.includes('Finalizing') && progressPercentage === 100
-                                    ? 'bg-green-500'
+                            newStepStates[5] === 'completed'
+                                ? 'bg-green-500'
+                                : newStepStates[5] === 'active'
+                                    ? 'bg-primary-500'
                                     : 'bg-gray-600'
                         }`}></div>
                         <span className={`text-sm ${
-                            initializationStep.includes('Finalizing')
+                            newStepStates[5] === 'completed'
+                                ? 'text-green-400'
+                                : newStepStates[5] === 'active'
+                                    ? 'text-primary-400 font-medium'
+                                    : 'text-gray-400'
+                        }`}>
+                            Scan for transaction history
+                        </span>
+                    </div>
+
+                    {/* Step 7: Finalize setup */}
+                    <div className="flex items-center space-x-3">
+                        <div className={`w-3 h-3 rounded-full ${
+                            newStepStates[6] === 'completed'
+                                ? 'bg-green-500'
+                                : newStepStates[6] === 'active'
+                                    ? 'bg-primary-500'
+                                    : 'bg-gray-600'
+                        }`}></div>
+                        <span className={`text-sm ${
+                            initializationStep.includes('Finalize setup')
                                 ? 'text-primary-400 font-medium'
-                                : initializationStep.includes('Finalizing') && progressPercentage === 100
+                                : progressPercentage === 100
                                     ? 'text-green-400'
                                     : 'text-gray-400'
                         }`}>

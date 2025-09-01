@@ -61,6 +61,8 @@ class CharmsService {
                 }
 
                 for (const charmInstance of charmsResult) {
+                    try {
+                    } catch {}
                     const charmAddress = charmInstance.address;
 
                     // Only process charms that belong to wallet addresses
@@ -69,6 +71,8 @@ class CharmsService {
                     if (belongsToWallet) {
                         const ticker = charmInstance.name || charmInstance.ticker || (charmInstance.value !== undefined ? 'CHARMS-TOKEN' : 'CHARMS-NFT');
                         const remaining = charmInstance.value ?? charmInstance.remaining ?? 1;
+                        try {
+                        } catch {}
 
                         const charm: ProcessedCharm = {
                             uniqueId: `${txId}-${charmInstance.appId}-${charmInstance.utxo.index}`,

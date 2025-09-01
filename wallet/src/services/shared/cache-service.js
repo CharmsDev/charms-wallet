@@ -83,6 +83,10 @@ export class CacheService {
     // Load cache from localStorage
     loadFromStorage() {
         try {
+            // Check if we're in a browser environment
+            if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+                return; // Skip loading in SSR environment
+            }
             const stored = localStorage.getItem(this.persistKey);
             if (stored) {
                 const data = JSON.parse(stored);
@@ -96,6 +100,10 @@ export class CacheService {
     // Save cache to localStorage
     saveToStorage() {
         try {
+            // Check if we're in a browser environment
+            if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+                return; // Skip saving in SSR environment
+            }
             const data = {
                 entries: Array.from(this.cache.entries()),
                 lastSaved: Date.now()

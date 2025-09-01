@@ -25,15 +25,11 @@ export default function RecentTransactions({ utxos, isLoading }) {
 
     // Track list rendering attempts
     useEffect(() => {
-        console.log(
-            `[TX_LIST] render count=${paginatedTransactions.length} total=${transactions.length} page=${pagination.currentPage}/${pagination.totalPages}`
-        );
     }, [transactions, pagination.currentPage, pagination.totalPages, paginatedTransactions.length]);
 
     // Listen for new transaction events and reload
     useEffect(() => {
         const handleTransactionRecorded = (event) => {
-            console.log('[RECENT TRANSACTIONS] New transaction recorded, reloading...', event.detail);
             loadTransactions(activeBlockchain, activeNetwork);
         };
 
@@ -48,7 +44,6 @@ export default function RecentTransactions({ utxos, isLoading }) {
             : 'https://mempool.space/testnet4';
 
         const url = `${baseUrl}/tx/${txId}`;
-        console.log(`[TRANSACTION CLICK] Opening ${url} for network: ${activeNetwork}`);
         window.open(url, '_blank', 'noopener,noreferrer');
     };
 

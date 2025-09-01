@@ -5,8 +5,8 @@ import { getAddresses, saveTransactions, getTransactions } from '@/services/stor
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
 
 /**
- * Transaction History Recovery Service
- * Modular service to recover complete transaction history from blockchain
+ * Transaction History Service
+ * Recovers complete transaction history for Bitcoin wallets
  */
 export class TransactionHistoryService {
     constructor() {
@@ -17,25 +17,26 @@ export class TransactionHistoryService {
      * Main function to recover transaction history for wallet
      */
     async recoverTransactionHistory(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, progressCallback = null, maxAddresses = undefined) {
-        console.log(`[TX-HISTORY] Starting transaction history recovery for ${blockchain}/${network}`);
+        if (progressCallback) {
+            progressCallback({ stage: 'scan_transactions_start' });
+        }
         
         try {
-            // Get wallet addresses and apply optional limit
+            // Get wallet addresses and apply limit
             let addresses = await getAddresses(blockchain, network);
-            if (maxAddresses && Number.isFinite(maxAddresses)) {
-                addresses = addresses.slice(0, maxAddresses);
+            // Limit addresses to 12 for performance
+            if (!maxAddresses || maxAddresses <= 0) {
+                addresses = addresses.slice(0, 12);
+            } else {
+                addresses = addresses.slice(0, Math.min(maxAddresses, 12));
             }
             if (!addresses || addresses.length === 0) {
-                console.log('[TX-HISTORY] No addresses found, skipping history recovery');
                 return [];
             }
-
-            console.log(`[TX-HISTORY] Found ${addresses.length} addresses to scan`);
             
             // Get transaction history for all addresses
             const allTransactions = [];
             const processedTxids = new Set(); // Avoid duplicates
-            
             for (let i = 0; i < addresses.length; i++) {
                 const address = addresses[i];
                 
@@ -50,17 +51,25 @@ export class TransactionHistoryService {
                 }
 
                 try {
-                    const addressTransactions = await this.getAddressTransactionHistory(address.address, network);
+                    const transactions = await getTransactions(address.address, blockchain, network);
                     
-                    // Process and filter transactions
-                    for (const tx of addressTransactions) {
-                        if (!processedTxids.has(tx.txid)) {
-                            processedTxids.add(tx.txid);
-                            
-                            // Analyze transaction to determine if it's sent or received
-                            const processedTx = await this.analyzeTransaction(tx, addresses, network);
-                            if (processedTx) {
-                                allTransactions.push(processedTx);
+                    if (transactions && transactions.length > 0) {
+                        for (const tx of transactions) {
+                            if (!processedTxids.has(tx.txid)) {
+                                processedTxids.add(tx.txid);
+                                
+                                // Check if transaction involves wallet addresses
+                                const walletInvolvement = await this.checkWalletInvolvement(tx, addresses, blockchain, network);
+                                
+                                if (walletInvolvement.isInvolved) {
+                                    // Enhance transaction with wallet-specific data
+                                    const enhancedTx = {
+                                        ...tx,
+                                        ...walletInvolvement
+                                    };
+                                    
+                                    allTransactions.push(enhancedTx);
+                                }
                             }
                         }
                     }
@@ -73,44 +82,38 @@ export class TransactionHistoryService {
                 }
             }
 
+            // Remove duplicate transactions
+            const uniqueTransactions = this.removeDuplicateTransactions(allTransactions);
             // Sort transactions by timestamp (newest first)
-            allTransactions.sort((a, b) => b.timestamp - a.timestamp);
-            
-            console.log(`[TX-HISTORY] Found ${allTransactions.length} unique transactions`);
+            const sortedTransactions = uniqueTransactions.sort((a, b) => b.timestamp - a.timestamp);
             
             // Save to localStorage
-            await saveTransactions(allTransactions, blockchain, network);
+            await saveTransactions(sortedTransactions, blockchain, network);
             
             if (progressCallback) {
                 progressCallback({
                     current: addresses.length,
                     total: addresses.length,
-                    stage: 'completed',
-                    transactionCount: allTransactions.length
+                    stage: 'scan_transactions_completed',
+                    transactionCount: sortedTransactions.length
                 });
             }
 
-            return allTransactions;
+            return sortedTransactions;
             
         } catch (error) {
-            console.error('[TX-HISTORY] Error during transaction history recovery:', error);
             throw error;
         }
     }
 
     /**
-     * Get transaction history for a specific address using QuickNode Blockbook
+     * Fetch transaction history for specific address
      */
     async getAddressTransactionHistory(address, network) {
         try {
-            console.log(`[TX-HISTORY] Getting history for address: ${address}`);
-            
-            // Use QuickNode Blockbook add-on to get address history
-            // bb_getaddress returns address info including transaction list
             const addressInfo = await quickNodeService.makeRequest('bb_getaddress', [address], network);
             
             if (!addressInfo) {
-                console.log(`[TX-HISTORY] No address info for ${address}`);
                 return [];
             }
 
@@ -119,92 +122,69 @@ export class TransactionHistoryService {
             if (Array.isArray(addressInfo.txs)) {
                 txIds = addressInfo.txs;
             } else if (Array.isArray(addressInfo.transactions)) {
-                // Some providers return objects under 'transactions'
                 txIds = addressInfo.transactions.map(t => t.txid).filter(Boolean);
             } else if (Array.isArray(addressInfo.txids)) {
                 txIds = addressInfo.txids;
             } else {
-                console.log(`[TX-HISTORY] No tx list found for ${address}`);
                 return [];
             }
 
-            console.log(`[TX-HISTORY] Found ${txIds.length} transactions for ${address}`);
             
-            // Get detailed transaction information for each txid
+            // Fetch full transaction details for each txid
             const transactions = [];
             for (const txid of txIds) {
                 try {
-                    const txDetails = await quickNodeService.getTransaction(txid, network);
+                    const txDetails = await quickNodeService.makeRequest('bb_gettransaction', [txid], network);
                     if (txDetails) {
                         transactions.push(txDetails);
                     }
-                    // Small delay between transaction requests
-                    await this.delay(50);
                 } catch (error) {
-                    console.error(`[TX-HISTORY] Error getting transaction ${txid}:`, error);
-                    // Continue with next transaction
+                    // Continue with other transactions
                 }
+                
+                // Rate limiting between transaction fetches
+                await this.delay(this.rateLimitDelay);
             }
             
             return transactions;
             
         } catch (error) {
-            console.error(`[TX-HISTORY] Error getting address history for ${address}:`, error);
             return [];
         }
     }
 
     /**
-     * Analyze a transaction to determine if it's sent, received, or internal transfer
+     * Analyze transaction involvement and type
      */
     async analyzeTransaction(tx, walletAddresses, network) {
         try {
             const walletAddressSet = new Set(walletAddresses.map(addr => addr.address));
             
             // Analyze inputs (where money comes from)
-            const inputAddresses = [];
-            let totalInputValue = 0;
-            let walletInputValue = 0;
+            const walletInputs = tx.vin.filter(input => 
+                input.addresses && input.addresses.some(addr => walletAddressSet.has(addr))
+            );
+            const totalInputValue = walletInputs.reduce((sum, input) => 
+                sum + parseFloat(input.value || 0), 0
+            );
             
-            for (const input of tx.vin || []) {
-                if (input.prevout) {
-                    const inputAddress = input.prevout.scriptpubkey_address;
-                    if (inputAddress) {
-                        inputAddresses.push(inputAddress);
-                        totalInputValue += input.prevout.value || 0;
-                        
-                        if (walletAddressSet.has(inputAddress)) {
-                            walletInputValue += input.prevout.value || 0;
-                        }
-                    }
-                }
-            }
-
             // Analyze outputs (where money goes to)
-            const outputAddresses = [];
-            let totalOutputValue = 0;
-            let walletOutputValue = 0;
-            const walletOutputs = [];
+            const walletOutputs = tx.vout.filter(output => 
+                output.scriptPubKey.addresses && 
+                output.scriptPubKey.addresses.some(addr => walletAddressSet.has(addr))
+            );
+            const totalOutputValue = tx.vout.reduce((sum, output) => 
+                sum + parseFloat(output.value || 0), 0
+            );
+            const totalExternalValue = tx.vout.reduce((sum, output) => 
+                sum + parseFloat(output.value || 0), 0
+            ) - walletOutputs.reduce((sum, output) => 
+                sum + parseFloat(output.value || 0), 0
+            );
             
-            for (const output of tx.vout || []) {
-                const outputAddress = output.scriptpubkey_address;
-                if (outputAddress) {
-                    outputAddresses.push(outputAddress);
-                    totalOutputValue += output.value || 0;
-                    
-                    if (walletAddressSet.has(outputAddress)) {
-                        walletOutputValue += output.value || 0;
-                        walletOutputs.push({
-                            address: outputAddress,
-                            value: output.value || 0
-                        });
-                    }
-                }
-            }
-
             // Determine transaction type
-            const hasWalletInputs = walletInputValue > 0;
-            const hasWalletOutputs = walletOutputValue > 0;
+            const hasWalletInputs = walletInputs.length > 0;
+            const hasWalletOutputs = walletOutputs.length > 0;
             
             let transactionType = null;
             let amount = 0;
@@ -219,23 +199,22 @@ export class TransactionHistoryService {
             } else if (hasWalletInputs && hasWalletOutputs) {
                 // Sent transaction with change
                 transactionType = 'sent';
-                amount = totalOutputValue - walletOutputValue; // Amount sent to external addresses
+                amount = totalExternalValue; // Amount sent to external addresses
                 fee = totalInputValue - totalOutputValue;
                 
                 // Only create transaction entry if we actually sent money externally
                 if (amount <= 0) {
-                    console.log(`[TX-HISTORY] Skipping internal transaction ${tx.txid}`);
                     return null;
                 }
                 
             } else if (!hasWalletInputs && hasWalletOutputs) {
                 // Received transaction
                 transactionType = 'received';
-                amount = walletOutputValue;
+                amount = walletOutputs.reduce((sum, output) => 
+                    sum + parseFloat(output.value || 0), 0
+                );
                 
             } else {
-                // No wallet involvement
-                console.log(`[TX-HISTORY] Transaction ${tx.txid} has no wallet involvement`);
                 return null;
             }
 
@@ -249,20 +228,21 @@ export class TransactionHistoryService {
                 timestamp: (tx.time || tx.blocktime || Date.now()) * 1000, // Convert to milliseconds
                 status: tx.confirmations > 0 ? 'confirmed' : 'pending',
                 addresses: {
-                    from: transactionType === 'sent' ? inputAddresses.filter(addr => walletAddressSet.has(addr)) : undefined,
-                    to: transactionType === 'sent' ? outputAddresses.filter(addr => !walletAddressSet.has(addr)) : undefined,
-                    received: transactionType === 'received' ? walletOutputs[0]?.address : undefined
+                    from: transactionType === 'sent' ? walletInputs.map(input => input.addresses[0]) : undefined,
+                    to: transactionType === 'sent' ? tx.vout.filter(output => !walletAddressSet.has(output.scriptPubKey.addresses[0])).map(output => output.scriptPubKey.addresses[0]) : undefined,
+                    received: transactionType === 'received' ? walletOutputs[0].scriptPubKey.addresses[0] : undefined
                 },
                 blockHeight: tx.status?.block_height || null,
                 confirmations: tx.confirmations || 0,
                 metadata: {
                     isSelfSend: hasWalletInputs && hasWalletOutputs && amount === 0,
-                    changeAmount: transactionType === 'sent' ? walletOutputValue : undefined,
+                    changeAmount: transactionType === 'sent' ? walletOutputs.reduce((sum, output) => 
+                        sum + parseFloat(output.value || 0), 0
+                    ) : undefined,
                     totalInputs: totalInputValue
                 }
             };
 
-            console.log(`[TX-HISTORY] Processed ${transactionType} transaction ${tx.txid}: ${amount} sats`);
             return transactionEntry;
             
         } catch (error) {
@@ -294,6 +274,23 @@ export class TransactionHistoryService {
         
         // If we have addresses but no transactions, recovery is needed
         return addresses.length > 0 && existingTransactions.length === 0;
+    }
+
+    /**
+     * Remove duplicate transactions
+     */
+    removeDuplicateTransactions(transactions) {
+        const uniqueTxids = new Set();
+        const uniqueTransactions = [];
+
+        for (const tx of transactions) {
+            if (!uniqueTxids.has(tx.txid)) {
+                uniqueTxids.add(tx.txid);
+                uniqueTransactions.push(tx);
+            }
+        }
+
+        return uniqueTransactions;
     }
 }
 

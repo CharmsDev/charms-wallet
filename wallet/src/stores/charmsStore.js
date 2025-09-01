@@ -53,7 +53,12 @@ export function CharmsProvider({ children }) {
                 // Enhance cached charms with reference NFT data
                 const enhancedCharms = await charmsExplorerAPI.processCharmsWithReferenceData(cachedCharms);
                 setCharms(enhancedCharms);
-                console.log(`[CHARMS] Loaded ${enhancedCharms.length} charms from cache (enhanced with reference data)`);
+                // Persist corrected/enhanced charms so subsequent reloads (e.g., dashboard) see fixed amounts
+                try {
+                    await saveCharms(enhancedCharms, activeBlockchain, activeNetwork);
+                } catch (e) {
+                    console.warn('[CHARMS] Failed to save enhanced cached charms', e);
+                }
             }
             setInitialized(true);
         } catch (error) {
@@ -86,7 +91,6 @@ export function CharmsProvider({ children }) {
             
             // Cache the enhanced results
             await saveCharms(enhancedCharms, activeBlockchain, activeNetwork);
-            console.log(`[CHARMS] Loaded and cached ${enhancedCharms.length} charms (enhanced with reference data)`);
         } catch (error) {
             console.error('[CHARMS] Failed to load charms:', error);
             setError('Failed to load charms');
@@ -96,8 +100,12 @@ export function CharmsProvider({ children }) {
     };
 
     const refreshCharms = async () => {
-        // Re-use the loadCharms logic for refreshing
-        await loadCharms();
+        try {
+            // Force refresh to bypass cache and re-enhance amounts
+            await loadCharms(true);
+            } catch (e) {
+            console.warn('[CHARMS] Refresh failed', e);
+        }
     };
 
     const isNFT = (charm) => {

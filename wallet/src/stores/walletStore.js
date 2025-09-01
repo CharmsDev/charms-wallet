@@ -3,8 +3,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { generateSeedPhrase, importSeedPhrase } from '@/utils/wallet';
 import { getSeedPhrase, clearSeedPhrase } from '@/services/storage';
-import * as bitcoin from 'bitcoinjs-lib';
-import { getNetwork } from '@/utils/addressUtils';
+import { walletInitializationService } from '@/services/wallet/wallet-initialization-service';
 
 // Create context
 const WalletContext = createContext();
@@ -90,169 +89,27 @@ export function WalletProvider({ children }) {
     };
 
     // Initialize wallet completely (create/import + generate all addresses)
-    const initializeWalletComplete = async (seedPhraseInput = null, isImport = false, blockchain = 'bitcoin', network = 'testnet') => {
+    const initializeWallet = async (seedPhraseInput = null, isImport = false) => {
         try {
             setIsInitializing(true);
             setError(null);
-            const totalSteps = 7; // Creating/Validating, Deriving, Generating, Scanning UTXOs, Charms, Tx History, Finalizing
-            const setStepProgress = (currentStepIndex) => setInitializationProgress({ current: currentStepIndex, total: totalSteps });
 
-            // Step 1: Create or validate seed phrase
-            setInitializationStep(isImport ? 'Validating seed phrase...' : 'Creating wallet...');
-            setStepProgress(1);
-            let finalSeedPhrase;
-
-            if (isImport) {
-                finalSeedPhrase = await importSeedPhrase(seedPhraseInput);
-            } else {
-                finalSeedPhrase = await generateSeedPhrase();
-            }
+            const walletService = new WalletInitializationService();
+            const finalSeedPhrase = await walletService.initializeWallet(
+                seedPhraseInput,
+                isImport,
+                'bitcoin',
+                'testnet',
+                (step, progress) => {
+                    setInitializationStep(step);
+                    setInitializationProgress(progress);
+                },
+                (errorMessage) => {
+                    setError(errorMessage);
+                }
+            );
 
             setSeedPhrase(finalSeedPhrase);
-
-            // Step 2: Derive wallet information
-            setInitializationStep('Deriving wallet information...');
-            setStepProgress(2);
-
-            // Step 3: Generate addresses for both mainnet and testnet (FAST, LIMITED)
-            setInitializationStep('Generating addresses for all networks...');
-            // Use step-based progress (no numeric address counts)
-            setStepProgress(3);
-
-            // Import dependencies dynamically to avoid circular imports
-            const { generateInitialBitcoinAddressesFast } = await import('@/utils/addressUtils');
-            const { saveAddresses } = await import('@/services/storage');
-
-            const networks = ['mainnet', 'testnet'];
-            const pairsPerNetwork = 256; // 256 pairs (512 addrs) per network as requested
-
-            for (const currentNetwork of networks) {
-                // Get the appropriate Bitcoin network object for address generation
-                let targetNetwork;
-                if (currentNetwork === 'mainnet') {
-                    targetNetwork = bitcoin.networks.bitcoin;
-                } else {
-                    // Use our custom testnet4 network configuration
-                    targetNetwork = getNetwork();
-                }
-
-                await new Promise((resolve, reject) => {
-                    generateInitialBitcoinAddressesFast(
-                        finalSeedPhrase,
-                        // Progress callback (keep generic)
-                        () => setInitializationStep(`Generating ${currentNetwork} addresses...`),
-                        // Complete callback for this network
-                        async (generatedAddresses) => {
-                            try {
-                                setInitializationStep(`Saving ${currentNetwork} addresses...`);
-                                const addressesWithBlockchain = generatedAddresses.map(addr => ({ ...addr, blockchain }));
-                                await saveAddresses(addressesWithBlockchain, blockchain, currentNetwork);
-                                resolve(); // Proceed to the next network
-                            } catch (error) {
-                                reject(error);
-                            }
-                        },
-                        targetNetwork, // Pass the specific network for address generation
-                        pairsPerNetwork // limit pairs per network
-                    );
-                });
-            }
-
-            // Step 4: Quick UTXO scan for first 16 addresses
-            setInitializationStep('Scanning addresses...');
-            setStepProgress(4);
-
-            try {
-                const { refreshFirstAddresses } = await import('@/services/utxo/address-refresh-helper');
-
-                // Scan first 16 addresses on both networks
-                for (const currentNetwork of networks) {
-                    try {
-                        setInitializationStep('Refreshing UTXOs...');
-                        await refreshFirstAddresses(16, blockchain, currentNetwork);
-                    } catch (error) {
-                    }
-                }
-
-                // Continue without delay
-            } catch (error) {
-                // Continue with initialization even if address scanning fails
-            }
-
-            // Step 5: Scan for Charms using existing service
-            setInitializationStep('Scanning for Charms...');
-            setStepProgress(5);
-
-            try {
-                const { charmsService } = await import('@/services/charms/charms');
-                const { getUTXOs } = await import('@/services/storage');
-
-                for (const currentNetwork of networks) {
-                    try {
-                        const utxos = await getUTXOs(blockchain, currentNetwork);
-                        
-                        if (Object.keys(utxos).length > 0) {
-                            setInitializationStep('Processing Charms...');
-                            const charmsNetwork = currentNetwork === 'mainnet' ? 'mainnet' : 'testnet4';
-                            const charms = await charmsService.getCharmsByUTXOs(utxos, charmsNetwork);
-                            
-                        }
-                    } catch (error) {
-                        // Continue with initialization
-                    }
-                }
-
-                // Continue without delay
-            } catch (error) {
-                // Continue with initialization
-            }
-
-            // Step 6: Recover transaction history (limited to first addresses)
-            setInitializationStep('Recovering transaction history...');
-            setStepProgress(6);
-
-            try {
-                const { transactionHistoryService } = await import('@/services/wallet/transaction-history-service');
-
-                for (const currentNetwork of networks) {
-                    try {
-                        setInitializationStep(`Scanning ${currentNetwork} transaction history...`);
-                        
-                        // Check if history recovery is needed
-                        const isRecoveryNeeded = await transactionHistoryService.isHistoryRecoveryNeeded(blockchain, currentNetwork);
-                        
-                        if (isRecoveryNeeded) {
-                            await transactionHistoryService.recoverTransactionHistory(
-                                blockchain, 
-                                currentNetwork,
-                                // Use generic, non-numeric messaging
-                                (progress) => {
-                                    if (progress.stage === 'scanning') {
-                                        setInitializationStep(`Scanning ${currentNetwork} transaction history...`);
-                                    } else if (progress.stage === 'completed') {
-                                        setInitializationStep(`Transaction history scan complete for ${currentNetwork}`);
-                                    }
-                                },
-                                // Limit number of addresses scanned for history
-                                64 // first 64 addresses (32 pairs)
-                            );
-                        } else {
-                            setInitializationStep(`${currentNetwork} transaction history already exists`);
-                        }
-                    } catch (error) {
-                        console.error(`[WALLET] Error recovering ${currentNetwork} transaction history:`, error);
-                        // Continue with initialization even if history recovery fails
-                    }
-                }
-            } catch (error) {
-                console.error('[WALLET] Error importing transaction history service:', error);
-                // Continue with initialization
-            }
-
-            // Step 7: Finalize setup
-            setInitializationStep('Finalizing wallet setup...');
-            setStepProgress(7);
-
             setHasWallet(true);
             setIsInitializing(false);
             setInitializationStep('');
