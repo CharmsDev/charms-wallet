@@ -23,6 +23,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     const [showSettingsDialog, setShowSettingsDialog] = useState(false);
     const [btcPrice, setBtcPrice] = useState(null);
     const [priceLoading, setPriceLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const { hasWallet } = useWallet();
     const { utxos, totalBalance, isLoading: utxosLoading, loadUTXOs } = useUTXOs();
@@ -81,6 +82,24 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
         setShowSettingsDialog(true);
     };
 
+    const handleRefresh = async () => {
+        if (isRefreshing) return;
+
+        setIsRefreshing(true);
+        try {
+            await Promise.all([
+                loadUTXOs(activeBlockchain, activeNetwork),
+                loadAddresses(activeBlockchain, activeNetwork),
+                loadCharms(activeBlockchain, activeNetwork) // Refresh charms as well
+            ]);
+        } catch (error) {
+            console.error("Failed to refresh wallet data:", error);
+            // Optionally, show an error message to the user
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
+
     // Format value function for SendBitcoinDialog
     const formatValue = (satoshis) => {
         const btc = satoshis / 100000000;
@@ -137,6 +156,8 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                             priceLoading={priceLoading}
                             isLoading={utxosLoading}
                             network={activeNetwork}
+                            onRefresh={handleRefresh}
+                            isRefreshing={isRefreshing}
                         />
 
                         {/* Quick Actions */}
