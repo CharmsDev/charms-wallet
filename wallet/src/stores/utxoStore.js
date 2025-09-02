@@ -41,10 +41,21 @@ const useUTXOStore = create((set, get) => ({
 
         try {
             const storedUTXOs = await utxoService.getStoredUTXOs(blockchain, network);
-            const balance = utxoService.calculateTotalBalance(storedUTXOs);
+            // Deduplicate per-address by txid:vout in case storage contains duplicates
+            const deduped = {};
+            Object.entries(storedUTXOs || {}).forEach(([addr, list]) => {
+                const seen = new Set();
+                deduped[addr] = (list || []).filter(u => {
+                    const key = `${u.txid}:${u.vout}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+            });
+            const balance = utxoService.calculateTotalBalance(deduped);
 
             set({
-                utxos: storedUTXOs,
+                utxos: deduped,
                 totalBalance: balance,
                 isLoading: false,
                 initialized: true
@@ -85,7 +96,17 @@ const useUTXOStore = create((set, get) => ({
                 const updatedUTXOs = { ...currentState.utxos };
 
                 if (progressData.hasUtxos && progressData.utxos.length > 0) {
-                    updatedUTXOs[progressData.address] = progressData.utxos;
+                    // Deduplicate by txid:vout to prevent duplicates across refresh cycles
+                    const seen = new Set();
+                    const deduped = [];
+                    for (const utxo of progressData.utxos) {
+                        const key = `${utxo.txid}:${utxo.vout}`;
+                        if (!seen.has(key)) {
+                            seen.add(key);
+                            deduped.push(utxo);
+                        }
+                    }
+                    updatedUTXOs[progressData.address] = deduped;
                 } else {
                     delete updatedUTXOs[progressData.address];
                 }
@@ -111,9 +132,21 @@ const useUTXOStore = create((set, get) => ({
 
             // Final state update - use current UTXOs from progress updates
             const currentState = get();
-            const finalBalance = utxoService.calculateTotalBalance(currentState.utxos);
+            // Final deduplication pass across all addresses
+            const finalUtxos = {};
+            Object.entries(currentState.utxos || {}).forEach(([addr, list]) => {
+                const seen = new Set();
+                finalUtxos[addr] = (list || []).filter(u => {
+                    const key = `${u.txid}:${u.vout}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+            });
+            const finalBalance = utxoService.calculateTotalBalance(finalUtxos);
 
             set({
+                utxos: finalUtxos,
                 totalBalance: finalBalance,
                 refreshProgress: { processed: 0, total: 0, isRefreshing: false }
             });

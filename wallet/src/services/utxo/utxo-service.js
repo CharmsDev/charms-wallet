@@ -89,8 +89,20 @@ export class UTXOService {
             storedUTXOs[address].push(...utxos);
         }
 
-        await saveUTXOs(storedUTXOs, blockchain, network);
-        return storedUTXOs;
+        // Deduplicate per address by txid:vout before saving
+        const deduped = {};
+        Object.entries(storedUTXOs).forEach(([addr, list]) => {
+            const seen = new Set();
+            deduped[addr] = (list || []).filter(u => {
+                const key = `${u.txid}:${u.vout}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        });
+
+        await saveUTXOs(deduped, blockchain, network);
+        return deduped;
     }
 
     // ============================================================================

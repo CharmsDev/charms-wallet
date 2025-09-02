@@ -244,7 +244,7 @@ export default function UTXOList() {
                             </thead>
                             <tbody>
                                 {flattenedUtxos.map((utxo, index) => (
-                                    <tr key={`${utxo.txid}-${utxo.vout}`} className={index % 2 === 0 ? 'bg-dark-800' : 'bg-dark-750'}>
+                                    <tr key={`${utxo.txid}-${utxo.vout}-${utxo.address}`} className={index % 2 === 0 ? 'bg-dark-800' : 'bg-dark-750'}>
                                         <td className="py-2 px-4 border-b border-dark-700">
                                             <div className="font-mono text-xs break-all text-dark-200" title={`${utxo.txid}:${utxo.vout}`}>
                                                 {utxo.txid}:{utxo.vout}
