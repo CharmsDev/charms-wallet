@@ -1,8 +1,3 @@
-/**
- * Charms Explorer API Service
- * Manages API calls to the Charms Explorer for NFT reference data
- */
-
 // BRO Token hardcoded data for mocking
 const BRO_TOKEN_DATA = {
     name: "Bro",
@@ -11,11 +6,16 @@ const BRO_TOKEN_DATA = {
     description: ""
 };
 
-// BRO Token App ID (real BRO charms token App ID)
+// BRO Token App ID (canonical, no aliases)
 let BRO_TOKEN_APP_ID = "t/3d7fe7e4cea6121947af73d70e5119bebd8aa5b7edfe74bfaf6e779a1847bd9b/c975d4e0c292fb95efbda5c13312d6ac1d8b5aeff7f0f1e5578645a2da70ff5f";
 
 export const getBroTokenAppId = () => BRO_TOKEN_APP_ID;
 
+/**
+ * Provides an interface for interacting with the Charms Explorer API.
+ * This service is responsible for fetching reference data for Charms and handling
+ * special cases like the BRO token. It is designed as a singleton.
+ */
 class CharmsExplorerAPI {
     constructor() {
         this.baseUrl = "https://api.charms-explorer.com"; // TODO: Replace with actual API URL when available
@@ -73,8 +73,11 @@ class CharmsExplorerAPI {
      * @returns {boolean} True if this is a BRO token
      */
     isBroToken(appId) {
-        // Strict exact match only
-        return appId === BRO_TOKEN_APP_ID;
+        const normalize = (s) => (typeof s === 'string' ? s.trim().toLowerCase() : '');
+        const target = normalize(appId);
+        const canonical = normalize(BRO_TOKEN_APP_ID);
+        const isMatch = target === canonical;
+        return isMatch;
     }
 
     /**
@@ -157,7 +160,6 @@ class CharmsExplorerAPI {
 
         const processedCharms = await Promise.all(
             charms.map(async (charm) => {
-                // Prefer explicit identifiers over display tickers/names
                 const appId = charm.appId || charm.id || charm.amount?.appId || charm.amount?.ticker || charm.amount?.name || 'unknown';
 
                 if (appId && appId !== 'unknown') {
