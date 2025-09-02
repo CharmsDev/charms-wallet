@@ -4,6 +4,7 @@ import { BitcoinScureSigner } from '../wallet/bitcoin-scure-signer';
 import { UtxoSelector } from '@/services/utxo';
 import BitcoinBroadcastService from './broadcast-service';
 import TransactionRecorder from '@/services/transactions/transaction-recorder';
+import { BLOCKCHAINS } from '@/stores/blockchainStore';
 
 export class BitcoinTransactionOrchestrator {
     constructor(network) {
@@ -24,7 +25,9 @@ export class BitcoinTransactionOrchestrator {
             availableUtxos,
             amountInSatsInt,
             feeRate,
-            updateStateCallback
+            updateStateCallback,
+            BLOCKCHAINS.BITCOIN,
+            this.network
         );
 
         const transactionData = {

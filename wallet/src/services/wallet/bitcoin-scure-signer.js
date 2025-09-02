@@ -2,13 +2,22 @@ import * as btc from '@scure/btc-signer';
 import { hex } from '@scure/base';
 import { getSeedPhrase, getAddresses } from '@/services/storage';
 import { BitcoinKeyDerivation } from './bitcoin-key-derivation';
-import { getNetwork } from '@/utils/addressUtils';
+import { NETWORKS } from '@/stores/blockchainStore';
+
+// Map blockchainStore network id to a minimal scure/btc network object.
+// For Taproot and bech32 address decoding, bech32 HRP is sufficient.
+function mapScureNetwork(networkId) {
+    if (typeof networkId === 'object' && networkId?.bech32) return networkId;
+    if (networkId === NETWORKS.BITCOIN.MAINNET) return { bech32: 'bc' };
+    // Default to testnet4/regtest HRP 'tb' for non-mainnet bitcoin
+    return { bech32: 'tb' };
+}
 class BitcoinScureSigner {
     constructor(network) {
         if (!network) {
             throw new Error('BitcoinScureSigner requires a network.');
         }
-        this.network = getNetwork(network);
+        this.network = mapScureNetwork(network);
         this.isMainnetNetwork = this.network.bech32 === 'bc';
         this.coinType = this.isMainnetNetwork ? 0 : 1;
         this.keyDerivation = new BitcoinKeyDerivation(this.network);

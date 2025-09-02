@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useCharms } from '@/stores/charmsStore';
+import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
 import { useBlockchain } from '@/stores/blockchainStore';
 
 export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoading, network }) {
@@ -32,13 +33,11 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
     // Memoize BRO token balance calculation to prevent redundant processing
     const broBalance = useMemo(() => {
         
-        // Sum all BRO tokens across multiple charms - use enhanced data if available
+        // Sum BRO tokens strictly by exact App ID (or flagged by service)
+        const targetId = getBroTokenAppId();
         const broCharms = charms.filter(charm => {
-            const isBro = charm.isBroToken || 
-                         charm.amount?.ticker === 'CHARMS-TOKEN' || 
-                         charm.amount?.ticker === '$BRO' ||
-                         charm.amount?.name?.toLowerCase().includes('bro');
-            return isBro;
+            const appId = charm.appId || charm.id || charm.amount?.appId;
+            return charm.isBroToken === true || appId === targetId;
         });
         
         const totalBalance = broCharms.reduce((total, charm) => {
