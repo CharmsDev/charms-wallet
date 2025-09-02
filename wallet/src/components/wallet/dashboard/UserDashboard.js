@@ -90,11 +90,10 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
             await Promise.all([
                 loadUTXOs(activeBlockchain, activeNetwork),
                 loadAddresses(activeBlockchain, activeNetwork),
-                loadCharms(activeBlockchain, activeNetwork) // Refresh charms as well
+                loadCharms(activeBlockchain, activeNetwork)
             ]);
         } catch (error) {
             console.error("Failed to refresh wallet data:", error);
-            // Optionally, show an error message to the user
         } finally {
             setIsRefreshing(false);
         }
