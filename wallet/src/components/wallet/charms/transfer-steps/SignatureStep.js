@@ -5,6 +5,20 @@ import { decodeTx } from '@/lib/bitcoin/txDecoder';
 import { signCommitTransaction } from '@/services/charms/sign/signCommitTx';
 import { signSpellTransaction } from '@/services/charms/sign/signSpellTx';
 
+/**
+ * SignatureStep component handles the signing of commit and spell transactions for a Charm transfer.
+ * It provides a UI for initiating the signing process and displays the status of both signed and unsigned transactions.
+ *
+ * @param {object} props - The component props.
+ * @param {object} props.transactionResult - Contains the unsigned commit and spell transactions.
+ * @param {string} props.seedPhrase - The user's seed phrase for signing the spell transaction.
+ * @param {Function} props.addLogMessage - Callback to log messages during the signing process.
+ * @param {Function} props.setSignedCommitTx - State setter for the signed commit transaction.
+ * @param {Function} props.setSignedSpellTx - State setter for the signed spell transaction.
+ * @param {object} props.signedCommitTx - The state of the signed commit transaction.
+ * @param {object} props.signedSpellTx - The state of the signed spell transaction.
+ * @returns {JSX.Element}
+ */
 export default function SignatureStep({
     transactionResult,
     seedPhrase,
@@ -16,8 +30,15 @@ export default function SignatureStep({
 }) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [showSignedCommitDetails, setShowSignedCommitDetails] = useState(false);
+    const [showSignedSpellDetails, setShowSignedSpellDetails] = useState(false);
+    const [showUnsignedCommitDetails, setShowUnsignedCommitDetails] = useState(false);
+    const [showUnsignedSpellDetails, setShowUnsignedSpellDetails] = useState(false);
 
-    // Sign both transactions
+    /**
+     * Initiates the signing process for both the commit and spell transactions.
+     * Handles loading states, errors, and logs progress messages.
+     */
     const signBothTransactions = async () => {
         if (!transactionResult || !transactionResult.transactions) {
             addLogMessage('No transactions to sign');
@@ -120,30 +141,44 @@ export default function SignatureStep({
                 {signedCommitTx && (
                     <div className="space-y-4">
                         <div>
-                            <h5 className="font-medium text-white mb-2">Signed Commit Transaction</h5>
-                            <div className="bg-dark-800 text-green-400 p-3 rounded-md overflow-x-auto text-xs font-mono h-48 overflow-y-auto">
-                                <div>TXID: {decodedSignedCommitTx?.txid || 'Unknown'}</div>
-                                <div>Size: {decodedSignedCommitTx?.size || 0} bytes</div>
-                                <div>Has Witness: {decodedSignedCommitTx?.hasWitness ? 'Yes' : 'No'}</div>
-                                <div className="mt-2 border-t border-gray-700 pt-2">
-                                    <div className="font-bold mb-1">Transaction Hex:</div>
-                                    <div className="break-all">{signedCommitTx?.signedTxHex || 'Not available'}</div>
-                                </div>
+                            <div className="flex justify-between items-center mb-2">
+                                <h5 className="font-medium text-white">Signed Commit Transaction</h5>
+                                <button onClick={() => setShowSignedCommitDetails(!showSignedCommitDetails)} className="text-xs text-blue-400 hover:underline">
+                                    {showSignedCommitDetails ? 'Hide Details' : 'View Details'}
+                                </button>
                             </div>
+                            {showSignedCommitDetails && (
+                                <div className="bg-dark-800 text-green-400 p-3 rounded-md overflow-x-auto text-xs font-mono max-h-48 overflow-y-auto">
+                                    <div>TXID: {decodedSignedCommitTx?.txid || 'Unknown'}</div>
+                                    <div>Size: {decodedSignedCommitTx?.size || 0} bytes</div>
+                                    <div>Has Witness: {decodedSignedCommitTx?.hasWitness ? 'Yes' : 'No'}</div>
+                                    <div className="mt-2 border-t border-gray-700 pt-2">
+                                        <div className="font-bold mb-1">Transaction Hex:</div>
+                                        <div className="break-all">{signedCommitTx?.signedTxHex || 'Not available'}</div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {signedSpellTx && (
                             <div>
-                                <h5 className="font-medium text-white mb-2">Signed Spell Transaction</h5>
-                                <div className="bg-dark-800 text-green-400 p-3 rounded-md overflow-x-auto text-xs font-mono h-48 overflow-y-auto">
-                                    <div>TXID: {decodedSignedSpellTx?.txid || 'Unknown'}</div>
-                                    <div>Size: {decodedSignedSpellTx?.size || 0} bytes</div>
-                                    <div>Has Witness: {decodedSignedSpellTx?.hasWitness ? 'Yes' : 'No'}</div>
-                                    <div className="mt-2 border-t border-gray-700 pt-2">
-                                        <div className="font-bold mb-1">Transaction Hex:</div>
-                                        <div className="break-all">{signedSpellTx?.hex || 'Not available'}</div>
-                                    </div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <h5 className="font-medium text-white">Signed Spell Transaction</h5>
+                                    <button onClick={() => setShowSignedSpellDetails(!showSignedSpellDetails)} className="text-xs text-blue-400 hover:underline">
+                                        {showSignedSpellDetails ? 'Hide Details' : 'View Details'}
+                                    </button>
                                 </div>
+                                {showSignedSpellDetails && (
+                                    <div className="bg-dark-800 text-green-400 p-3 rounded-md overflow-x-auto text-xs font-mono max-h-48 overflow-y-auto">
+                                        <div>TXID: {decodedSignedSpellTx?.txid || 'Unknown'}</div>
+                                        <div>Size: {decodedSignedSpellTx?.size || 0} bytes</div>
+                                        <div>Has Witness: {decodedSignedSpellTx?.hasWitness ? 'Yes' : 'No'}</div>
+                                        <div className="mt-2 border-t border-gray-700 pt-2">
+                                            <div className="font-bold mb-1">Transaction Hex:</div>
+                                            <div className="break-all">{signedSpellTx?.hex || 'Not available'}</div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -152,27 +187,41 @@ export default function SignatureStep({
                 {!signedCommitTx && !isLoading && transactionResult && (
                     <div className="space-y-4">
                         <div>
-                            <h5 className="font-medium text-white mb-2">Unsigned Commit Transaction</h5>
-                            <div className="bg-dark-800 text-amber-400 p-3 rounded-md overflow-x-auto text-xs font-mono h-48 overflow-y-auto">
-                                <div>TXID: {decodeTx(transactionResult.transactions.commit_tx)?.txid || 'Unknown'}</div>
-                                <div>Size: {decodeTx(transactionResult.transactions.commit_tx)?.size || 0} bytes</div>
-                                <div className="mt-2 border-t border-gray-700 pt-2">
-                                    <div className="font-bold mb-1">Transaction Hex:</div>
-                                    <div className="break-all">{transactionResult.transactions.commit_tx || 'Not available'}</div>
-                                </div>
+                            <div className="flex justify-between items-center mb-2">
+                                <h5 className="font-medium text-white">Unsigned Commit Transaction</h5>
+                                <button onClick={() => setShowUnsignedCommitDetails(!showUnsignedCommitDetails)} className="text-xs text-blue-400 hover:underline">
+                                    {showUnsignedCommitDetails ? 'Hide Details' : 'View Details'}
+                                </button>
                             </div>
+                            {showUnsignedCommitDetails && (
+                                <div className="bg-dark-800 text-amber-400 p-3 rounded-md overflow-x-auto text-xs font-mono max-h-48 overflow-y-auto">
+                                    <div>TXID: {decodeTx(transactionResult.transactions.commit_tx)?.txid || 'Unknown'}</div>
+                                    <div>Size: {decodeTx(transactionResult.transactions.commit_tx)?.size || 0} bytes</div>
+                                    <div className="mt-2 border-t border-gray-700 pt-2">
+                                        <div className="font-bold mb-1">Transaction Hex:</div>
+                                        <div className="break-all">{transactionResult.transactions.commit_tx || 'Not available'}</div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div>
-                            <h5 className="font-medium text-white mb-2">Unsigned Spell Transaction</h5>
-                            <div className="bg-dark-800 text-amber-400 p-3 rounded-md overflow-x-auto text-xs font-mono h-48 overflow-y-auto">
-                                <div>TXID: {decodeTx(transactionResult.transactions.spell_tx)?.txid || 'Unknown'}</div>
-                                <div>Size: {decodeTx(transactionResult.transactions.spell_tx)?.size || 0} bytes</div>
-                                <div className="mt-2 border-t border-gray-700 pt-2">
-                                    <div className="font-bold mb-1">Transaction Hex:</div>
-                                    <div className="break-all">{transactionResult.transactions.spell_tx || 'Not available'}</div>
-                                </div>
+                            <div className="flex justify-between items-center mb-2">
+                                <h5 className="font-medium text-white">Unsigned Spell Transaction</h5>
+                                <button onClick={() => setShowUnsignedSpellDetails(!showUnsignedSpellDetails)} className="text-xs text-blue-400 hover:underline">
+                                    {showUnsignedSpellDetails ? 'Hide Details' : 'View Details'}
+                                </button>
                             </div>
+                            {showUnsignedSpellDetails && (
+                                <div className="bg-dark-800 text-amber-400 p-3 rounded-md overflow-x-auto text-xs font-mono max-h-48 overflow-y-auto">
+                                    <div>TXID: {decodeTx(transactionResult.transactions.spell_tx)?.txid || 'Unknown'}</div>
+                                    <div>Size: {decodeTx(transactionResult.transactions.spell_tx)?.size || 0} bytes</div>
+                                    <div className="mt-2 border-t border-gray-700 pt-2">
+                                        <div className="font-bold mb-1">Transaction Hex:</div>
+                                        <div className="break-all">{transactionResult.transactions.spell_tx || 'Not available'}</div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="text-center py-4">

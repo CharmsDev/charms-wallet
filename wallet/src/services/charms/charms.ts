@@ -1,6 +1,72 @@
 import { ProcessedCharm, UTXOMap } from '@/types';
 import { isNFT, isToken, getCharmDisplayName } from './utils/charm-utils';
-import { quickNodeService } from '@/services/shared/quicknode-service';
+import { quickNodeService } from '../shared/quicknode-service';
+import { extractAppInputsByVout } from './cbor-extractor';
+
+/**
+ * Attempts to reconstruct a canonical Charm APP ID from `app_public_inputs`.
+ * This is necessary when the `appId` from `charms-js` is a placeholder like '$0000'.
+ * It searches for `app_public_inputs` in various possible locations within the charm data,
+ * parses it, and reconstructs the `t/<hash1>/<hash2>` format.
+ *
+ * @param charmInstance - The charm instance object from charms-js.
+ * @param appPublicInputs - Optional pre-extracted `app_public_inputs` from a CBOR extractor.
+ * @returns The reconstructed APP ID, or the original `appId` if reconstruction fails.
+ */
+function reconstructAppId(charmInstance: any, appPublicInputs?: any): string {
+    // If a valid appId already exists, use it directly.
+    if (charmInstance.appId && charmInstance.appId !== '$0000') {
+        return charmInstance.appId;
+    }
+
+    // Gather potential sources of app_public_inputs from the charm object.
+    const candidates: any[] = [
+        appPublicInputs, // Pre-extracted inputs have priority.
+        charmInstance.app_public_inputs,
+        charmInstance.appPublicInputs,
+        charmInstance.publicInputs,
+        charmInstance.inputs,
+        charmInstance.data?.app_public_inputs,
+        charmInstance.spell?.app_public_inputs
+    ].filter(Boolean);
+
+    // Helper to normalize various data structures into a string.
+    const toStringCandidate = (src: any): string | null => {
+        if (typeof src === 'string') return src;
+        if (Array.isArray(src)) return src.join(',');
+        if (typeof src === 'object') {
+            for (const [k, v] of Object.entries(src)) {
+                if (typeof v === 'string' && v.startsWith('t,')) return v;
+                if (typeof k === 'string' && k.startsWith('t,')) return k;
+            }
+        }
+        return null;
+    };
+
+    for (const candidate of candidates) {
+        const inputStr = toStringCandidate(candidate);
+        if (!inputStr || !inputStr.startsWith('t,')) continue;
+
+        try {
+            const parts = inputStr.split(',');
+            // A valid App ID requires 't' plus 64 bytes for the two hashes.
+            if (parts.length >= 65) {
+                const hash1Bytes = parts.slice(1, 33).map(x => parseInt(x.trim(), 10));
+                const hash1 = Buffer.from(hash1Bytes).toString('hex');
+                const hash2Bytes = parts.slice(33, 65).map(x => parseInt(x.trim(), 10));
+                const hash2 = Buffer.from(hash2Bytes).toString('hex');
+                return `t/${hash1}/${hash2}`;
+            }
+        } catch (error) {
+            // Ignore parsing errors and try the next candidate.
+            continue;
+        }
+    }
+
+    // Fallback to the original appId if reconstruction is not possible.
+    return charmInstance.appId || '$0000';
+}
+
 // Dynamic import for charms-js to handle browser compatibility
 let charmsJs: any = null;
 
@@ -75,17 +141,26 @@ class CharmsService {
                         continue;
                     }
 
+                    // Extract app_public_inputs using CBOR extractor as fallback
+                    const appInputsByVout = extractAppInputsByVout(txHex);
+                    
                     for (const charmInstance of charmsResult) {
                         const outIndex = charmInstance.utxo?.index;
                         const belongsToWallet = outIndex !== undefined && walletOutpoints.has(`${txId}:${outIndex}`);
 
                         if (belongsToWallet) {
+                            // Try to get app_public_inputs from CBOR extractor
+                            const appInputs = (outIndex !== undefined) ? appInputsByVout.get(outIndex) : undefined;
+                            
+                            const reconstructedAppId = reconstructAppId(charmInstance, appInputs);
+                            
                             const ticker = charmInstance.name || charmInstance.ticker || (charmInstance.value !== undefined ? 'CHARMS-TOKEN' : 'CHARMS-NFT');
                             const remaining = charmInstance.value ?? charmInstance.remaining ?? 1;
 
                             const charm: ProcessedCharm = {
-                                uniqueId: `${txId}-${charmInstance.appId}-${charmInstance.utxo.index}`,
-                                id: charmInstance.appId,
+                                uniqueId: `${txId}-${reconstructedAppId}-${charmInstance.utxo.index}`,
+                                id: reconstructedAppId,
+                                appId: reconstructedAppId, // Add explicit appId field for easier access
                                 amount: {
                                     ticker: ticker,
                                     remaining: remaining,
@@ -93,7 +168,8 @@ class CharmsService {
                                     description: charmInstance.description,
                                     image: charmInstance.image,
                                     image_hash: charmInstance.image_hash,
-                                    url: charmInstance.url
+                                    url: charmInstance.url,
+                                    appId: reconstructedAppId // Add reconstructed appId to amount object too
                                 },
                                 app: charmInstance.app,
                                 outputIndex: charmInstance.utxo.index,

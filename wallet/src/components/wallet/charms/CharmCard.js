@@ -5,6 +5,15 @@ import { useCharms } from '@/stores/charmsStore';
 import { useAddresses } from '@/stores/addressesStore';
 import TransferCharmDialog from './TransferCharmDialog';
 
+/**
+ * Renders a card component to display the details of a single Charm.
+ * The card includes the Charm's image, name, type (NFT or Token), and other metadata.
+ * It also provides an action to initiate a transfer.
+ *
+ * @param {object} props - The component props.
+ * @param {object} props.charm - The Charm object containing its data.
+ * @returns {JSX.Element}
+ */
 export default function CharmCard({ charm }) {
     const { isNFT, getCharmDisplayName } = useCharms();
     const isNftCharm = isNFT(charm);
@@ -80,9 +89,9 @@ export default function CharmCard({ charm }) {
 
                 <div className="mt-4 pt-4 border-t border-dark-700">
                     <div className="flex flex-col space-y-2 text-xs text-dark-400">
-                        <div className="flex justify-between">
+                        <div className="flex flex-col">
                             <span>ID:</span>
-                            <span className="font-mono text-dark-300">{charm.id}</span>
+                            <span className="font-mono break-all mt-1 text-dark-300">{charm.id}</span>
                         </div>
                         <div className="flex flex-col">
                             <span>UTXO:</span>
