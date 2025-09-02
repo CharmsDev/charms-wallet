@@ -4,6 +4,7 @@ import { WalletProvider } from "@/stores/walletStore";
 import { BlockchainProvider } from "@/stores/blockchainStore";
 import { UTXOProvider } from "@/stores/utxoStore";
 import { CharmsProvider } from "@/stores/charmsStore";
+import Script from 'next/script';
 
 export const metadata = {
   title: "Multi-Chain Wallet with Charms",
@@ -25,6 +26,18 @@ export default function RootLayout({ children }) {
             </UTXOProvider>
           </BlockchainProvider>
         </WalletProvider>
+        <Script
+          strategy="afterInteractive"
+          src="https://www.googletagmanager.com/gtag/js?id=G-TPDZFQH9CV"
+        />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-TPDZFQH9CV');
+          `}
+        </Script>
       </body>
     </html>
   );
