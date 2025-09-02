@@ -11,8 +11,10 @@ const BRO_TOKEN_DATA = {
     description: ""
 };
 
-// BRO Token App ID (you'll need to replace this with the actual App ID)
-let BRO_TOKEN_APP_ID = "6274399ab68d4a35e5193394aded0bed548453f6ebb7ea46dd2ca0c251f74580/b19151a83d13151dba4b493fe3cf7895eac22d57a7ee14c5f74484b583a2e90b"; // Mainnet App ID
+// BRO Token App ID (real BRO charms token App ID)
+let BRO_TOKEN_APP_ID = "t/3d7fe7e4cea6121947af73d70e5119bebd8aa5b7edfe74bfaf6e779a1847bd9b/c975d4e0c292fb95efbda5c13312d6ac1d8b5aeff7f0f1e5578645a2da70ff5f";
+
+export const getBroTokenAppId = () => BRO_TOKEN_APP_ID;
 
 class CharmsExplorerAPI {
     constructor() {
@@ -71,12 +73,8 @@ class CharmsExplorerAPI {
      * @returns {boolean} True if this is a BRO token
      */
     isBroToken(appId) {
-        // Match the exact logic used in dashboard BalanceDisplay.js
-        return appId === BRO_TOKEN_APP_ID || 
-               appId === 'CHARMS-TOKEN' ||
-               appId?.toLowerCase().includes('bro') || 
-               appId?.toLowerCase().includes('brotoken') ||
-               appId?.toLowerCase().includes('charms-token');
+        // Strict exact match only
+        return appId === BRO_TOKEN_APP_ID;
     }
 
     /**
@@ -159,9 +157,9 @@ class CharmsExplorerAPI {
 
         const processedCharms = await Promise.all(
             charms.map(async (charm) => {
-                // Try different ways to get the App ID - prioritize ticker which is what dashboard uses
-                const appId = charm.amount?.ticker || charm.appId || charm.id || charm.amount?.name || 'unknown';
-                
+                // Prefer explicit identifiers over display tickers/names
+                const appId = charm.appId || charm.id || charm.amount?.appId || charm.amount?.ticker || charm.amount?.name || 'unknown';
+
                 if (appId && appId !== 'unknown') {
                     return await this.getReferenceNFT(appId, charm);
                 }
