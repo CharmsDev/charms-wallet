@@ -1,6 +1,6 @@
 'use client';
 
-import { quickNodeService } from '@/services/shared/quicknode-service';
+import { bitcoinApiRouter } from '@/services/shared/bitcoin-api-router';
 import { getAddresses, saveTransactions, getTransactions } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
 
@@ -111,7 +111,7 @@ export class TransactionHistoryService {
      */
     async getAddressTransactionHistory(address, network) {
         try {
-            const addressInfo = await quickNodeService.makeRequest('bb_getaddress', [address], network);
+            const addressInfo = await bitcoinApiRouter.makeRequest('bb_getaddress', [address], network);
             
             if (!addressInfo) {
                 return [];
@@ -134,7 +134,7 @@ export class TransactionHistoryService {
             const transactions = [];
             for (const txid of txIds) {
                 try {
-                    const txDetails = await quickNodeService.makeRequest('bb_gettransaction', [txid], network);
+                    const txDetails = await bitcoinApiRouter.makeRequest('bb_gettransaction', [txid], network);
                     if (txDetails) {
                         transactions.push(txDetails);
                     }

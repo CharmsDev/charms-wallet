@@ -1,7 +1,7 @@
 'use client';
 
 import config from '@/config';
-import { quickNodeService } from '@/services/shared/quicknode-service';
+import { bitcoinApiRouter } from '@/services/shared/bitcoin-api-router';
 import { utxoVerifier } from '@/services/utxo/core/verifier';
 import { BLOCKCHAINS } from '@/stores/blockchainStore';
 export class BitcoinBroadcastService {
@@ -10,19 +10,14 @@ export class BitcoinBroadcastService {
     }
 
     async broadcastTransaction(txHex, network = null) {
-        // Use QuickNode service exclusively - no fallbacks
-        if (!quickNodeService.isAvailable(network)) {
-            throw new Error(`QuickNode not configured for network: ${network}`);
-        }
-
         try {
-            const txid = await quickNodeService.broadcastTransaction(txHex, network);
+            const txid = await bitcoinApiRouter.broadcastTransaction(txHex, network);
             return {
                 success: true,
                 txid: txid.trim()
             };
         } catch (error) {
-            console.error('[BroadcastService] QuickNode broadcast failed:', error);
+            console.error('[BroadcastService] Broadcast failed:', error);
             throw error;
         }
     }

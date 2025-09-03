@@ -1,7 +1,7 @@
 // UTXO Verifier - Verifies UTXO status and updates storage when spent
 import { getUTXOs, saveUTXOs } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
-import { quickNodeService } from '@/services/shared/quicknode-service';
+import { bitcoinApiRouter } from '@/services/shared/bitcoin-api-router';
 import { utxoCache } from '@/services/shared/cache-service';
 
 export class UTXOVerifier {
@@ -46,20 +46,12 @@ export class UTXOVerifier {
 
     async checkUTXOStatus(utxo, network = NETWORKS.BITCOIN.TESTNET) {
         try {
-            // Use QuickNode service exclusively - no fallbacks
-            if (!quickNodeService.isAvailable(network)) {
-                return true; // Assume valid if we can't verify
-            }
-
-            const isSpent = await quickNodeService.isUtxoSpent(utxo.txid, utxo.vout, network);
+            // Use Bitcoin API Router (mempool.space fallback)
+            const isSpent = await bitcoinApiRouter.isUtxoSpent(utxo.txid, utxo.vout, network);
             return !isSpent;
         } catch (error) {
-            // If it's a QuickNode configuration error, assume valid
-            if (error.message.includes('QuickNode not configured') || error.message.includes('QuickNode service unavailable')) {
-                return true;
-            }
-            
-            return false;
+            console.error(`[UTXOVerifier] Error checking UTXO status:`, error);
+            return true; // Assume valid if we can't verify
         }
     }
 

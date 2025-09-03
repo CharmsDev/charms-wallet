@@ -1,7 +1,7 @@
 // UTXO Fetcher - Handles fetching UTXOs from APIs
 import { getAddresses, saveUTXOs, getUTXOs } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
-import { quickNodeService } from '@/services/shared/quicknode-service';
+import { bitcoinApiRouter } from '@/services/shared/bitcoin-api-router';
 import TransactionRecorder from '@/services/transactions/transaction-recorder';
 import config from '@/config';
 
@@ -25,18 +25,11 @@ export class UTXOFetcher {
 
     async getBitcoinAddressUTXOs(address, network) {
         try {
-            // Use QuickNode service exclusively - no fallbacks
-            if (!quickNodeService.isAvailable(network)) {
-                return [];
-            }
-            return await quickNodeService.getAddressUTXOs(address, network);
-            
+            // Use Bitcoin API Router (mempool.space fallback)
+            const utxos = await bitcoinApiRouter.getAddressUTXOs(address, network);
+            return utxos;
         } catch (error) {
-            // If it's a QuickNode configuration error, return empty array instead of throwing
-            if (error.message.includes('QuickNode not configured') || error.message.includes('QuickNode service unavailable')) {
-                return [];
-            }
-            
+            console.error(`[UTXOFetcher] Error getting UTXOs for ${address}:`, error);
             return [];
         }
     }
@@ -88,8 +81,8 @@ export class UTXOFetcher {
 
             // Early check for Bitcoin networks - if QuickNode not available, skip entirely
             if (blockchain === BLOCKCHAINS.BITCOIN) {
-                const { quickNodeService } = await import('@/services/shared/quicknode-service');
-                if (!quickNodeService.isAvailable(network)) {
+                const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
+                if (!bitcoinApiRouter.isAvailable(network)) {
                     return {};
                 }
             }
