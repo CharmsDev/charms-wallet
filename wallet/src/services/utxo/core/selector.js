@@ -52,7 +52,12 @@ export class UTXOSelector {
 
     async selectUtxosForAmountDynamic(availableUtxos, amountInSats, feeRate = 1, verifier = null, updateStateCallback = null, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
         // Filter only by lock state; no blacklisting
-        const candidateUtxos = availableUtxos.filter(utxo => !this.lockedUtxos.has(`${utxo.txid}:${utxo.vout}`));
+        // Filter out locked UTXOs and any UTXO that is a Charm
+        const candidateUtxos = availableUtxos.filter(utxo => {
+            const isLocked = this.lockedUtxos.has(`${utxo.txid}:${utxo.vout}`);
+            const isCharm = utxo.isCharm || utxo.hasCharm; // Check for charm properties
+            return !isLocked && !isCharm;
+        });
 
         if (candidateUtxos.length === 0) {
             throw new Error('No valid UTXOs available. Please refresh your wallet.');
@@ -120,7 +125,9 @@ export class UTXOSelector {
     selectUtxosForAmount(availableUtxos, amountInSats, feeRate = 1) {
         const candidateUtxos = availableUtxos.filter(utxo => {
             const utxoKey = `${utxo.txid}:${utxo.vout}`;
-            return !this.lockedUtxos.has(utxoKey);
+            const isLocked = this.lockedUtxos.has(utxoKey);
+            const isCharm = utxo.isCharm || utxo.hasCharm; // Check for charm properties
+            return !isLocked && !isCharm;
         });
 
         const sortedUtxos = [...candidateUtxos].sort((a, b) => b.value - a.value);
