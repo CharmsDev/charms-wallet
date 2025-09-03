@@ -24,6 +24,12 @@ export function useTransactionFlow(formState, onClose) {
                 return;
             }
 
+            const amountInSats = parseInt(formState.amount, 10);
+            if (isNaN(amountInSats) || amountInSats < 547) {
+                formState.setError('The minimum amount to send is 547 satoshis.');
+                return;
+            }
+
             formState.setError('');
             
             const allUtxos = utxos ? Object.entries(utxos).flatMap(([address, addressUtxos]) =>
