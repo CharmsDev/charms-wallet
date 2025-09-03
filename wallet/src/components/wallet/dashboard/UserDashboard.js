@@ -85,7 +85,6 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
 
     const handleRefresh = async () => {
         if (isRefreshing) return;
-
         setIsRefreshing(true);
         try {
             await Promise.all([
