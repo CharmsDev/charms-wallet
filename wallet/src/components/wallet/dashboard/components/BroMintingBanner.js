@@ -22,9 +22,16 @@ const BroMintingBanner = () => {
           animation: pulse-glow 3s infinite ease-in-out;
         }
       `}</style>
-      <div>
-        <h3 className="text-lg font-bold text-white">BRO Minting is Live!</h3>
-        <p className="text-sm text-dark-300">Mint now at <span className="font-bold text-primary-400">bro.charms.dev</span></p>
+      <div className="flex items-center space-x-4">
+        <img 
+          src="https://bro.charms.dev/assets/bro-token-DsXLIv23.jpg" 
+          alt="Bro Token" 
+          className="h-10 w-10 rounded-full object-cover"
+        />
+        <div>
+          <h3 className="text-lg font-bold text-white">BRO Minting is Live!</h3>
+          <p className="text-sm text-dark-300">Mint now at <span className="font-bold text-primary-400">bro.charms.dev</span></p>
+        </div>
       </div>
       <button
         onClick={handleMintClick}
