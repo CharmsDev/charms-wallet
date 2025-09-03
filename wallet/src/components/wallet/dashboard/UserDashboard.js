@@ -16,6 +16,7 @@ import WalletSeed from './components/WalletSeed';
 import SendBitcoinDialog from '../utxos/SendBitcoinDialog';
 import ReceiveBitcoinDialog from './components/ReceiveBitcoinDialog';
 import SettingsDialog from './components/SettingsDialog';
+import BroMintingBanner from './components/BroMintingBanner';
 
 export default function UserDashboard({ seedPhrase, walletInfo, derivationLoading, createSuccess }) {
     const [showSendDialog, setShowSendDialog] = useState(false);
@@ -148,6 +149,8 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Left Column - Balance and Quick Actions */}
                     <div className="lg:col-span-2 space-y-6">
+                        <BroMintingBanner />
+
                         {/* Balance Display */}
                         <BalanceDisplay
                             balance={totalBalance}
