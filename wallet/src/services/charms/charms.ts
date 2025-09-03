@@ -1,6 +1,6 @@
 import { ProcessedCharm, UTXOMap } from '@/types';
 import { isNFT, isToken, getCharmDisplayName } from './utils/charm-utils';
-import { quickNodeService } from '../shared/quicknode-service';
+import { bitcoinApiRouter } from '../shared/bitcoin-api-router';
 import { extractAppInputsByVout } from './cbor-extractor';
 
 /**
@@ -123,8 +123,8 @@ class CharmsService {
 
             for (const txId of txIds) {
                 try {
-                    // Get transaction hex from QuickNode instead of letting charms-js use mempool.space
-                    const txHex = await quickNodeService.getTransactionHex(txId, network);
+                    // Get transaction hex from Bitcoin API Router (mempool.space)
+                    const txHex = await bitcoinApiRouter.getTransactionHex(txId, network);
                     
                     if (!txHex) {
                         continue;
