@@ -149,13 +149,11 @@ export class UTXOFetcher {
 
                     processedCount++;
 
-                    if (processedCount < filteredAddresses.length) {
-                        await new Promise(resolve => setTimeout(resolve, 50));
-                    }
-
                 } catch (error) {
+                    // Log the error but continue with other addresses
+                    console.warn(`Failed to fetch UTXOs for ${address}:`, error.message);
+                    
                     processedCount++;
-
                     if (onProgress) {
                         onProgress({
                             address,
@@ -163,13 +161,13 @@ export class UTXOFetcher {
                             processed: processedCount,
                             total: filteredAddresses.length,
                             hasUtxos: false,
-                            error: error.message
+                            error: `Failed to fetch UTXOs for ${address}: ${error.message}`
                         });
                     }
+                }
 
-                    if (processedCount < filteredAddresses.length) {
-                        await new Promise(resolve => setTimeout(resolve, 50));
-                    }
+                if (processedCount < filteredAddresses.length) {
+                    await new Promise(resolve => setTimeout(resolve, 50));
                 }
             }
 
