@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import { utxoService } from '@/services/utxo';
 import { BLOCKCHAINS, NETWORKS } from './blockchainStore';
+import { getCharms } from '@/services/storage';
 
 const useUTXOStore = create((set, get) => ({
     utxos: {},
@@ -52,7 +53,9 @@ const useUTXOStore = create((set, get) => ({
                     return true;
                 });
             });
-            const balance = utxoService.calculateTotalBalance(deduped);
+            // Get charms to exclude from spendable balance
+            const charms = await getCharms(blockchain, network) || [];
+            const balance = utxoService.calculateSpendableBalance(deduped, charms);
 
             set({
                 utxos: deduped,
@@ -111,6 +114,7 @@ const useUTXOStore = create((set, get) => ({
                     delete updatedUTXOs[progressData.address];
                 }
 
+                // Use total balance for progress updates, will calculate spendable at the end
                 const newBalance = utxoService.calculateTotalBalance(updatedUTXOs);
 
                 set({
@@ -143,7 +147,9 @@ const useUTXOStore = create((set, get) => ({
                     return true;
                 });
             });
-            const finalBalance = utxoService.calculateTotalBalance(finalUtxos);
+            // Get charms to exclude from spendable balance
+            const charms = await getCharms(blockchain, network) || [];
+            const finalBalance = utxoService.calculateSpendableBalance(finalUtxos, charms);
 
             set({
                 utxos: finalUtxos,
@@ -173,7 +179,9 @@ const useUTXOStore = create((set, get) => ({
     updateAfterTransaction: async (spentUtxos, newUtxos = {}, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
             const updatedUTXOs = await utxoService.updateAfterTransaction(spentUtxos, newUtxos, blockchain, network);
-            const newBalance = utxoService.calculateTotalBalance(updatedUTXOs);
+            // Get charms to exclude from spendable balance
+            const charms = await getCharms(blockchain, network) || [];
+            const newBalance = utxoService.calculateSpendableBalance(updatedUTXOs, charms);
 
             set({
                 utxos: updatedUTXOs,

@@ -165,6 +165,10 @@ export class UTXOService {
         return this.calculations.calculateTotalBalance(utxoMap);
     }
 
+    calculateSpendableBalance(utxoMap, charms = []) {
+        return this.calculations.calculateSpendableBalance(utxoMap, charms);
+    }
+
     formatSats(satoshis) {
         return this.calculations.formatSats(satoshis);
     }

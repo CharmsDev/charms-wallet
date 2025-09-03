@@ -142,7 +142,7 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
                                 <div className="w-6 h-6 rounded-full bg-gradient-to-r from-orange-500 to-yellow-500 flex items-center justify-center">
                                     <span className="text-xs font-bold text-white">₿</span>
                                 </div>
-                                <span className="text-sm font-medium text-dark-300">Bitcoin</span>
+                                <span className="text-sm font-medium text-dark-300">Bitcoin Available</span>
                             </div>
                             <div 
                                 className="cursor-pointer hover:opacity-80 transition-opacity"
