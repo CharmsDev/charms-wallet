@@ -106,8 +106,10 @@ export default function CharmCard({ charm }) {
 
                 <div className="mt-auto pt-4 border-t border-dark-700">
                     <button
-                        onClick={() => setShowTransferDialog(true)}
-                        className="w-full btn btn-primary"
+                        onClick={undefined}
+                        disabled={true}
+                        className="w-full btn btn-disabled opacity-50 cursor-not-allowed bg-gray-600"
+                        title="Transfer (temporarily disabled)"
                     >
                         Transfer
                     </button>
