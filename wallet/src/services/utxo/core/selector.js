@@ -1,6 +1,7 @@
 // UTXO Selector - Handles UTXO selection algorithms and verification
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
 import { utxoService } from '@/services/utxo/utxo-service';
+import { getCharms } from '@/services/storage';
 
 export class UTXOSelector {
     constructor() {
@@ -51,13 +52,56 @@ export class UTXOSelector {
     }
 
     async selectUtxosForAmountDynamic(availableUtxos, amountInSats, feeRate = 1, verifier = null, updateStateCallback = null, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
-        // Filter only by lock state; no blacklisting
-        // Filter out locked UTXOs and any UTXO that is a Charm
+        // Get current charms to exclude their UTXOs
+        const networkKey = network === 'mainnet' ? 'mainnet' : 'testnet';
+        const charms = await getCharms(blockchain, networkKey) || [];
+        
+        // Create set of charm UTXO identifiers
+        const charmUtxoIds = new Set();
+        charms.forEach(charm => {
+            if (charm.txid && charm.outputIndex !== undefined) {
+                charmUtxoIds.add(`${charm.txid}:${charm.outputIndex}`);
+            }
+            // Also handle uniqueId format variations
+            if (charm.uniqueId) {
+                const uid = charm.uniqueId;
+                if (/^[0-9a-fA-F]+:\d+$/.test(uid)) {
+                    charmUtxoIds.add(uid);
+                } else if (uid.includes('-')) {
+                    const parts = uid.split('-');
+                    if (parts.length >= 3) {
+                        const txid = parts[0];
+                        const vout = parts[parts.length - 1];
+                        if (/^\d+$/.test(vout)) {
+                            charmUtxoIds.add(`${txid}:${vout}`);
+                        }
+                    }
+                }
+            }
+        });
+
+        // Filter out locked UTXOs and any UTXO that contains a Charm
         const candidateUtxos = availableUtxos.filter(utxo => {
             const isLocked = this.lockedUtxos.has(`${utxo.txid}:${utxo.vout}`);
-            const isCharm = utxo.isCharm || utxo.hasCharm; // Check for charm properties
+            const utxoId = `${utxo.txid}:${utxo.vout}`;
+            const isCharm = charmUtxoIds.has(utxoId);
+            
+            if (isCharm) {
+                console.log(`🚫 CHARM UTXO EXCLUDED: ${utxoId} (${utxo.value} sats)`);
+            }
+            
             return !isLocked && !isCharm;
         });
+
+        console.log(`📊 UTXO Selection Summary:
+        - Total available UTXOs: ${availableUtxos.length}
+        - Charm UTXOs found: ${charmUtxoIds.size}
+        - Locked UTXOs: ${this.lockedUtxos.size}
+        - Candidate UTXOs after filtering: ${candidateUtxos.length}`);
+        
+        if (charmUtxoIds.size > 0) {
+            console.log(`🔒 Charm UTXO IDs being excluded:`, Array.from(charmUtxoIds));
+        }
 
         if (candidateUtxos.length === 0) {
             throw new Error('No valid UTXOs available. Please refresh your wallet.');
@@ -122,11 +166,39 @@ export class UTXOSelector {
         };
     }
 
-    selectUtxosForAmount(availableUtxos, amountInSats, feeRate = 1) {
+    async selectUtxosForAmount(availableUtxos, amountInSats, feeRate = 1, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
+        // Get current charms to exclude their UTXOs
+        const networkKey = network === 'mainnet' ? 'mainnet' : 'testnet';
+        const charms = await getCharms(blockchain, networkKey) || [];
+        
+        // Create set of charm UTXO identifiers
+        const charmUtxoIds = new Set();
+        charms.forEach(charm => {
+            if (charm.txid && charm.outputIndex !== undefined) {
+                charmUtxoIds.add(`${charm.txid}:${charm.outputIndex}`);
+            }
+            // Also handle uniqueId format variations
+            if (charm.uniqueId) {
+                const uid = charm.uniqueId;
+                if (/^[0-9a-fA-F]+:\d+$/.test(uid)) {
+                    charmUtxoIds.add(uid);
+                } else if (uid.includes('-')) {
+                    const parts = uid.split('-');
+                    if (parts.length >= 3) {
+                        const txid = parts[0];
+                        const vout = parts[parts.length - 1];
+                        if (/^\d+$/.test(vout)) {
+                            charmUtxoIds.add(`${txid}:${vout}`);
+                        }
+                    }
+                }
+            }
+        });
+
         const candidateUtxos = availableUtxos.filter(utxo => {
             const utxoKey = `${utxo.txid}:${utxo.vout}`;
             const isLocked = this.lockedUtxos.has(utxoKey);
-            const isCharm = utxo.isCharm || utxo.hasCharm; // Check for charm properties
+            const isCharm = charmUtxoIds.has(utxoKey);
             return !isLocked && !isCharm;
         });
 
