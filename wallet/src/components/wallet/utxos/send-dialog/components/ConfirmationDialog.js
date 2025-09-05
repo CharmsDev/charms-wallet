@@ -19,6 +19,15 @@ export function ConfirmationDialog({
     onCancel
 }) {
     const [showDetails, setShowDetails] = useState(false);
+    const [showUtxos, setShowUtxos] = useState(false);
+
+    const formatSats = (n) => {
+        try {
+            return Number(n).toLocaleString('en-US');
+        } catch (_) {
+            return n;
+        }
+    };
 
     return (
         <>
@@ -36,6 +45,32 @@ export function ConfirmationDialog({
                         <pre className="bg-dark-900 text-dark-200 p-4 rounded-lg overflow-auto text-xs font-mono border border-dark-700 max-h-64">
                             {JSON.stringify(transactionData.decodedTx, null, 2)}
                         </pre>
+                    )}
+                </div>
+            )}
+
+            {Array.isArray(transactionData?.selectedUtxos) && transactionData.selectedUtxos.length > 0 && (
+                <div className="mb-4">
+                    <button
+                        className="w-full text-left text-sm text-blue-400 hover:underline flex items-center justify-between"
+                        onClick={() => setShowUtxos(!showUtxos)}
+                    >
+                        <span>{showUtxos ? 'Hide UTXOs' : 'Show UTXOs in this transaction'}</span>
+                        <span className="text-dark-400 text-xs">{transactionData.selectedUtxos.length} item(s)</span>
+                    </button>
+                    {showUtxos && (
+                        <div className="mt-2 border border-dark-700 rounded-lg max-h-64 overflow-auto">
+                            <ul className="divide-y divide-dark-700">
+                                {transactionData.selectedUtxos.map((u, idx) => (
+                                    <li key={`${u.txid}:${u.vout}-${idx}`} className="px-3 py-2 text-xs flex items-center justify-between">
+                                        <div className="font-mono text-dark-200 truncate mr-3" title={`${u.txid}:${u.vout}`}>
+                                            {u.txid}:{u.vout}
+                                        </div>
+                                        <div className="text-dark-100 whitespace-nowrap">{formatSats(u.value)} sats</div>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
                     )}
                 </div>
             )}
@@ -59,3 +94,4 @@ export function ConfirmationDialog({
         </>
     );
 }
+
