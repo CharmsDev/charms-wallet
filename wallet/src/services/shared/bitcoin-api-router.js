@@ -1,10 +1,18 @@
 'use client';
 
 import config from '@/config';
+import { quickNodeService } from './quicknode-service';
+import { mempoolService } from './mempool-service';
+import {
+    normalizeMempoolUTXOs,
+    normalizeMempoolTransaction,
+    normalizeMempoolAddressData,
+    normalizeUtxoVerification
+} from './data-normalizers';
 
 /**
  * Bitcoin API Router - Unified interface for Bitcoin API calls
- * Routes to mempool.space with same interface as QuickNode service
+ * Tries QuickNode first, falls back to mempool.space with data normalization
  */
 export class BitcoinApiRouter {
     constructor() {
@@ -16,116 +24,72 @@ export class BitcoinApiRouter {
     }
 
     /**
-     * Check if API is available (always true for mempool.space)
+     * Check if any API is available (QuickNode or mempool.space)
      */
     isAvailable(network) {
-        return true; // mempool.space is always available
+        return quickNodeService.isAvailable(network) || mempoolService.isAvailable(network);
     }
 
     /**
-     * Get mempool.space API URL for network
+     * Try QuickNode first, fallback to mempool.space with normalization
      */
-    _getMempoolUrl(network) {
-        const targetNetwork = network || config.bitcoin.network;
-        if (targetNetwork === 'mainnet') {
-            return 'https://mempool.space/api';
-        } else if (targetNetwork === 'testnet' || targetNetwork === 'testnet4') {
-            return 'https://mempool.space/testnet4/api';
-        }
-        throw new Error(`Unsupported network: ${targetNetwork}`);
-    }
-
-    /**
-     * Make HTTP request to mempool.space API
-     */
-    async _makeHttpRequest(url, options = {}) {
-        const attempt = async () => {
-            const response = await fetch(url, {
-                ...options,
-                signal: AbortSignal.timeout(this.timeout),
-            });
-
-            if (!response.ok) {
-                // 429/5xx -> allow retry
-                if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
-                    const err = new Error(`Mempool API retryable error: ${response.status}`);
-                    err.status = response.status;
-                    throw err;
-                }
-                throw new Error(`Mempool API error: ${response.status}`);
-            }
-
-            return response.json();
-        };
-
-        let lastError = null;
-        for (let i = 0; i <= this.retryDelays.length; i++) {
+    async _tryWithFallback(operation, ...args) {
+        // Try QuickNode first if available
+        if (quickNodeService.isAvailable(args[args.length - 1] || null)) {
             try {
-                return await attempt();
+                console.log(`[BitcoinApiRouter] Trying QuickNode for ${operation}`);
+                return await quickNodeService[operation](...args);
             } catch (error) {
-                lastError = error;
-                const isRetryable = error && (error.status === 429 || (error.status >= 500 && error.status < 600));
-                if (i < this.retryDelays.length && isRetryable) {
-                    await new Promise(res => setTimeout(res, this.retryDelays[i]));
-                    continue;
-                }
-                console.error(`[BitcoinApiRouter] HTTP request failed:`, error);
-                throw error;
+                console.warn(`[BitcoinApiRouter] QuickNode failed for ${operation}, falling back to mempool.space:`, error.message);
             }
         }
-        throw lastError || new Error('API request failed');
+
+        // Fallback to mempool.space
+        console.log(`[BitcoinApiRouter] Using mempool.space for ${operation}`);
+        return await this._callMempoolWithNormalization(operation, ...args);
     }
 
     /**
-     * Get UTXO information for an address using mempool.space
-     * Maintains same interface as QuickNode service
+     * Call mempool.space and normalize response to QuickNode format
+     */
+    async _callMempoolWithNormalization(operation, ...args) {
+        switch (operation) {
+            case 'getAddressUTXOs': {
+                const [address, network] = args;
+                const { utxos, currentBlockHeight } = await mempoolService.getAddressUTXOs(address, network);
+                return normalizeMempoolUTXOs(utxos, currentBlockHeight, address);
+            }
+            case 'getTransaction': {
+                const [txid, network] = args;
+                const { tx, currentBlockHeight } = await mempoolService.getTransaction(txid, network);
+                return normalizeMempoolTransaction(tx, currentBlockHeight);
+            }
+            case 'isUtxoSpent':
+            case 'broadcastTransaction':
+            case 'getTransactionHex':
+                return await mempoolService[operation](...args);
+            case 'verifyUtxos': {
+                const [utxos, network] = args;
+                const results = await Promise.allSettled(
+                    utxos.map(async (utxo) => {
+                        const isSpent = await mempoolService.isUtxoSpent(utxo.txid, utxo.vout, network);
+                        return { utxo, isSpent };
+                    })
+                );
+                return normalizeUtxoVerification(results);
+            }
+            default:
+                throw new Error(`Unsupported operation: ${operation}`);
+        }
+    }
+
+    /**
+     * Get UTXO information for an address
+     * Tries QuickNode first, falls back to mempool.space
      */
     async getAddressUTXOs(address, network = null) {
         try {
-            const baseUrl = this._getMempoolUrl(network);
-            const url = `${baseUrl}/address/${address}/utxo`;
-            
-            const utxos = await this._makeHttpRequest(url);
-            if (!utxos || utxos.length === 0) {
-                return [];
-            }
-
-            // Get current block height for confirmations calculation
-            let currentBlockHeight = null;
-            try {
-                const tipUrl = `${baseUrl}/blocks/tip/height`;
-                currentBlockHeight = await this._makeHttpRequest(tipUrl);
-            } catch (error) {
-                // If we can't get current height, use confirmed status only
-            }
-            
-            // Convert mempool.space format to QuickNode-compatible format
-            return utxos.map(utxo => {
-                let confirmations = 0;
-                if (utxo.status?.confirmed && utxo.status?.block_height) {
-                    if (currentBlockHeight !== null) {
-                        confirmations = Math.max(0, currentBlockHeight - utxo.status.block_height + 1);
-                    } else {
-                        confirmations = 1; // Fallback: at least 1 if confirmed
-                    }
-                }
-
-                return {
-                    txid: utxo.txid,
-                    vout: utxo.vout,
-                    value: utxo.value, // Already in satoshis
-                    address: address,
-                    confirmations: confirmations,
-                    blockHeight: utxo.status?.block_height || null,
-                    coinbase: false, // mempool.space doesn't provide this info
-                    status: {
-                        confirmed: utxo.status?.confirmed || false,
-                        block_height: utxo.status?.block_height || null,
-                        block_hash: utxo.status?.block_hash || null,
-                        block_time: utxo.status?.block_time || null
-                    }
-                };
-            });
+            return await this._tryWithFallback('getAddressUTXOs', address, network);
         } catch (error) {
             console.error(`[BitcoinApiRouter] Error getting UTXOs for ${address}:`, error);
             throw error;
@@ -133,18 +97,12 @@ export class BitcoinApiRouter {
     }
 
     /**
-     * Check if a specific UTXO is spent using mempool.space
-     * Returns true if spent/non-existent, false if unspent
+     * Check if a specific UTXO is spent
+     * Tries QuickNode first, falls back to mempool.space
      */
     async isUtxoSpent(txid, vout, network = null) {
         try {
-            const baseUrl = this._getMempoolUrl(network);
-            const url = `${baseUrl}/tx/${txid}/outspend/${vout}`;
-            
-            const result = await this._makeHttpRequest(url);
-            
-            // mempool.space returns { spent: true/false, txid?: string, vin?: number }
-            return result.spent === true;
+            return await this._tryWithFallback('isUtxoSpent', txid, vout, network);
         } catch (error) {
             // If we can't check, assume unspent to avoid blocking transactions
             return false;
@@ -152,29 +110,12 @@ export class BitcoinApiRouter {
     }
 
     /**
-     * Broadcast a transaction using mempool.space
+     * Broadcast a transaction
+     * Tries QuickNode first, falls back to mempool.space
      */
     async broadcastTransaction(txHex, network = null) {
         try {
-            const baseUrl = this._getMempoolUrl(network);
-            const url = `${baseUrl}/tx`;
-            
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'text/plain',
-                },
-                body: txHex,
-                signal: AbortSignal.timeout(this.timeout),
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Broadcast failed: ${response.status} - ${errorText}`);
-            }
-
-            // mempool.space returns the txid as plain text
-            return await response.text();
+            return await this._tryWithFallback('broadcastTransaction', txHex, network);
         } catch (error) {
             console.error(`[BitcoinApiRouter] Broadcast error:`, error);
             throw error;
@@ -182,45 +123,12 @@ export class BitcoinApiRouter {
     }
 
     /**
-     * Get transaction details using mempool.space
+     * Get transaction details
+     * Tries QuickNode first, falls back to mempool.space
      */
     async getTransaction(txid, network = null) {
         try {
-            const baseUrl = this._getMempoolUrl(network);
-            const url = `${baseUrl}/tx/${txid}`;
-            
-            const tx = await this._makeHttpRequest(url);
-
-            // Calculate confirmations properly
-            let confirmations = 0;
-            if (tx.status?.confirmed && tx.status?.block_height) {
-                try {
-                    const tipUrl = `${baseUrl}/blocks/tip/height`;
-                    const currentBlockHeight = await this._makeHttpRequest(tipUrl);
-                    confirmations = Math.max(0, currentBlockHeight - tx.status.block_height + 1);
-                } catch (error) {
-                    confirmations = 1; // Fallback: at least 1 if confirmed
-                }
-            }
-            
-            // Convert mempool.space format to QuickNode-compatible format
-            return {
-                txid: tx.txid,
-                hash: tx.txid,
-                version: tx.version,
-                size: tx.size,
-                vsize: tx.vsize,
-                weight: tx.weight,
-                locktime: tx.locktime,
-                vin: tx.vin,
-                vout: tx.vout,
-                hex: null, // Will be fetched separately if needed
-                blockhash: tx.status?.block_hash || null,
-                confirmations: confirmations,
-                time: tx.status?.block_time || null,
-                blocktime: tx.status?.block_time || null,
-                fee: tx.fee || 0
-            };
+            return await this._tryWithFallback('getTransaction', txid, network);
         } catch (error) {
             console.error(`[BitcoinApiRouter] Error getting transaction ${txid}:`, error);
             throw error;
@@ -228,7 +136,8 @@ export class BitcoinApiRouter {
     }
 
     /**
-     * Get raw transaction hex using mempool.space
+     * Get raw transaction hex
+     * Tries QuickNode first, falls back to mempool.space
      */
     async getTransactionHex(txid, network = null) {
         const targetNetwork = network || config.bitcoin.network;
@@ -247,18 +156,7 @@ export class BitcoinApiRouter {
         }
 
         const p = (async () => {
-            const baseUrl = this._getMempoolUrl(targetNetwork);
-            const url = `${baseUrl}/tx/${txid}/hex`;
-            
-            const response = await fetch(url, {
-                signal: AbortSignal.timeout(this.timeout),
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to get transaction hex: ${response.status}`);
-            }
-
-            const result = await response.text();
+            const result = await this._tryWithFallback('getTransactionHex', txid, targetNetwork);
             // Cache result
             this.txHexCache.set(key, { value: result, expiry: now + this.txCacheTTL });
             return result;
@@ -274,45 +172,39 @@ export class BitcoinApiRouter {
 
     /**
      * Verify multiple UTXOs in batch
-     * Maintains same interface as QuickNode service
+     * Tries QuickNode first, falls back to mempool.space
      */
     async verifyUtxos(utxos, network = null) {
-        const results = await Promise.allSettled(
-            utxos.map(async (utxo) => {
-                const isSpent = await this.isUtxoSpent(utxo.txid, utxo.vout, network);
-                return { utxo, isSpent };
-            })
-        );
-
-        const validUtxos = [];
-        const spentUtxos = [];
-
-        results.forEach((result, index) => {
-            if (result.status === 'fulfilled') {
-                if (result.value.isSpent) {
-                    spentUtxos.push(result.value.utxo);
-                } else {
-                    validUtxos.push(result.value.utxo);
-                }
-            } else {
-                // If check failed, keep UTXO to avoid blocking transactions
-                validUtxos.push(utxos[index]);
-            }
-        });
-        
-        return {
-            validUtxos,
-            spentUtxos,
-            removedCount: spentUtxos.length
-        };
+        try {
+            return await this._tryWithFallback('verifyUtxos', utxos, network);
+        } catch (error) {
+            console.error(`[BitcoinApiRouter] Error verifying UTXOs:`, error);
+            // Return all as valid if verification fails to avoid blocking transactions
+            return {
+                validUtxos: utxos,
+                spentUtxos: [],
+                removedCount: 0
+            };
+        }
     }
 
     /**
-     * Legacy compatibility method - same as makeRequest but for mempool.space
+     * Legacy compatibility method - RPC-style calls with QuickNode-first fallback
      * This maintains compatibility with any code expecting RPC-style calls
      */
     async makeRequest(method, params = [], network = null) {
-        // Map common RPC methods to mempool.space API calls
+        // Try QuickNode first if available
+        if (quickNodeService.isAvailable(network)) {
+            try {
+                console.log(`[BitcoinApiRouter] Trying QuickNode RPC for ${method}`);
+                return await quickNodeService.makeRequest(method, params, network);
+            } catch (error) {
+                console.warn(`[BitcoinApiRouter] QuickNode RPC failed for ${method}, falling back to mempool.space:`, error.message);
+            }
+        }
+
+        // Fallback to mempool.space with method mapping
+        console.log(`[BitcoinApiRouter] Using mempool.space RPC fallback for ${method}`);
         switch (method) {
             case 'bb_getutxos':
                 if (params.length > 0) {
@@ -322,24 +214,13 @@ export class BitcoinApiRouter {
 
             case 'bb_getaddress':
                 if (params.length > 0) {
-                    // Get address transaction history using mempool.space
-                    const baseUrl = this._getMempoolUrl(network);
-                    const url = `${baseUrl}/address/${params[0]}/txs`;
-                    const txs = await this._makeHttpRequest(url);
-                    
-                    // Convert to QuickNode Blockbook format
-                    return {
-                        address: params[0],
-                        txs: txs.map(tx => tx.txid), // Return array of txids
-                        transactions: txs.map(tx => tx.txid), // Alternative format
-                        txids: txs.map(tx => tx.txid) // Another alternative format
-                    };
+                    const txs = await mempoolService.getAddressTransactions(params[0], network);
+                    return normalizeMempoolAddressData(txs, params[0]);
                 }
                 throw new Error('bb_getaddress requires address parameter');
 
             case 'bb_gettransaction':
                 if (params.length > 0) {
-                    // Get transaction details - same as getTransaction but ensure QuickNode format
                     return this.getTransaction(params[0], network);
                 }
                 throw new Error('bb_gettransaction requires txid parameter');
