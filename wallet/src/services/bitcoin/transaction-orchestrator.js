@@ -5,6 +5,7 @@ import { UtxoSelector } from '@/services/utxo';
 import BitcoinBroadcastService from './broadcast-service';
 import TransactionRecorder from '@/services/transactions/transaction-recorder';
 import { BLOCKCHAINS } from '@/stores/blockchainStore';
+import { getCharms } from '@/services/storage';
 
 export class BitcoinTransactionOrchestrator {
     constructor(network) {
@@ -29,6 +30,44 @@ export class BitcoinTransactionOrchestrator {
             BLOCKCHAINS.BITCOIN,
             this.network
         );
+
+        // Defense-in-depth: verify no selected UTXOs are charm UTXOs before signing
+        try {
+            const charms = await getCharms(BLOCKCHAINS.BITCOIN, this.network);
+            const charmIds = new Set(
+                (charms || []).flatMap(ch => {
+                    const ids = [];
+                    if (ch?.txid !== undefined && ch?.outputIndex !== undefined) {
+                        ids.push(`${ch.txid}:${ch.outputIndex}`);
+                    }
+                    if (typeof ch?.uniqueId === 'string') {
+                        const uid = ch.uniqueId;
+                        if (/^[0-9a-fA-F]+:\\d+$/.test(uid)) {
+                            ids.push(uid);
+                        } else if (uid.includes('-')) {
+                            const parts = uid.split('-');
+                            if (parts.length >= 3) {
+                                const txid = parts[0];
+                                const vout = parts[parts.length - 1];
+                                if (/^\d+$/.test(vout)) ids.push(`${txid}:${vout}`);
+                            }
+                        }
+                    }
+                    return ids;
+                })
+            );
+
+            const offending = (selectionResult.selectedUtxos || []).filter(u =>
+                charmIds.has(`${u.txid}:${u.vout}`)
+            );
+            if (offending.length > 0) {
+                throw new Error('Charm-protected UTXOs detected in selection. Aborting transaction.');
+            }
+        } catch (e) {
+            if (e && e.message && e.message.includes('Charm-protected')) throw e;
+            // If charms retrieval fails, proceed but log - selector already filtered them
+            // console.warn('[Orchestrator] Charm validation skipped due to error:', e);
+        }
 
         const transactionData = {
             destinationAddress,
