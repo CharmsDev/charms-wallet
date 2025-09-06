@@ -80,17 +80,14 @@ export class UTXOSelector {
             }
         });
 
-        // Filter out locked UTXOs and any UTXO that contains a Charm
+        // Filter out locked UTXOs, any UTXO that contains a Charm, and UTXOs with exactly 1000 sats
         const candidateUtxos = availableUtxos.filter(utxo => {
             const isLocked = this.lockedUtxos.has(`${utxo.txid}:${utxo.vout}`);
             const utxoId = `${utxo.txid}:${utxo.vout}`;
             const isCharm = charmUtxoIds.has(utxoId);
+            const is1000Sats = utxo.value === 1000;
             
-            if (isCharm) {
-                console.log(`🚫 CHARM UTXO EXCLUDED: ${utxoId} (${utxo.value} sats)`);
-            }
-            
-            return !isLocked && !isCharm;
+            return !isLocked && !isCharm && !is1000Sats;
         });
 
         console.log(`📊 UTXO Selection Summary:
@@ -199,7 +196,9 @@ export class UTXOSelector {
             const utxoKey = `${utxo.txid}:${utxo.vout}`;
             const isLocked = this.lockedUtxos.has(utxoKey);
             const isCharm = charmUtxoIds.has(utxoKey);
-            return !isLocked && !isCharm;
+            const is1000Sats = utxo.value === 1000;
+            
+            return !isLocked && !isCharm && !is1000Sats;
         });
 
         const sortedUtxos = [...candidateUtxos].sort((a, b) => b.value - a.value);
