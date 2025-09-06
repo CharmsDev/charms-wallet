@@ -7,9 +7,9 @@ export default function QuickActionsPanel({ onSend, onReceive, onViewHistory, on
             label: 'Send',
             icon: '↗',
             onClick: onSend,
-            className: 'btn-disabled',
-            description: 'Send Bitcoin (temporarily disabled)',
-            enabled: false
+            className: 'btn-bitcoin',
+            description: 'Send Bitcoin',
+            enabled: true
         },
         {
             id: 'receive',

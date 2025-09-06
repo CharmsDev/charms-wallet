@@ -168,10 +168,9 @@ export default function UTXOList() {
                 <div className="flex space-x-2">
                     {isBitcoin() && (
                         <button
-                            className="btn btn-disabled opacity-50 cursor-not-allowed bg-gray-600"
-                            onClick={undefined}
-                            disabled={true}
-                            title="Send Bitcoin (temporarily disabled)"
+                            className={`btn ${confirmedUtxos.length === 0 ? 'opacity-50 cursor-not-allowed bg-dark-700' : 'btn-bitcoin'}`}
+                            onClick={handleOpenSendDialog}
+                            disabled={confirmedUtxos.length === 0}
                         >
                             Send Bitcoin
                         </button>
