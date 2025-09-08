@@ -15,6 +15,20 @@ export class MempoolService {
         this.retryDelays = [300, 700, 1500]; // backoff for 429/5xx
     }
 
+    // Create a timeout signal compatible with mobile browsers that may not support AbortSignal.timeout
+    _createTimeoutSignal(ms) {
+        try {
+            if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+                return AbortSignal.timeout(ms);
+            }
+        } catch (_) {}
+        const controller = new AbortController();
+        setTimeout(() => {
+            try { controller.abort(); } catch (_) {}
+        }, ms);
+        return controller.signal;
+    }
+
     /**
      * Check if mempool.space is available (always true)
      */
@@ -42,7 +56,7 @@ export class MempoolService {
         const attempt = async () => {
             const response = await fetch(url, {
                 ...options,
-                signal: AbortSignal.timeout(this.timeout),
+                signal: this._createTimeoutSignal(this.timeout),
             });
 
             if (!response.ok) {
@@ -123,7 +137,7 @@ export class MempoolService {
                 'Content-Type': 'text/plain',
             },
             body: txHex,
-            signal: AbortSignal.timeout(this.timeout),
+            signal: this._createTimeoutSignal(this.timeout),
         });
 
         if (!response.ok) {
@@ -181,7 +195,7 @@ export class MempoolService {
             const url = `${baseUrl}/tx/${txid}/hex`;
             
             const response = await fetch(url, {
-                signal: AbortSignal.timeout(this.timeout),
+                signal: this._createTimeoutSignal(this.timeout),
             });
 
             if (!response.ok) {

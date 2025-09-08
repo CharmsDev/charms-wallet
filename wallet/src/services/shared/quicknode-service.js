@@ -16,6 +16,20 @@ export class QuickNodeService {
         this.retryDelays = [300, 700, 1500]; // backoff for 429/5xx
     }
 
+    // Create a timeout signal compatible with mobile browsers that may not support AbortSignal.timeout
+    _createTimeoutSignal(ms) {
+        try {
+            if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+                return AbortSignal.timeout(ms);
+            }
+        } catch (_) {}
+        const controller = new AbortController();
+        setTimeout(() => {
+            try { controller.abort(); } catch (_) {}
+        }, ms);
+        return controller.signal;
+    }
+
     /**
      * Check if QuickNode direct configuration is available
      */
@@ -53,7 +67,7 @@ export class QuickNodeService {
                 method: 'POST',
                 headers,
                 body: JSON.stringify(payload),
-                signal: AbortSignal.timeout(this.timeout),
+                signal: this._createTimeoutSignal(this.timeout),
             });
 
             if (!response.ok) {
