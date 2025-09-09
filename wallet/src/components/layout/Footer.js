@@ -1,3 +1,5 @@
+import packageJson from '../../../package.json';
+
 export default function Footer() {
     return (
         <footer className="glass-effect border-t border-dark-700/50 mt-auto">
@@ -7,7 +9,7 @@ export default function Footer() {
                         2025 Charms Wallet. All rights reserved.
                     </div>
                     <div className="text-sm text-dark-300">
-                        <span className="bitcoin-glow-text text-bitcoin-400">Version 0.4.2</span>
+                        <span className="bitcoin-glow-text text-bitcoin-400">Version {packageJson.version}</span>
                     </div>
                 </div>
             </div>
