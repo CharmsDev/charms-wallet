@@ -80,14 +80,19 @@ export class UTXOSelector {
             }
         });
 
-        // Filter out locked UTXOs, any UTXO that contains a Charm, and UTXOs with exactly 1000 sats
+        // Filter out locked UTXOs, any UTXO that contains a Charm, UTXOs with exactly 1000 sats, and unconfirmed UTXOs
         const candidateUtxos = availableUtxos.filter(utxo => {
             const isLocked = this.lockedUtxos.has(`${utxo.txid}:${utxo.vout}`);
             const utxoId = `${utxo.txid}:${utxo.vout}`;
             const isCharm = charmUtxoIds.has(utxoId);
             const is1000Sats = utxo.value === 1000;
+            const isUnconfirmed = !utxo.status?.confirmed || (utxo.confirmations && utxo.confirmations < 1);
             
-            return !isLocked && !isCharm && !is1000Sats;
+            if (isUnconfirmed) {
+                console.log(`[UTXOSelector] Filtering unconfirmed UTXO: ${utxoId}, confirmed: ${utxo.status?.confirmed}, confirmations: ${utxo.confirmations}`);
+            }
+            
+            return !isLocked && !isCharm && !is1000Sats && !isUnconfirmed;
         });
 
         
