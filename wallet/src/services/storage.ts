@@ -139,8 +139,18 @@ export const saveUTXOs = async (utxoMap: UTXOMap, blockchain?: string, network?:
 
 export const getUTXOs = async (blockchain?: string, network?: string): Promise<UTXOMap> => {
     const storageKey = getStorageKey(STORAGE_KEYS.UTXOS, blockchain, network);
+    console.log(`[STORAGE] Getting UTXOs with key: ${storageKey}`);
     const stored = localStorage.getItem(storageKey);
     const result = stored ? JSON.parse(stored) : {};
+    console.log(`[STORAGE] Retrieved UTXOs:`, Object.keys(result).length, 'addresses');
+    
+    // Log sample addresses to verify network consistency
+    const sampleAddresses = Object.keys(result).slice(0, 2);
+    sampleAddresses.forEach(address => {
+        const prefix = address.substring(0, 4);
+        console.log(`[STORAGE] Address prefix: ${prefix} (${address.length} chars)`);
+    });
+    
     
     
     return result;

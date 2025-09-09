@@ -5,7 +5,11 @@
  * Supports both memory and localStorage persistence
  */
 export class CacheService {
-    constructor(defaultTimeout = 30000, persistKey = null) {
+    private cache: Map<string, any>;
+    private defaultTimeout: number;
+    private persistKey: string | null;
+
+    constructor(defaultTimeout = 30000, persistKey: string | null = null) {
         this.cache = new Map();
         this.defaultTimeout = defaultTimeout;
         this.persistKey = persistKey;
