@@ -46,7 +46,7 @@ export function getDerivationPath(addressInfo) {
     // Always use Taproot derivation path (BIP-0086)
     const purpose = "86'";
 
-    // Use testnet coinType (1')
+    // Use testnet4 coinType (1')
     const coinType = "1'";
 
     // Account index (usually 0')

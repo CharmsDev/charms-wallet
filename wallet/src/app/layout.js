@@ -1,7 +1,7 @@
 import "./globals.css";
 import MainLayout from "@/components/layout/MainLayout";
 import { WalletProvider } from "@/stores/walletStore";
-import { BlockchainProvider } from "@/stores/blockchainStore";
+import { NetworkProvider } from "@/contexts/NetworkContext";
 import { UTXOProvider } from "@/stores/utxoStore";
 import { CharmsProvider } from "@/stores/charmsStore";
 import Script from 'next/script';
@@ -16,7 +16,7 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body>
         <WalletProvider>
-          <BlockchainProvider>
+          <NetworkProvider>
             <UTXOProvider>
               <CharmsProvider>
                 <MainLayout>
@@ -24,7 +24,7 @@ export default function RootLayout({ children }) {
                 </MainLayout>
               </CharmsProvider>
             </UTXOProvider>
-          </BlockchainProvider>
+          </NetworkProvider>
         </WalletProvider>
         <Script
           strategy="afterInteractive"

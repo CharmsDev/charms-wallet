@@ -82,7 +82,7 @@ export function SuccessDialog({
                         <div className="text-center p-4 bg-dark-800 rounded-lg border border-dark-700">
                             <div className="text-sm text-dark-400 mb-1">Network Fee</div>
                             <div className="text-lg font-semibold text-dark-200">
-                                {transactionData?.size ? `${Math.ceil(transactionData.size * feeRate)} sats` : 'N/A'}
+                                {transactionData?.estimatedFee ? `${formatSatoshis(transactionData.estimatedFee)} sats` : 'N/A'}
                             </div>
                         </div>
                     </div>

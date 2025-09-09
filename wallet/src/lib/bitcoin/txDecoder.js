@@ -6,7 +6,7 @@ import { getNetwork } from '@/utils/addressUtils';
 bitcoin.initEccLib(ecc);
 
 // Decode Bitcoin transaction hex in a format similar to bitcoin-cli decoderawtransaction
-export function decodeTx(txHex, network = 'testnet') {
+export function decodeTx(txHex, network = 'testnet4') {
     try {
         const bitcoinNetwork = getNetwork(network);
         const tx = bitcoin.Transaction.fromHex(txHex);

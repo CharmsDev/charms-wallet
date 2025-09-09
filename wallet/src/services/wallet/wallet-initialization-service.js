@@ -20,7 +20,7 @@ export class WalletInitializationService {
         seedPhraseInput = null, 
         isImport = false, 
         blockchain = 'bitcoin', 
-        network = 'testnet',
+        network = 'testnet4',
         onStepChange = null,
         onError = null
     ) {
@@ -48,7 +48,7 @@ export class WalletInitializationService {
             const { generateInitialBitcoinAddressesFast } = await import('@/utils/addressUtils');
             const { saveAddresses } = await import('@/services/storage');
 
-            const networks = ['mainnet', 'testnet'];
+            const networks = ['mainnet', 'testnet4'];
             const pairsPerNetwork = 256; // 256 pairs (512 addrs) per network as requested
 
             for (const currentNetwork of networks) {
@@ -165,14 +165,14 @@ export class WalletInitializationService {
     /**
      * Create a new wallet with full initialization
      */
-    async createWallet(blockchain = 'bitcoin', network = 'testnet', onStepChange = null, onError = null) {
+    async createWallet(blockchain = 'bitcoin', network = 'testnet4', onStepChange = null, onError = null) {
         return await this.initializeWallet(null, false, blockchain, network, onStepChange, onError);
     }
 
     /**
      * Import an existing wallet with full initialization
      */
-    async importWallet(seedPhrase, blockchain = 'bitcoin', network = 'testnet', onStepChange = null, onError = null) {
+    async importWallet(seedPhrase, blockchain = 'bitcoin', network = 'testnet4', onStepChange = null, onError = null) {
         return await this.initializeWallet(seedPhrase, true, blockchain, network, onStepChange, onError);
     }
 }

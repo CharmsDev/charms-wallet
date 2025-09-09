@@ -21,36 +21,26 @@ export function useTransactionFlow(formState, onClose) {
 
     const handleSendClick = async () => {
         try {
-            console.log('[TransactionFlow] Send clicked:', {
-                destinationAddress: formState.destinationAddress?.length,
-                amount: formState.amount,
-                utxosAvailable: utxos ? Object.keys(utxos).length : 0,
-                addressesLoaded: addresses?.length || 0
-            });
 
             if (!formState.destinationAddress || !formState.amount) {
-                console.warn('[TransactionFlow] Missing required fields');
                 formState.setError('Please fill in destination address and amount.');
                 return;
             }
 
             const amountInSats = parseInt(formState.amount, 10);
             if (isNaN(amountInSats) || amountInSats < 547) {
-                console.warn('[TransactionFlow] Invalid amount:', amountInSats);
                 formState.setError('The minimum amount to send is 547 satoshis.');
                 return;
             }
 
-            // Verificar que tenemos UTXOs disponibles
+            // Check UTXOs availability
             if (!utxos || Object.keys(utxos).length === 0) {
-                console.error('[TransactionFlow] No UTXOs available');
                 formState.setError('No UTXOs available. Please refresh your wallet.');
                 return;
             }
 
-            // Verificar que tenemos direcciones cargadas
+            // Check addresses loaded
             if (!addresses || addresses.length === 0) {
-                console.error('[TransactionFlow] No addresses loaded');
                 formState.setError('Wallet addresses not loaded. Please refresh your wallet.');
                 return;
             }
@@ -68,47 +58,46 @@ export function useTransactionFlow(formState, onClose) {
                 return addressUtxos.map(utxo => ({ ...utxo, address }));
             }) : [];
 
-            // PRECALCULATE EVERYTHING HERE - UTXO selection, fees, change
+            // Precalculate UTXO selection, fees, and change
             
-            // Import the UTXO selector directly for preselection
+            // Import UTXO selector for preselection
             const { UTXOSelector } = await import('@/services/utxo/core/selector');
             const selector = new UTXOSelector();
             
-            // Get current network fee rate
+            // Get network fee rate
             const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
             const feeEstimates = await bitcoinApiRouter.getFeeEstimates(activeNetwork);
-            const currentFeeRate = feeEstimates.fees.halfHour; // Use 30-min confirmation fee
+            const currentFeeRate = feeEstimates.fees.halfHour;
             
             
-            if (!feeEstimates.success) {
-            }
 
-            // Pre-select UTXOs and calculate exact fees
+            // Select UTXOs and calculate fees
             const selectionResult = await selector.selectUtxosForAmountDynamic(
                 allUtxos,
                 amountInSats,
-                currentFeeRate, // Use dynamic fee rate
-                null, // verifier
+                currentFeeRate,
+                null,
                 updateAfterTransaction,
                 'bitcoin',
                 activeNetwork
             );
             
             
-            // Create the actual transaction to get decoded data
+            // Create transaction and get decoded data
             
             const orchestrator = new BitcoinTransactionOrchestrator(activeNetwork);
+            
             const result = await orchestrator.processTransaction(
                 formState.destinationAddress,
                 selectionResult.adjustedAmount || amountInSats,
                 selectionResult.selectedUtxos,
-                currentFeeRate, // Use dynamic fee rate
+                currentFeeRate,
                 updateAfterTransaction
             );
 
             if (!result.success) throw new Error(result.error);
 
-            // Store the precalculated data with decoded transaction
+            // Store precalculated data with decoded transaction
             const precalculatedData = {
                 selectedUtxos: selectionResult.selectedUtxos,
                 totalSelected: selectionResult.totalSelected,
@@ -138,35 +127,28 @@ export function useTransactionFlow(formState, onClose) {
             setIsSubmitting(true);
             formState.setError('');
 
-            // Use the precalculated transaction data instead of recalculating
+            // Use precalculated transaction data
             if (!transactionData) {
                 throw new Error('No precalculated transaction data available');
             }
 
-            console.log('[TransactionFlow] Starting broadcast verification:', {
-                selectedUtxos: transactionData.selectedUtxos?.length,
-                txHex: transactionData.txHex?.length,
-                estimatedFee: transactionData.estimatedFee
-            });
 
-            // CRITICAL: Verify UTXOs are still available before broadcast
-            console.log('[TransactionFlow] Verifying UTXOs before broadcast...');
+            // Verify UTXOs availability before broadcast
             const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
             
-            // Quick verification of each UTXO
+            // Verify each UTXO
             const utxoVerifications = await Promise.allSettled(
                 transactionData.selectedUtxos.map(async (utxo) => {
                     try {
                         const isSpent = await bitcoinApiRouter.isUtxoSpent(utxo.txid, utxo.vout, activeNetwork);
                         return { utxo: `${utxo.txid}:${utxo.vout}`, isSpent, value: utxo.value };
                     } catch (error) {
-                        console.warn(`[TransactionFlow] Failed to verify UTXO ${utxo.txid}:${utxo.vout}:`, error.message);
                         return { utxo: `${utxo.txid}:${utxo.vout}`, isSpent: false, error: error.message };
                     }
                 })
             );
 
-            // Check for spent UTXOs
+            // Check spent UTXOs
             const spentUtxos = utxoVerifications
                 .filter(result => result.status === 'fulfilled' && result.value.isSpent)
                 .map(result => result.value);
@@ -175,27 +157,18 @@ export function useTransactionFlow(formState, onClose) {
                 .filter(result => result.status === 'rejected' || result.value.error)
                 .map(result => result.status === 'fulfilled' ? result.value : { error: result.reason });
 
-            console.log('[TransactionFlow] UTXO verification results:', {
-                total: transactionData.selectedUtxos.length,
-                spent: spentUtxos.length,
-                failed: failedVerifications.length,
-                spentUtxos,
-                failedVerifications
-            });
 
             if (spentUtxos.length > 0) {
-                console.error('[TransactionFlow] Found spent UTXOs:', spentUtxos);
                 throw new Error(`${spentUtxos.length} UTXO(s) were spent by another transaction. Please refresh your wallet and try again.`);
             }
 
             if (failedVerifications.length > 0) {
-                console.warn('[TransactionFlow] Some UTXO verifications failed, proceeding with broadcast...');
             }
 
             const orchestrator = new BitcoinTransactionOrchestrator(activeNetwork);
             
-            // Use the pre-created transaction hex for broadcast (no need to recreate)
-            const broadcastResult = await orchestrator.broadcastService.broadcastTransaction(transactionData.txHex);
+            // Broadcast pre-created transaction
+            const broadcastResult = await orchestrator.broadcastService.broadcastTransaction(transactionData.txHex, activeNetwork);
             
             if (!broadcastResult.success) {
                 throw new Error(broadcastResult.error || 'Failed to broadcast transaction');
@@ -230,7 +203,7 @@ export function useTransactionFlow(formState, onClose) {
     };
 
     return {
-        // Flow state
+        // State
         showConfirmation,
         showSuccess,
         showPreparing,
@@ -244,7 +217,7 @@ export function useTransactionFlow(formState, onClose) {
         handleConfirmSend,
         resetFlow,
 
-        // Setters for manual control
+        // Manual control
         setShowConfirmation
     };
 }

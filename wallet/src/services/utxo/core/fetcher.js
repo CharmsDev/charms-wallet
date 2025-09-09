@@ -25,8 +25,8 @@ export class UTXOFetcher {
 
     async getBitcoinAddressUTXOs(address, network) {
         try {
-            // Use Bitcoin API Router (mempool.space fallback)
-            const utxos = await bitcoinApiRouter.getAddressUTXOs(address, network);
+            // Use Bitcoin API Router (uses blockchain context for network)
+            const utxos = await bitcoinApiRouter.getUTXOs(address, network);
             return utxos;
         } catch (error) {
             console.error(`[UTXOFetcher] Error getting UTXOs for ${address}:`, error);
