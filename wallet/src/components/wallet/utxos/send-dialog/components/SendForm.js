@@ -86,11 +86,28 @@ export default function SendForm({ formState, onSend, onCancel }) {
     };
 
     const handleSend = () => {
+        // Debug logging para identificar problemas
+        console.log('[SendForm] Button clicked:', {
+            canSubmit,
+            isAddressValid,
+            isAmountValid,
+            destinationAddress: destinationAddress?.length,
+            amount,
+            utxosCount: utxos ? Object.keys(utxos).length : 0,
+            addressesCount: addresses?.length || 0
+        });
+
         if (canSubmit) {
             setShowValidationErrors(false);
             onSend();
         } else {
             setShowValidationErrors(true);
+            console.warn('[SendForm] Validation failed:', {
+                isAddressValid,
+                isAmountValid,
+                destinationAddress,
+                amount
+            });
         }
     };
 
