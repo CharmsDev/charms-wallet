@@ -16,28 +16,27 @@ const config = {
     bitcoin: {
         network: process.env.NEXT_PUBLIC_BITCOIN_NETWORK,
         isRegtest: () => config.bitcoin.network === 'regtest',
-        isTestnet: () => config.bitcoin.network === 'testnet',
+        isTestnet: () => config.bitcoin.network === 'testnet4',
         isMainnet: () => config.bitcoin.network === 'mainnet',
         // Direct QuickNode endpoints and API keys (browser will call provider directly)
         apis: {
             quicknode: {
                 mainnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_MAINNET_URL,
-                testnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_TESTNET_URL,
+                testnet4: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_TESTNET_URL,
             },
         },
         apiKeys: {
             quicknode: {
                 mainnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_MAINNET_API_KEY,
-                // Kept for backward compatibility naming for testnet
-                testnet: process.env.NEXT_PUBLIC_QUICKNODE_API_KEY,
+                testnet4: process.env.NEXT_PUBLIC_QUICKNODE_API_KEY,
             },
         },
 
-        // Resolve URL by network ('mainnet' | 'testnet')
+        // Resolve URL by network ('mainnet' | 'testnet4')
         getQuickNodeApiUrl: (network = null) => {
             const target = (network || config.bitcoin.network || '').toString().toLowerCase();
             if (target === 'mainnet') return config.bitcoin.apis.quicknode.mainnet || null;
-            if (target === 'testnet' || target === 'testnet4') return config.bitcoin.apis.quicknode.testnet || null;
+            if (target === 'testnet4') return config.bitcoin.apis.quicknode.testnet4 || null;
             return null;
         },
 
@@ -45,7 +44,7 @@ const config = {
         getQuickNodeApiKey: (network = null) => {
             const target = (network || config.bitcoin.network || '').toString().toLowerCase();
             if (target === 'mainnet') return config.bitcoin.apiKeys.quicknode.mainnet || null;
-            if (target === 'testnet' || target === 'testnet4') return config.bitcoin.apiKeys.quicknode.testnet || null;
+            if (target === 'testnet4') return config.bitcoin.apiKeys.quicknode.testnet4 || null;
             return null;
         },
 

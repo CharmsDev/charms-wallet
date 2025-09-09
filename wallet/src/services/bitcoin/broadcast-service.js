@@ -1,17 +1,18 @@
 'use client';
 
-import config from '@/config';
 import { bitcoinApiRouter } from '@/services/shared/bitcoin-api-router';
 import { utxoVerifier } from '@/services/utxo/core/verifier';
 import { BLOCKCHAINS } from '@/stores/blockchainStore';
+
 export class BitcoinBroadcastService {
     constructor() {
         this.maxRetries = 2;
+        this.apiRouter = bitcoinApiRouter;
     }
 
-    async broadcastTransaction(txHex, network = null) {
+    async broadcastTransaction(txHex, network) {
         try {
-            const txid = await bitcoinApiRouter.broadcastTransaction(txHex, network);
+            const txid = await this.apiRouter.broadcastTransaction(txHex, network);
             return {
                 success: true,
                 txid: txid.trim()
@@ -21,7 +22,7 @@ export class BitcoinBroadcastService {
         }
     }
 
-    async broadcastWithRetry(txHex, selectedUtxos, transactionData, utxoUpdateCallback = null, network = null) {
+    async broadcastWithRetry(txHex, selectedUtxos, transactionData, utxoUpdateCallback = null, network) {
         try {
             const result = await this.broadcastTransaction(txHex, network);
             

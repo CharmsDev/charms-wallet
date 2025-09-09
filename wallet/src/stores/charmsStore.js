@@ -101,7 +101,7 @@ export function CharmsProvider({ children }) {
             try {
                 setIsLoading(true);
                 setError(null);
-                const charmsNetwork = activeNetwork === 'testnet' ? 'testnet4' : 'mainnet';
+                const charmsNetwork = activeNetwork === 'testnet4' ? 'testnet4' : 'mainnet';
                 const fetchedCharms = await charmsService.getCharmsByUTXOs(utxos, charmsNetwork);
                 const enhancedCharms = await charmsExplorerAPI.processCharmsWithReferenceData(fetchedCharms);
                 setCharms(enhancedCharms);

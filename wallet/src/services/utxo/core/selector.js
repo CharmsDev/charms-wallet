@@ -53,7 +53,7 @@ export class UTXOSelector {
 
     async selectUtxosForAmountDynamic(availableUtxos, amountInSats, feeRate = 1, verifier = null, updateStateCallback = null, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
         // Get current charms to exclude their UTXOs
-        const networkKey = network === 'mainnet' ? 'mainnet' : 'testnet';
+        const networkKey = network === 'mainnet' ? 'mainnet' : 'testnet4';
         const charms = await getCharms(blockchain, networkKey) || [];
         
         // Create set of charm UTXO identifiers
@@ -89,7 +89,6 @@ export class UTXOSelector {
             const isUnconfirmed = !utxo.status?.confirmed || (utxo.confirmations && utxo.confirmations < 1);
             
             if (isUnconfirmed) {
-                console.log(`[UTXOSelector] Filtering unconfirmed UTXO: ${utxoId}, confirmed: ${utxo.status?.confirmed}, confirmations: ${utxo.confirmations}`);
             }
             
             return !isLocked && !isCharm && !is1000Sats && !isUnconfirmed;
@@ -193,7 +192,7 @@ export class UTXOSelector {
 
     async selectUtxosForAmount(availableUtxos, amountInSats, feeRate = 1, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
         // Get current charms to exclude their UTXOs
-        const networkKey = network === 'mainnet' ? 'mainnet' : 'testnet';
+        const networkKey = network === 'mainnet' ? 'mainnet' : 'testnet4';
         const charms = await getCharms(blockchain, networkKey) || [];
         
         // Create set of charm UTXO identifiers

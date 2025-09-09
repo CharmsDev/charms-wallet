@@ -99,7 +99,7 @@ export function WalletProvider({ children }) {
                 seedPhraseInput,
                 isImport,
                 'bitcoin',
-                'testnet',
+                'testnet4',
                 (step, progressOrMessage) => {
                     // The service currently calls onStepChange(stepNumber, messageString)
                     // Normalize to: initializationStep = message (string), initializationProgress = { current, total }

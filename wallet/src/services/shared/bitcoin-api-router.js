@@ -24,26 +24,41 @@ export class BitcoinApiRouter {
     }
 
     /**
+     * Get current network - now passed as parameter from components
+     */
+    _getCurrentNetwork(network) {
+        return network || config.bitcoin.network || 'mainnet';
+    }
+
+    /**
      * Check if any API is available (QuickNode or mempool.space)
      */
     isAvailable(network) {
-        return quickNodeService.isAvailable(network) || mempoolService.isAvailable(network);
+        const currentNetwork = this._getCurrentNetwork(network);
+        return quickNodeService.isAvailable(currentNetwork) || mempoolService.isAvailable(currentNetwork);
     }
 
     /**
      * Try QuickNode first, fallback to mempool.space with normalization
      */
     async _tryWithFallback(operation, ...args) {
+        // Extract network from last arg if present
+        const maybeNetwork = args.length > 0 ? args[args.length - 1] : null;
+        const network = this._getCurrentNetwork(maybeNetwork);
+
+        // Ensure downstream calls receive the resolved network
+        const opArgs = [...args.slice(0, -1), network].filter((v) => v !== undefined);
+
         // Try QuickNode first if available
-        if (quickNodeService.isAvailable(args[args.length - 1] || null)) {
+        if (quickNodeService.isAvailable(network)) {
             try {
-                return await quickNodeService[operation](...args);
+                return await quickNodeService[operation](...opArgs);
             } catch (error) {
             }
         }
 
         // Fallback to mempool.space
-        return await this._callMempoolWithNormalization(operation, ...args);
+        return await this._callMempoolWithNormalization(operation, ...opArgs);
     }
 
     /**
@@ -82,19 +97,28 @@ export class BitcoinApiRouter {
 
     /**
      * Get UTXO information for an address
-     * Tries QuickNode first, falls back to mempool.space
+     * Uses current network from blockchain context
      */
-    async getAddressUTXOs(address, network = null) {
-        try {
-            return await this._tryWithFallback('getAddressUTXOs', address, network);
-        } catch (error) {
-            throw error;
+    async getUTXOs(address, network) {
+        const currentNetwork = this._getCurrentNetwork(network);
+
+        // Try QuickNode first if available
+        if (quickNodeService.isAvailable(currentNetwork)) {
+            try {
+                return await quickNodeService.getAddressUTXOs(address, currentNetwork);
+            } catch (error) {
+            }
+        }
+
+        if (mempoolService.isAvailable(currentNetwork)) {
+            const { utxos, currentBlockHeight } = await mempoolService.getAddressUTXOs(address, currentNetwork);
+            return normalizeMempoolUTXOs(utxos, currentBlockHeight, address);
         }
     }
 
     /**
      * Check if a specific UTXO is spent
-     * Tries QuickNode first, falls back to mempool.space
+     * Uses current network from blockchain context
      */
     async isUtxoSpent(txid, vout, network = null) {
         try {
@@ -106,15 +130,34 @@ export class BitcoinApiRouter {
     }
 
     /**
-     * Broadcast a transaction
-     * Tries QuickNode first, falls back to mempool.space
+     * Verify a specific UTXO
+     * Uses current network from blockchain context
      */
-    async broadcastTransaction(txHex, network = null) {
-        try {
-            return await this._tryWithFallback('broadcastTransaction', txHex, network);
-        } catch (error) {
-            throw error;
+    async verifyUTXO(txid, vout, network) {
+        const currentNetwork = this._getCurrentNetwork(network);
+        const isSpent = await mempoolService.isUtxoSpent(txid, vout, currentNetwork);
+        return isSpent ? null : { value: 0 }; // Simplified response
+    }
+
+    /**
+     * Broadcast a transaction
+     * Uses current network from blockchain context
+     */
+    async broadcastTransaction(txHex, network) {
+        const currentNetwork = this._getCurrentNetwork(network);
+        
+        if (quickNodeService.isAvailable(currentNetwork)) {
+            try {
+                return await quickNodeService.broadcastTransaction(txHex, currentNetwork);
+            } catch (error) {
+            }
         }
+
+        if (mempoolService.isAvailable(currentNetwork)) {
+            return await mempoolService.broadcastTransaction(txHex, currentNetwork);
+        }
+
+        throw new Error('No Bitcoin API service available for broadcasting');
     }
 
     /**
@@ -250,7 +293,7 @@ export class BitcoinApiRouter {
         switch (method) {
             case 'bb_getutxos':
                 if (params.length > 0) {
-                    return this.getAddressUTXOs(params[0], network);
+                    return this.getUTXOs(params[0], network);
                 }
                 throw new Error('bb_getutxos requires address parameter');
 

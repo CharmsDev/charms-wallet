@@ -13,7 +13,7 @@ export class BitcoinTransactionOrchestrator {
             throw new Error('BitcoinTransactionOrchestrator requires a network.');
         }
         this.network = network;
-        this.broadcastService = new BitcoinBroadcastService(network);
+        this.broadcastService = new BitcoinBroadcastService();
         this.utxoSelector = new UtxoSelector();
         this.signer = new BitcoinScureSigner(network);
         this.transactionRecorder = new TransactionRecorder('bitcoin', network);

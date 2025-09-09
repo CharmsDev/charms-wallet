@@ -43,7 +43,7 @@ export class MempoolService {
         const targetNetwork = network || config.bitcoin.network;
         if (targetNetwork === 'mainnet') {
             return 'https://mempool.space/api';
-        } else if (targetNetwork === 'testnet' || targetNetwork === 'testnet4') {
+        } else if (targetNetwork === 'testnet4') {
             return 'https://mempool.space/testnet4/api';
         }
         throw new Error(`Unsupported network: ${targetNetwork}`);

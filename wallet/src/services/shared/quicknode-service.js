@@ -36,7 +36,8 @@ export class QuickNodeService {
     isAvailable(network) {
         const url = config.bitcoin.getQuickNodeApiUrl(network);
         const key = config.bitcoin.getQuickNodeApiKey(network);
-        return !!(url && url.trim() !== '' && key && key.trim() !== '');
+        const available = !!(url && url.trim() !== '' && key && key.trim() !== '');
+        return available;
     }
 
 
