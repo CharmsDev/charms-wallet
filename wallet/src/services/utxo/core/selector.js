@@ -90,18 +90,12 @@ export class UTXOSelector {
             return !isLocked && !isCharm && !is1000Sats;
         });
 
-        console.log(`📊 UTXO Selection Summary:
-        - Total available UTXOs: ${availableUtxos.length}
-        - Charm UTXOs found: ${charmUtxoIds.size}
-        - Locked UTXOs: ${this.lockedUtxos.size}
-        - Candidate UTXOs after filtering: ${candidateUtxos.length}`);
         
         if (charmUtxoIds.size > 0) {
-            console.log(`🔒 Charm UTXO IDs being excluded:`, Array.from(charmUtxoIds));
         }
 
         if (candidateUtxos.length === 0) {
-            throw new Error('No valid UTXOs available. Please refresh your wallet.');
+            throw new Error('No valid UTXOs available. Wallet refresh required.');
         }
 
         const sortedUtxos = [...candidateUtxos].sort((a, b) => b.value - a.value);
@@ -121,45 +115,74 @@ export class UTXOSelector {
                 break;
             }
 
+            // Skip UTXOs that are already locked
             const utxoKey = `${utxo.txid}:${utxo.vout}`;
-
-            try {
-                let isUnspent = true;
-
-                if (verifier) {
-                    isUnspent = await verifier.verifyAndUpdateUTXO(
-                        utxo,
-                        updateStateCallback,
-                        blockchain,
-                        network
-                    );
-                }
-
-                if (isUnspent) {
-                    selectedUtxos.push(utxo);
-                    totalSelected += utxo.value;
-                } else {
-                    // Immediately delete spent UTXO from storage/state; no blacklisting
-                    await utxoService.removeUtxo(utxo.txid, utxo.vout);
-                    if (updateStateCallback) {
-                        try { await updateStateCallback([{ txid: utxo.txid, vout: utxo.vout }], {}); } catch {}
-                    }
-                }
-            } catch (error) {
-                // On verification failure, do not blacklist; keep UTXO to avoid false negatives
-                // Proceed without selecting it in this pass
+            if (this.lockedUtxos.has(utxoKey)) {
+                continue;
             }
+
+            // Verify UTXO is still unspent if verifier is provided
+            if (verifier) {
+                try {
+                    const isUnspent = await verifier.isUtxoSpent(utxo.txid, utxo.vout, network);
+                    
+                    if (!isUnspent) {
+                        // UTXO is unspent
+                    } else {
+                        // Immediately delete spent UTXO from storage/state; no blacklisting
+                        if (updateStateCallback) {
+                            await updateStateCallback([utxo], {}, blockchain, network);
+                        }
+                        continue;
+                    }
+                } catch (error) {
+                    // On verification failure, proceed without selecting
+                }
+            }
+
+            selectedUtxos.push(utxo);
+            totalSelected += utxo.value;
         }
 
         if (totalSelected < targetAmount) {
             throw new Error(`Insufficient verified UTXOs. Need ${targetAmount} sats, only found ${totalSelected} sats in valid UTXOs.`);
         }
 
+        // Calculate change
+        let change = totalSelected - amountInSats - estimatedFee;
+        
+        // Detect if this is a Max amount transaction (change < 200 sats indicates Max usage)
+        const isMaxAmount = change < 200;
+        
+        if (isMaxAmount) {
+            
+            // For Max amount: recalculate fee with 1 output (no change)
+            const feeForOneOutput = this.calculateMixedFee(selectedUtxos, 1, feeRate);
+            
+            const finalFee = Math.max(feeForOneOutput, 200); // Apply minimum fee
+            
+            if (finalFee === 200) {
+            } else {
+            }
+            
+            // Adjust amount to consume all selected UTXOs minus exact fee
+            const adjustedAmount = totalSelected - finalFee;
+            
+            
+            return {
+                selectedUtxos,
+                totalSelected,
+                estimatedFee: finalFee,
+                change: 0,
+                adjustedAmount // Return the adjusted amount for Max transactions
+            };
+        }
+
         return {
             selectedUtxos,
             totalSelected,
             estimatedFee,
-            change: totalSelected - amountInSats - estimatedFee
+            change
         };
     }
 

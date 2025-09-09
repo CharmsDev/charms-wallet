@@ -99,7 +99,6 @@ export class QuickNodeService {
                     await new Promise(res => setTimeout(res, this.retryDelays[i]));
                     continue;
                 }
-                console.error(`[QuickNodeService] Direct call failed:`, error);
                 throw error;
             }
         }
@@ -137,7 +136,6 @@ export class QuickNodeService {
                 }
             }));
         } catch (error) {
-            console.error(`[QuickNodeService] Error getting UTXOs for ${address}:`, error);
             throw error;
         }
     }

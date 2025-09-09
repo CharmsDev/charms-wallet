@@ -76,7 +76,7 @@ class BitcoinScureSigner {
                 const addressInfo = addresses.find(addr => addr.address === utxo.address);
 
                 if (!addressInfo) {
-                    throw new Error(`Could not find address info for UTXO: ${utxo.txid}:${utxo.vout}`);
+                    throw new Error(`Could not find address info for UTXO: ${utxo.txid}:${utxo.vout} (address: ${utxo.address})`);
                 }
 
                 // Use correct coin type based on network (same logic as addressUtils.js)

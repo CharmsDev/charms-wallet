@@ -2,7 +2,7 @@
  * Utility functions for amount conversions and formatting
  */
 
-export const SATOSHI_AMOUNTS = [3000, 10000, 25000, 50000, 100000, 500000];
+export const SATOSHI_AMOUNTS = [3000, 10000, 25000, 50000, 100000];
 
 export function satoshisToBTC(satoshis) {
     return satoshis / 100000000;

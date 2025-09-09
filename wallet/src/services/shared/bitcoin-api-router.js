@@ -37,15 +37,12 @@ export class BitcoinApiRouter {
         // Try QuickNode first if available
         if (quickNodeService.isAvailable(args[args.length - 1] || null)) {
             try {
-                console.log(`[BitcoinApiRouter] Trying QuickNode for ${operation}`);
                 return await quickNodeService[operation](...args);
             } catch (error) {
-                console.warn(`[BitcoinApiRouter] QuickNode failed for ${operation}, falling back to mempool.space:`, error.message);
             }
         }
 
         // Fallback to mempool.space
-        console.log(`[BitcoinApiRouter] Using mempool.space for ${operation}`);
         return await this._callMempoolWithNormalization(operation, ...args);
     }
 
@@ -91,7 +88,6 @@ export class BitcoinApiRouter {
         try {
             return await this._tryWithFallback('getAddressUTXOs', address, network);
         } catch (error) {
-            console.error(`[BitcoinApiRouter] Error getting UTXOs for ${address}:`, error);
             throw error;
         }
     }
@@ -117,7 +113,6 @@ export class BitcoinApiRouter {
         try {
             return await this._tryWithFallback('broadcastTransaction', txHex, network);
         } catch (error) {
-            console.error(`[BitcoinApiRouter] Broadcast error:`, error);
             throw error;
         }
     }
@@ -130,7 +125,6 @@ export class BitcoinApiRouter {
         try {
             return await this._tryWithFallback('getTransaction', txid, network);
         } catch (error) {
-            console.error(`[BitcoinApiRouter] Error getting transaction ${txid}:`, error);
             throw error;
         }
     }
@@ -178,12 +172,63 @@ export class BitcoinApiRouter {
         try {
             return await this._tryWithFallback('verifyUtxos', utxos, network);
         } catch (error) {
-            console.error(`[BitcoinApiRouter] Error verifying UTXOs:`, error);
             // Return all as valid if verification fails to avoid blocking transactions
             return {
                 validUtxos: utxos,
                 spentUtxos: [],
                 removedCount: 0
+            };
+        }
+    }
+
+    /**
+     * Get current Bitcoin network fee estimates
+     * Returns fee rates in sat/vB for different priority levels
+     */
+    async getFeeEstimates(network = null) {
+        try {
+            // Try mempool.space fee estimation API first (more reliable)
+            const targetNetwork = network || 'mainnet';
+            const baseUrl = targetNetwork === 'mainnet' 
+                ? 'https://mempool.space/api/v1' 
+                : 'https://mempool.space/testnet4/api/v1';
+            
+            const response = await fetch(`${baseUrl}/fees/recommended`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+                signal: AbortSignal.timeout(this.timeout)
+            });
+
+            if (!response.ok) {
+                throw new Error(`Fee estimation failed: ${response.status}`);
+            }
+
+            const feeData = await response.json();
+            
+            // Return standardized fee structure
+            return {
+                success: true,
+                fees: {
+                    fastest: feeData.fastestFee || 20,      // Next block
+                    halfHour: feeData.halfHourFee || 15,    // ~30 minutes
+                    hour: feeData.hourFee || 10,            // ~1 hour
+                    economy: feeData.economyFee || 5,       // Low priority
+                    minimum: feeData.minimumFee || 1        // Minimum relay fee
+                }
+            };
+        } catch (error) {
+            
+            // Fallback to reasonable default rates
+            return {
+                success: false,
+                fees: {
+                    fastest: 20,
+                    halfHour: 15,
+                    hour: 10,
+                    economy: 5,
+                    minimum: 1
+                },
+                error: error.message
             };
         }
     }
@@ -196,15 +241,12 @@ export class BitcoinApiRouter {
         // Try QuickNode first if available
         if (quickNodeService.isAvailable(network)) {
             try {
-                console.log(`[BitcoinApiRouter] Trying QuickNode RPC for ${method}`);
                 return await quickNodeService.makeRequest(method, params, network);
             } catch (error) {
-                console.warn(`[BitcoinApiRouter] QuickNode RPC failed for ${method}, falling back to mempool.space:`, error.message);
             }
         }
 
         // Fallback to mempool.space with method mapping
-        console.log(`[BitcoinApiRouter] Using mempool.space RPC fallback for ${method}`);
         switch (method) {
             case 'bb_getutxos':
                 if (params.length > 0) {

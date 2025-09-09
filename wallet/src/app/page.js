@@ -11,6 +11,7 @@ import WalletCreation from '@/components/wallet/setup/WalletCreation';
 import UserDashboard from '@/components/wallet/dashboard/UserDashboard';
 import WalletInitialization from '@/components/wallet/setup/WalletInitialization';
 import WalletExistsModal from '@/components/wallet/setup/WalletExistsModal';
+import { runMigrations } from '@/migrations';
 
 // Initialize bitcoinjs-lib with ECC
 bitcoin.initEccLib(ecc);
@@ -75,13 +76,24 @@ export default function Home() {
         window.history.replaceState({}, '', newUrl.toString());
       }
     } catch (e) {
-      console.error('Failed to decode seed from URL:', e);
       if (hasWallet) {
         // Keep prior behavior if decoding fails and a wallet exists
         setShowWalletExistsModal(true);
       }
     }
   };
+
+  // Run migrations on app startup
+  useEffect(() => {
+    const initializeMigrations = async () => {
+      try {
+        await runMigrations();
+      } catch (error) {
+      }
+    };
+    
+    initializeMigrations();
+  }, []);
 
   // Load wallet info when wallet exists and is not initializing
   useEffect(() => {
@@ -94,7 +106,6 @@ export default function Home() {
     try {
       await initializeWalletComplete(null, false, activeBlockchain, activeNetwork);
     } catch (err) {
-      console.error('Error creating wallet:', err);
     }
   };
 
@@ -102,7 +113,6 @@ export default function Home() {
     try {
       await initializeWalletComplete(inputSeedPhrase, true, activeBlockchain, activeNetwork);
     } catch (err) {
-      console.error('Error importing wallet:', err);
     }
   };
 

@@ -33,18 +33,54 @@ export function ConfirmationDialog({
         <>
             <h2 className="text-xl font-bold gradient-text mb-4">Confirm Transaction</h2>
 
+            {/* Transaction Summary */}
+            {transactionData && (
+                <div className="mb-6 bg-dark-800 border border-dark-600 rounded-lg p-4">
+                    <h3 className="text-lg font-semibold text-dark-100 mb-3">Transaction Summary</h3>
+                    
+                    <div className="grid grid-cols-3 gap-3">
+                        {/* Amount Sent */}
+                        <div className="bg-dark-900 rounded-lg p-3 border border-dark-700">
+                            <div className="text-xs text-dark-400 uppercase tracking-wide mb-1">Amount Sent</div>
+                            <div className="text-lg font-bold text-blue-400">
+                                {formatSats((transactionData.totalSelected || 0) - (transactionData.estimatedFee || 0) - (transactionData.change || 0))} sats
+                            </div>
+                        </div>
+
+                        {/* Network Fee */}
+                        <div className="bg-dark-900 rounded-lg p-3 border border-dark-700">
+                            <div className="text-xs text-dark-400 uppercase tracking-wide mb-1">Network Fee</div>
+                            <div className="text-lg font-bold text-orange-400">
+                                {formatSats(transactionData.estimatedFee || 0)} sats
+                            </div>
+                        </div>
+
+                        {/* Change */}
+                        <div className="bg-dark-900 rounded-lg p-3 border border-dark-700">
+                            <div className="text-xs text-dark-400 uppercase tracking-wide mb-1">Change</div>
+                            <div className="text-lg font-bold text-green-400">
+                                {formatSats(transactionData.change || 0)} sats
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {transactionData?.decodedTx && (
                 <div className="mb-4">
-                    <div className="flex justify-between items-center mb-2">
-                        <p className="text-sm text-dark-300">Transaction created successfully.</p>
-                        <button onClick={() => setShowDetails(!showDetails)} className="text-xs text-blue-400 hover:underline">
-                            {showDetails ? 'Hide Details' : 'View Details'}
-                        </button>
-                    </div>
+                    <button
+                        className="w-full text-left text-sm text-blue-400 hover:underline flex items-center justify-between"
+                        onClick={() => setShowDetails(!showDetails)}
+                    >
+                        <span>{showDetails ? 'Hide Decoded Transaction' : 'Show Decoded Transaction'}</span>
+                        <span className="text-dark-400 text-xs">JSON</span>
+                    </button>
                     {showDetails && (
-                        <pre className="bg-dark-900 text-dark-200 p-4 rounded-lg overflow-auto text-xs font-mono border border-dark-700 max-h-64">
-                            {JSON.stringify(transactionData.decodedTx, null, 2)}
-                        </pre>
+                        <div className="mt-2 border border-dark-700 rounded-lg">
+                            <pre className="bg-dark-900 text-dark-200 p-4 rounded-lg overflow-auto text-xs font-mono max-h-64">
+                                {JSON.stringify(transactionData.decodedTx, null, 2)}
+                            </pre>
+                        </div>
                     )}
                 </div>
             )}
