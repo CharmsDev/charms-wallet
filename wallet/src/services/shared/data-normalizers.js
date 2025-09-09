@@ -22,6 +22,7 @@ export function normalizeMempoolUTXOs(mempoolUtxos, currentBlockHeight, address)
                 confirmations = 1; // Fallback: at least 1 if confirmed
             }
         }
+        // Keep confirmations = 0 for unconfirmed UTXOs
 
         return {
             txid: utxo.txid,
