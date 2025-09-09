@@ -48,60 +48,49 @@ export class UTXOCalculations {
         return total;
     }
 
-    // Calculate spendable balance from UTXO map (excludes Charm UTXOs)
+    // Calculate spendable balance from UTXO map (excludes Charm UTXOs and 1000 sat UTXOs)
     calculateSpendableBalance(utxoMap, charms = []) {
         let total = 0;
         let totalUtxos = 0;
         let excludedUtxos = 0;
-
-        // Create a set of UTXO identifiers ("txid:vout") that contain Charms
         const charmUtxoIds = new Set();
-        charms.forEach((charm, index) => {
-            const uid = charm?.uniqueId;
-            if (!uid || typeof uid !== 'string') {
-                return;
-            }
+        const processedUtxos = new Set();
 
-            // Case 1: already in format 'txid:vout'
-            if (/^[0-9a-fA-F]+:\d+$/.test(uid)) {
-                charmUtxoIds.add(uid);
-                return;
-            }
-
-            // Case 2: new format '<txid>-t/.../...-<vout>'
-            // Capture txid before '-t/' and vout after last '-'
-            const match = uid.match(/^([^\/-]+)-t\/.*-(\d+)$/);
-            if (match) {
-                const txid = match[1];
-                const vout = match[2];
-                const utxoId = `${txid}:${vout}`;
-                charmUtxoIds.add(utxoId);
-                return;
-            }
-
-            // Fallback: attempt to slice by '-t/' and last '-' without regex strictness
-            const tIdx = uid.indexOf('-t/');
-            const lastDash = uid.lastIndexOf('-');
-            if (tIdx > 0 && lastDash > tIdx + 2) {
-                const txid = uid.slice(0, tIdx);
-                const voutStr = uid.slice(lastDash + 1);
-                if (/^\d+$/.test(voutStr)) {
+        // Create set of charm UTXO IDs for faster lookup
+        charms.forEach(charm => {
+            if (charm.utxo) {
+                const { txid, vout } = charm.utxo;
+                const voutStr = vout?.toString() || '0';
+                if (txid) {
                     const utxoId = `${txid}:${voutStr}`;
                     charmUtxoIds.add(utxoId);
-                    return;
                 }
             }
         });
 
-        console.log(`[BALANCE] Listing spendable UTXOs only`);
+        console.log(`[BALANCE] Calculating spendable balance (excluding charms and 1000 sat UTXOs)`);
 
         Object.values(utxoMap).forEach(utxos => {
             utxos.forEach(utxo => {
-                totalUtxos++;
                 const utxoId = `${utxo.txid}:${utxo.vout}`;
                 
-                if (charmUtxoIds.has(utxoId)) {
+                // Skip if already processed (avoid duplicates)
+                if (processedUtxos.has(utxoId)) {
+                    return;
+                }
+                processedUtxos.add(utxoId);
+                totalUtxos++;
+                
+                const isCharm = charmUtxoIds.has(utxoId);
+                const is1000Sats = utxo.value === 1000;
+                
+                if (isCharm || is1000Sats) {
                     excludedUtxos++;
+                    if (isCharm) {
+                        console.log(`[BALANCE] Excluded charm UTXO ${utxoId} (${utxo.value} sats)`);
+                    } else if (is1000Sats) {
+                        console.log(`[BALANCE] Excluded 1000 sat UTXO ${utxoId} (potential charm)`);
+                    }
                 } else {
                     total += utxo.value;
                     console.log(`[BALANCE] Spendable UTXO ${utxoId} (${utxo.value} sats)`);
@@ -111,6 +100,46 @@ export class UTXOCalculations {
 
         console.log(`[BALANCE] Spendable total: ${total} sats from ${totalUtxos - excludedUtxos} UTXOs (excluded ${excludedUtxos})`);
         return total;
+    }
+
+    // Get list of spendable UTXOs (excluding charms and 1000 sat UTXOs)
+    getSpendableUtxos(utxoMap, charms = []) {
+        const spendableUtxos = [];
+        const charmUtxoIds = new Set();
+        const processedUtxos = new Set();
+
+        // Create set of charm UTXO IDs
+        charms.forEach(charm => {
+            if (charm.utxo) {
+                const { txid, vout } = charm.utxo;
+                const voutStr = vout?.toString() || '0';
+                if (txid) {
+                    const utxoId = `${txid}:${voutStr}`;
+                    charmUtxoIds.add(utxoId);
+                }
+            }
+        });
+
+        Object.values(utxoMap).forEach(utxos => {
+            utxos.forEach(utxo => {
+                const utxoId = `${utxo.txid}:${utxo.vout}`;
+                
+                // Skip if already processed (avoid duplicates)
+                if (processedUtxos.has(utxoId)) {
+                    return;
+                }
+                processedUtxos.add(utxoId);
+                
+                const isCharm = charmUtxoIds.has(utxoId);
+                const is1000Sats = utxo.value === 1000;
+                
+                if (!isCharm && !is1000Sats) {
+                    spendableUtxos.push(utxo);
+                }
+            });
+        });
+
+        return spendableUtxos;
     }
 
     // Find UTXOs by transaction ID

@@ -54,14 +54,33 @@ export class UTXOService {
     // ============================================================================
 
     async getStoredUTXOs(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
+        console.log(`[UTXO SERVICE] Getting stored UTXOs for ${blockchain}-${network}`);
         const utxos = await getUTXOs(blockchain, network);
+        console.log(`[UTXO SERVICE] Raw UTXOs loaded:`, Object.keys(utxos || {}).length, 'addresses');
+        
+        // Log sample UTXOs to verify network consistency
+        const sampleEntries = Object.entries(utxos || {}).slice(0, 2);
+        sampleEntries.forEach(([address, addressUtxos]) => {
+            console.log(`[UTXO SERVICE] Address ${address}: ${addressUtxos.length} UTXOs`);
+            if (addressUtxos.length > 0) {
+                const sampleUtxo = addressUtxos[0];
+                console.log(`[UTXO SERVICE] Sample UTXO: ${sampleUtxo.txid}:${sampleUtxo.vout} (${sampleUtxo.value} sats)`);
+            }
+        });
+        
         // Filter out pending UTXOs
-        return this.filterPendingUTXOs(utxos);
+        const filtered = this.filterPendingUTXOs(utxos);
+        console.log(`[UTXO SERVICE] After filtering pending UTXOs:`, Object.keys(filtered || {}).length, 'addresses');
+        return filtered;
     }
 
     async getStoredUTXOsRaw(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
         // Get UTXOs without filtering pending ones
         return await getUTXOs(blockchain, network);
+    }
+
+    async saveCleanedUTXOs(cleanedUtxos, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
+        await saveUTXOs(cleanedUtxos, blockchain, network);
     }
 
     async updateAfterTransaction(spentUtxos, newUtxos = {}, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {

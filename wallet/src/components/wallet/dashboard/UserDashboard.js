@@ -27,7 +27,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     const [isRefreshing, setIsRefreshing] = useState(false);
 
     const { hasWallet } = useWallet();
-    const { utxos, totalBalance, isLoading: utxosLoading, loadUTXOs } = useUTXOs();
+    const { utxos, totalBalance, isLoading: utxosLoading, loadUTXOs, refreshUTXOs } = useUTXOs();
     const { charms, isLoading: charmsLoading, loadCharms } = useCharms();
     const { addresses, isLoading: addressesLoading, loadAddresses } = useAddresses();
     const { activeBlockchain, activeNetwork } = useBlockchain();
@@ -87,11 +87,17 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
         if (isRefreshing) return;
         setIsRefreshing(true);
         try {
+            // Import the helper for limited refresh
+            const { refreshFirstAddresses } = await import('@/services/utxo/address-refresh-helper');
+            
             await Promise.all([
-                loadUTXOs(activeBlockchain, activeNetwork),
+                refreshFirstAddresses(12, activeBlockchain, activeNetwork), // Only refresh first 12 addresses
                 loadAddresses(activeBlockchain, activeNetwork),
                 loadCharms(activeBlockchain, activeNetwork)
             ]);
+            
+            // Reload UTXOs from storage to update the UI
+            await loadUTXOs(activeBlockchain, activeNetwork);
         } catch (error) {
             console.error("Failed to refresh wallet data:", error);
         } finally {

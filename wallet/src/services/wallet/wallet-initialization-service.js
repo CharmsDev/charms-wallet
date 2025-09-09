@@ -87,10 +87,10 @@ export class WalletInitializationService {
             try {
                 const { refreshFirstAddresses } = await import('@/services/utxo/address-refresh-helper');
 
-                // Scan first 16 addresses on both networks
+                // Use same logic as dashboard refresh - scan first 12 addresses on both networks
                 for (const currentNetwork of networks) {
                     try {
-                        await refreshFirstAddresses(16, blockchain, currentNetwork);
+                        await refreshFirstAddresses(12, blockchain, currentNetwork);
                     } catch (error) {
                         // Continue with initialization
                     }
