@@ -3,6 +3,7 @@ import BitcoinTransactionOrchestrator from '@/services/bitcoin/transaction-orche
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useBlockchain } from '@/stores/blockchainStore';
+import { useAddresses } from '@/stores/addressesStore';
 import config from '@/config';
 
 export function useTransactionFlow(formState, onClose) {
@@ -16,6 +17,7 @@ export function useTransactionFlow(formState, onClose) {
 
     const { updateAfterTransaction, utxos } = useUTXOs();
     const { activeNetwork } = useBlockchain();
+    const { addresses } = useAddresses();
 
     const handleSendClick = async () => {
         try {
@@ -31,43 +33,76 @@ export function useTransactionFlow(formState, onClose) {
             }
 
             formState.setError('');
+            setShowPreparing(true);
+            setPreparingStatus('Selecting UTXOs and calculating fees...');
             
-            const allUtxos = utxos ? Object.entries(utxos).flatMap(([address, addressUtxos]) =>
-                addressUtxos.map(utxo => ({ ...utxo, address }))
-            ) : [];
+            // Create set of valid addresses from current address store
+            const validAddresses = new Set(addresses.map(addr => addr.address));
+            const allUtxos = utxos ? Object.entries(utxos).flatMap(([address, addressUtxos]) => {
+                if (!validAddresses.has(address)) {
+                    return [];
+                }
+                return addressUtxos.map(utxo => ({ ...utxo, address }));
+            }) : [];
 
-            if (allUtxos.length === 0) {
-                formState.setError('No UTXOs available. Please refresh your wallet.');
-                return;
+            // PRECALCULATE EVERYTHING HERE - UTXO selection, fees, change
+            
+            // Import the UTXO selector directly for preselection
+            const { UTXOSelector } = await import('@/services/utxo/core/selector');
+            const selector = new UTXOSelector();
+            
+            // Get current network fee rate
+            const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
+            const feeEstimates = await bitcoinApiRouter.getFeeEstimates(activeNetwork);
+            const currentFeeRate = feeEstimates.fees.halfHour; // Use 30-min confirmation fee
+            
+            
+            if (!feeEstimates.success) {
             }
 
-            setPreparingStatus('Creating transaction...');
-            setShowPreparing(true);
-
+            // Pre-select UTXOs and calculate exact fees
+            const selectionResult = await selector.selectUtxosForAmountDynamic(
+                allUtxos,
+                amountInSats,
+                currentFeeRate, // Use dynamic fee rate
+                null, // verifier
+                updateAfterTransaction,
+                'bitcoin',
+                activeNetwork
+            );
+            
+            
+            // Create the actual transaction to get decoded data
+            
             const orchestrator = new BitcoinTransactionOrchestrator(activeNetwork);
             const result = await orchestrator.processTransaction(
                 formState.destinationAddress,
-                formState.amount,
-                allUtxos,
-                formState.feeRate,
+                selectionResult.adjustedAmount || amountInSats,
+                selectionResult.selectedUtxos,
+                currentFeeRate, // Use dynamic fee rate
                 updateAfterTransaction
             );
 
             if (!result.success) throw new Error(result.error);
 
-            setTransactionData({
+            // Store the precalculated data with decoded transaction
+            const precalculatedData = {
+                selectedUtxos: selectionResult.selectedUtxos,
+                totalSelected: selectionResult.totalSelected,
+                estimatedFee: selectionResult.estimatedFee,
+                change: selectionResult.change,
+                adjustedAmount: selectionResult.adjustedAmount || amountInSats,
+                destinationAddress: formState.destinationAddress,
+                originalAmount: amountInSats,
                 txHex: result.signedTxHex,
-                decodedTx: decodeTx(result.signedTxHex, activeNetwork),
-                size: result.signedTxHex.length / 2,
-                selectedUtxos: result.selectedUtxos,
-                totalSelected: result.totalSelected,
-                estimatedFee: result.estimatedFee,
-                change: result.change,
-                transactionMetadata: result.transactionMetadata
-            });
-
+                decodedTx: decodeTx(result.signedTxHex, activeNetwork)
+            };
+            
+            setTransactionData(precalculatedData);
             setShowPreparing(false);
             setShowConfirmation(true);
+            
+            
 
         } catch (err) {
             setShowPreparing(false);
@@ -80,22 +115,22 @@ export function useTransactionFlow(formState, onClose) {
             setIsSubmitting(true);
             formState.setError('');
 
+            // Use the precalculated transaction data instead of recalculating
+            if (!transactionData) {
+                throw new Error('No precalculated transaction data available');
+            }
+
+
             const orchestrator = new BitcoinTransactionOrchestrator(activeNetwork);
             
-            // Use sendTransaction instead of broadcastTransaction to ensure transaction recording
-            const allUtxos = utxos ? Object.entries(utxos).flatMap(([address, addressUtxos]) =>
-                addressUtxos.map(utxo => ({ ...utxo, address }))
-            ) : [];
+            // Use the pre-created transaction hex for broadcast (no need to recreate)
+            const broadcastResult = await orchestrator.broadcastService.broadcastTransaction(transactionData.txHex);
+            
+            if (!broadcastResult.success) {
+                throw new Error(broadcastResult.error || 'Failed to broadcast transaction');
+            }
 
-            const result = await orchestrator.sendTransaction(
-                formState.destinationAddress,
-                formState.amount,
-                allUtxos,
-                formState.feeRate,
-                updateAfterTransaction
-            );
-
-            setTxId(result.txid);
+            setTxId(broadcastResult.txid);
             setShowConfirmation(false);
             setShowSuccess(true);
 

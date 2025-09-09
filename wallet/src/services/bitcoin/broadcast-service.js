@@ -17,7 +17,6 @@ export class BitcoinBroadcastService {
                 txid: txid.trim()
             };
         } catch (error) {
-            console.error('[BroadcastService] Broadcast failed:', error);
             throw error;
         }
     }
@@ -53,7 +52,7 @@ export class BitcoinBroadcastService {
                     }
                 }
                 
-                throw new Error('UTXOs were spent. Please refresh your wallet and try again.');
+                throw new Error('UTXOs were spent. Wallet refresh required.');
             }
 
             throw error;

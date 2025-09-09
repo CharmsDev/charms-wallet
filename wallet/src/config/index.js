@@ -36,16 +36,16 @@ const config = {
         // Resolve URL by network ('mainnet' | 'testnet')
         getQuickNodeApiUrl: (network = null) => {
             const target = (network || config.bitcoin.network || '').toString().toLowerCase();
-            if (target === 'mainnet') return config.bitcoin.apis.quicknode.mainnet;
-            if (target === 'testnet' || target === 'testnet4') return config.bitcoin.apis.quicknode.testnet;
+            if (target === 'mainnet') return config.bitcoin.apis.quicknode.mainnet || null;
+            if (target === 'testnet' || target === 'testnet4') return config.bitcoin.apis.quicknode.testnet || null;
             return null;
         },
 
         // Resolve API key by network
         getQuickNodeApiKey: (network = null) => {
             const target = (network || config.bitcoin.network || '').toString().toLowerCase();
-            if (target === 'mainnet') return config.bitcoin.apiKeys.quicknode.mainnet;
-            if (target === 'testnet' || target === 'testnet4') return config.bitcoin.apiKeys.quicknode.testnet;
+            if (target === 'mainnet') return config.bitcoin.apiKeys.quicknode.mainnet || null;
+            if (target === 'testnet' || target === 'testnet4') return config.bitcoin.apiKeys.quicknode.testnet || null;
             return null;
         },
 
@@ -73,7 +73,7 @@ const config = {
 
         // Get the appropriate API URL based on current network
         getBlockfrostApiUrl: () => {
-            return config.cardano.apis.blockfrost[config.cardano.network];
+            return config.cardano.apis.blockfrost[config.cardano.network || 'mainnet'];
         },
 
         // Blockfrost project ID

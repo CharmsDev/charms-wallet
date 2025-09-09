@@ -2,7 +2,7 @@
 
 import { useSendForm } from './send-dialog/hooks/useSendForm';
 import { useTransactionFlow } from './send-dialog/hooks/useTransactionFlow';
-import { SendForm } from './send-dialog/components/SendForm';
+import SendForm from './send-dialog/components/SendForm';
 import { ConfirmationDialog } from './send-dialog/components/ConfirmationDialog';
 import { SuccessDialog } from './send-dialog/components/SuccessDialog';
 import { PreparingDialog } from './send-dialog/components/PreparingDialog';
@@ -49,8 +49,8 @@ export default function SendBitcoinDialog({ isOpen, onClose, confirmedUtxos, onS
                 {!transactionFlow.showPreparing && !transactionFlow.showConfirmation && !transactionFlow.showSuccess && (
                     <SendForm
                         formState={formState}
-                        transactionFlow={transactionFlow}
-                        onClose={onClose}
+                        onSend={transactionFlow.handleSendClick}
+                        onCancel={onClose}
                     />
                 )}
             </div>
