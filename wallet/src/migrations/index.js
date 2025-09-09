@@ -1,14 +1,15 @@
 /**
- * Migration System for Charms Wallet
- * 
- * This system handles data migrations and cleanup operations for localStorage
- * to ensure compatibility across wallet versions.
+ * Migration system
+ *
+ * Provides a simple mechanism to register, order, and execute data migrations
+ * backed by localStorage. Each migration declares an id, description and an
+ * execute() function. Executed migrations are tracked to avoid re-running.
  */
 
 const MIGRATION_STORAGE_KEY = 'charms_wallet_migrations_executed';
 
 /**
- * Get list of executed migrations from localStorage
+ * Returns the list of executed migration ids from localStorage.
  */
 const getExecutedMigrations = () => {
     try {
@@ -21,7 +22,7 @@ const getExecutedMigrations = () => {
 };
 
 /**
- * Mark a migration as executed
+ * Marks a migration as executed by persisting its id.
  */
 const markMigrationExecuted = (migrationId) => {
     try {
@@ -37,7 +38,7 @@ const markMigrationExecuted = (migrationId) => {
 };
 
 /**
- * Check if a migration has been executed
+ * Returns true if a migration id is already recorded as executed.
  */
 const isMigrationExecuted = (migrationId) => {
     const executed = getExecutedMigrations();
@@ -45,7 +46,7 @@ const isMigrationExecuted = (migrationId) => {
 };
 
 /**
- * Execute a single migration if it hasn't been run before
+ * Executes a single migration once, skipping if it was already executed.
  */
 const executeMigration = async (migration) => {
     if (isMigrationExecuted(migration.id)) {
@@ -66,7 +67,7 @@ const executeMigration = async (migration) => {
 };
 
 /**
- * Run all pending migrations
+ * Runs all pending migrations in ascending id order.
  */
 export const runMigrations = async () => {
     console.log('[MIGRATIONS] Starting migration process...');
@@ -113,7 +114,7 @@ export const runMigrations = async () => {
 };
 
 /**
- * Get migration status for debugging
+ * Returns a snapshot of migration status.
  */
 export const getMigrationStatus = () => {
     return {
@@ -123,7 +124,7 @@ export const getMigrationStatus = () => {
 };
 
 /**
- * Reset all migration flags (for development/testing only)
+ * Clears all migration flags. Intended for development/testing.
  */
 export const resetMigrations = () => {
     localStorage.removeItem(MIGRATION_STORAGE_KEY);

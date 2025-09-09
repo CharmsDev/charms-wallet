@@ -1,22 +1,19 @@
 /**
- * Migration 001: Clean Cross-Network UTXO Contamination
- * 
- * This migration fixes the issue where UTXOs from different networks
- * (mainnet vs testnet) get mixed in localStorage, causing transaction failures.
- * 
- * Problem: UTXOs with testnet addresses (tb1...) appearing in mainnet storage
- * and vice versa, leading to "Insufficient verified UTXOs" errors.
+ * Migration 001: Normalize UTXO storage by network
+ *
+ * Ensures UTXO entries in localStorage are aligned with the expected
+ * address prefix for each network and removes invalid or malformed entries.
  */
 
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
 
 const migration = {
     id: '001-clean-cross-network-utxos',
-    description: 'Clean cross-network UTXO contamination from localStorage',
+    description: 'Normalize UTXO storage per network and clean invalid entries',
     version: '1.0.0',
     
     async execute() {
-        console.log('[MIGRATION 001] Starting cross-network UTXO cleanup...');
+        console.log('[MIGRATION 001] Starting UTXO normalization...');
         
         const networks = [
             { blockchain: BLOCKCHAINS.BITCOIN, network: NETWORKS.BITCOIN.MAINNET, prefix: 'bc1' },
@@ -41,23 +38,23 @@ const migration = {
                 const cleanedUtxos = {};
                 let removedCount = 0;
                 
-                // Filter out addresses that don't match the expected network prefix
+                // Keep only addresses that match the expected network prefix
                 Object.entries(utxos).forEach(([address, addressUtxos]) => {
                     if (address.startsWith(prefix)) {
                         cleanedUtxos[address] = addressUtxos;
                     } else {
-                        console.log(`[MIGRATION 001] Removing cross-network address: ${address} from ${network} (expected ${prefix})`);
+                        console.log(`[MIGRATION 001] Removing address not matching prefix for ${network}: ${address}`);
                         removedCount++;
                     }
                 });
                 
                 if (removedCount > 0) {
-                    // Save cleaned UTXOs back to localStorage
+                    // Persist normalized UTXO map
                     localStorage.setItem(storageKey, JSON.stringify(cleanedUtxos));
-                    console.log(`[MIGRATION 001] Cleaned ${removedCount} cross-network addresses from ${network}`);
+                    console.log(`[MIGRATION 001] Cleaned ${removedCount} addresses for ${network}`);
                     totalCleaned += removedCount;
                 } else {
-                    console.log(`[MIGRATION 001] No cross-network contamination found in ${network}`);
+                    console.log(`[MIGRATION 001] No cleanup required for ${network}`);
                 }
                 
             } catch (error) {
@@ -65,14 +62,14 @@ const migration = {
             }
         }
         
-        console.log(`[MIGRATION 001] Cleanup completed. Total addresses cleaned: ${totalCleaned}`);
+        console.log(`[MIGRATION 001] Normalization completed. Total addresses cleaned: ${totalCleaned}`);
         
-        // Also clean any orphaned UTXO keys that might exist
+        // Validate and remove orphaned or invalid UTXO keys
         await this.cleanOrphanedUtxoKeys();
     },
     
     async cleanOrphanedUtxoKeys() {
-        console.log('[MIGRATION 001] Checking for orphaned UTXO keys...');
+        console.log('[MIGRATION 001] Validating UTXO storage keys...');
         
         const utxoKeyPattern = /^(bitcoin|cardano)_(mainnet|testnet|regtest)_wallet_utxos$/;
         const keysToCheck = [];
@@ -85,7 +82,7 @@ const migration = {
             }
         }
         
-        console.log(`[MIGRATION 001] Found ${keysToCheck.length} UTXO storage keys to validate`);
+        console.log(`[MIGRATION 001] Found ${keysToCheck.length} UTXO-related keys`);
         
         for (const key of keysToCheck) {
             try {
@@ -93,11 +90,11 @@ const migration = {
                 if (data) {
                     const parsed = JSON.parse(data);
                     
-                    // Check if it's a valid UTXO structure
+                    // Basic structure check: { address: UTXO[] }
                     if (typeof parsed === 'object' && parsed !== null) {
                         let hasValidStructure = true;
                         
-                        // Validate structure: should be { address: [utxos] }
+                        // Validate that values are arrays
                         for (const [address, utxos] of Object.entries(parsed)) {
                             if (!Array.isArray(utxos)) {
                                 hasValidStructure = false;
@@ -106,13 +103,13 @@ const migration = {
                         }
                         
                         if (!hasValidStructure) {
-                            console.log(`[MIGRATION 001] Removing invalid UTXO structure: ${key}`);
+                            console.log(`[MIGRATION 001] Removing invalid UTXO structure at key: ${key}`);
                             localStorage.removeItem(key);
                         }
                     }
                 }
             } catch (error) {
-                console.log(`[MIGRATION 001] Removing corrupted UTXO data: ${key}`);
+                console.log(`[MIGRATION 001] Removing unparsable UTXO data at key: ${key}`);
                 localStorage.removeItem(key);
             }
         }
