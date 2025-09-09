@@ -160,7 +160,7 @@ export class UTXOFetcher {
                 }
 
                 if (processedCount < filteredAddresses.length) {
-                    await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay to avoid rate limiting
+                    await new Promise(resolve => setTimeout(resolve, 10)); // 0.01 second delay
                 }
             }
 
