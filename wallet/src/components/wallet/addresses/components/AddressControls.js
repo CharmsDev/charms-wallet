@@ -12,20 +12,20 @@ export default function AddressControls({
     generationProgress
 }) {
     return (
-        <div className="p-6 flex justify-between items-center">
-            <h2 className="text-xl font-bold gradient-text">Your Addresses</h2>
-            <div className="flex items-center space-x-4">
+        <div className="p-4 sm:p-6 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="hidden md:block text-xl font-bold gradient-text">Your Addresses</h2>
+            <div className="flex items-center flex-wrap gap-2 sm:gap-3">
                 {!isCardano && (
-                    <div className="flex items-center space-x-2 bg-gray-800 rounded-full p-1">
+                    <div className="flex items-center gap-1 bg-gray-800 rounded-full p-1">
                         <button
                             onClick={() => onFilterChange('all')}
-                            className={`px-3 py-1 text-sm font-medium rounded-full ${filter === 'all' ? 'bg-blue-500 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+                            className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap ${filter === 'all' ? 'bg-blue-500 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
                         >
                             All
                         </button>
                         <button
                             onClick={() => onFilterChange('in-use')}
-                            className={`px-3 py-1 text-sm font-medium rounded-full ${filter === 'in-use' ? 'bg-blue-500 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+                            className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap ${filter === 'in-use' ? 'bg-blue-500 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
                         >
                             In Use
                         </button>
@@ -65,7 +65,10 @@ export default function AddressControls({
                             <span>Generating...</span>
                         </div>
                     ) : (
-                        'Generate New Address'
+                        <>
+                            <span className="hidden sm:inline">Generate New Address</span>
+                            <span className="sm:hidden">Create New</span>
+                        </>
                     )}
                 </button>
             </div>
