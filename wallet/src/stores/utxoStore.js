@@ -88,7 +88,7 @@ const useUTXOStore = create((set, get) => ({
     },
 
     // Refresh UTXOs from API and store them
-    refreshUTXOs: async (blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
+    refreshUTXOs: async (blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, addressLimit = null, startOffset = 0) => {
         const state = get();
 
         if (state.refreshProgress.isRefreshing) {
@@ -143,7 +143,9 @@ const useUTXOStore = create((set, get) => ({
             await utxoService.fetchAndStoreAllUTXOsSequential(
                 blockchain,
                 network,
-                onProgress
+                onProgress,
+                addressLimit,
+                startOffset
             );
 
             // Final state update - use current UTXOs from progress updates

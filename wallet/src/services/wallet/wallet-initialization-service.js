@@ -85,12 +85,17 @@ export class WalletInitializationService {
             onStepChange(4, 'Scanning addresses...');
 
             try {
-                const { refreshFirstAddresses } = await import('@/services/utxo/address-refresh-helper');
+                // Use centralized batch scanner with a limit of 12 addresses per network
+                const { utxoService } = await import('@/services/utxo');
 
-                // Use same logic as dashboard refresh - scan first 12 addresses on both networks
                 for (const currentNetwork of networks) {
                     try {
-                        await refreshFirstAddresses(12, blockchain, currentNetwork);
+                        await utxoService.fetchAndStoreAllUTXOsSequential(
+                            blockchain,
+                            currentNetwork,
+                            null, // no onProgress during initialization to keep steps clean
+                            24    // limit to 24 addresses (12 indices = 12 receive + 12 change)
+                        );
                     } catch (error) {
                         // Continue with initialization
                     }

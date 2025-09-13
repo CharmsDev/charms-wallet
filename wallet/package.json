@@ -1,6 +1,6 @@
 {
   "name": "bitcoin-next-demo",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack -p 3456",
@@ -13,6 +13,7 @@
     "@bitcoinerlab/secp256k1": "^1.2.0",
     "@emurgo/cardano-serialization-lib-asmjs": "^14.1.1",
     "@emurgo/cardano-serialization-lib-browser": "^14.1.1",
+    "@magiceden-oss/runestone-lib": "^1.0.2",
     "@noble/hashes": "^1.7.1",
     "@noble/secp256k1": "^2.2.3",
     "@scure/base": "^1.2.6",
@@ -27,6 +28,7 @@
     "crypto-browserify": "^3.12.1",
     "crypto-js": "^4.2.0",
     "ecpair": "^3.0.0-rc.0",
+    "micro-ordinals": "^0.3.0",
     "next": "15.2.0",
     "node-fetch": "^3.3.2",
     "process": "^0.11.10",

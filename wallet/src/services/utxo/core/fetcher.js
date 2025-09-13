@@ -75,7 +75,7 @@ export class UTXOFetcher {
         return utxoMap;
     }
 
-    async fetchAndStoreAllUTXOsSequential(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, onProgress = null) {
+    async fetchAndStoreAllUTXOsSequential(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, onProgress = null, addressLimit = null, startOffset = 0) {
         try {
             this.resetCancelFlag();
 
@@ -88,79 +88,85 @@ export class UTXOFetcher {
             }
 
             const addressEntries = await getAddresses(blockchain, network);
-            const filteredAddresses = addressEntries
+            const allAddresses = addressEntries
                 .filter(entry => !entry.blockchain || entry.blockchain === blockchain)
                 .map(entry => entry.address);
+            
+            const totalAddressCount = allAddresses.length;
+            let filteredAddresses = allAddresses;
+
+            // Apply address limit and offset if specified
+            if (startOffset > 0) {
+                filteredAddresses = filteredAddresses.slice(startOffset);
+            }
+            if (addressLimit && addressLimit > 0) {
+                filteredAddresses = filteredAddresses.slice(0, addressLimit);
+            }
 
             if (filteredAddresses.length === 0) {
                 return {};
             }
 
+            // Load current UTXOs once at the beginning for optimized storage
+            const currentUTXOs = await getUTXOs(blockchain, network);
             const utxoMap = {};
             let processedCount = 0;
+            const batchSize = 4; // Process 4 addresses in parallel (even numbers)
 
-            for (const address of filteredAddresses) {
+            // Process addresses in parallel batches
+            for (let i = 0; i < filteredAddresses.length; i += batchSize) {
                 if (this.cancelRequested) {
-                    return utxoMap;
+                    break;
                 }
 
-                try {
-                    const utxos = await this.getAddressUTXOs(address, blockchain, network);
+                const batch = filteredAddresses.slice(i, i + batchSize);
+                const batchPromises = batch.map(async (address) => {
+                    try {
+                        const utxos = await this.getAddressUTXOs(address, blockchain, network);
+                        return { address, utxos, success: true };
+                    } catch (error) {
+                        console.warn(`Failed to fetch UTXOs for ${address}:`, error.message);
+                        return { address, utxos: [], success: false, error: error.message };
+                    }
+                });
 
-                    if (utxos && utxos.length > 0) {
-                        utxoMap[address] = utxos;
-                        // Update individual address UTXOs immediately
-                        const currentUTXOs = await getUTXOs(blockchain, network);
-                        currentUTXOs[address] = utxos;
-                        await saveUTXOs(currentUTXOs, blockchain, network);
+                const batchResults = await Promise.all(batchPromises);
 
-                        if (onProgress) {
-                            onProgress({
-                                address,
-                                utxos,
-                                processed: processedCount + 1,
-                                total: filteredAddresses.length,
-                                hasUtxos: true
-                            });
-                        }
+                // Process batch results and update storage optimally
+                for (const result of batchResults) {
+                    processedCount++;
+                    
+                    if (result.success && result.utxos && result.utxos.length > 0) {
+                        utxoMap[result.address] = result.utxos;
+                        currentUTXOs[result.address] = result.utxos;
                     } else {
-                        // Remove address from localStorage if no UTXOs found
-                        const currentUTXOs = await getUTXOs(blockchain, network);
-                        delete currentUTXOs[address];
-                        await saveUTXOs(currentUTXOs, blockchain, network);
-
-                        if (onProgress) {
-                            onProgress({
-                                address,
-                                utxos: [],
-                                processed: processedCount + 1,
-                                total: filteredAddresses.length,
-                                hasUtxos: false
-                            });
-                        }
+                        // Remove address if no UTXOs found
+                        delete currentUTXOs[result.address];
                     }
 
-                    processedCount++;
-
-                } catch (error) {
-                    // Log the error but continue with other addresses
-                    console.warn(`Failed to fetch UTXOs for ${address}:`, error.message);
-                    
-                    processedCount++;
                     if (onProgress) {
                         onProgress({
-                            address,
-                            utxos: [],
-                            processed: processedCount,
-                            total: filteredAddresses.length,
-                            hasUtxos: false,
-                            error: `Failed to fetch UTXOs for ${address}: ${error.message}`
+                            address: result.address,
+                            utxos: result.utxos || [],
+                            processed: processedCount + startOffset,
+                            total: totalAddressCount,
+                            hasUtxos: result.success && result.utxos && result.utxos.length > 0,
+                            error: result.error || null
                         });
                     }
                 }
 
-                if (processedCount < filteredAddresses.length) {
-                    await new Promise(resolve => setTimeout(resolve, 10)); // 0.01 second delay
+                // Save storage once per batch instead of per address
+                await saveUTXOs(currentUTXOs, blockchain, network);
+
+                // Add delay only for mempool.space and only between batches
+                if (i + batchSize < filteredAddresses.length) {
+                    const { quickNodeService } = await import('@/services/shared/quicknode-service');
+                    
+                    // Only delay if using mempool.space fallback (not QuickNode)
+                    if (!quickNodeService.isAvailable(network)) {
+                        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay for mempool.space
+                    }
                 }
             }
 
