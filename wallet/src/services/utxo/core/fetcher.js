@@ -75,6 +75,53 @@ export class UTXOFetcher {
         return utxoMap;
     }
 
+    /**
+     * Process UTXO batch results in a non-blocking way
+     * Uses setTimeout to yield control back to the event loop
+     */
+    async processUTXOBatch(batchResults, currentUTXOs, utxoMap, processedCount, startOffset, totalAddressCount, onProgress) {
+        return new Promise((resolve) => {
+            let batchProcessedCount = processedCount;
+            let currentIndex = 0;
+
+            const processBatchItem = () => {
+                if (currentIndex >= batchResults.length) {
+                    resolve(batchProcessedCount);
+                    return;
+                }
+
+                const result = batchResults[currentIndex];
+                batchProcessedCount++;
+                
+                if (result.success && result.utxos && result.utxos.length > 0) {
+                    utxoMap[result.address] = result.utxos;
+                    currentUTXOs[result.address] = result.utxos;
+                } else {
+                    // Remove address if no UTXOs found
+                    delete currentUTXOs[result.address];
+                }
+
+                if (onProgress) {
+                    onProgress({
+                        address: result.address,
+                        utxos: result.utxos || [],
+                        processed: batchProcessedCount + startOffset,
+                        total: totalAddressCount,
+                        hasUtxos: result.success && result.utxos && result.utxos.length > 0,
+                        error: result.error || null
+                    });
+                }
+
+                currentIndex++;
+                // Use setTimeout to yield control and prevent UI blocking
+                setTimeout(processBatchItem, 0);
+            };
+
+            // Start processing
+            processBatchItem();
+        });
+    }
+
     async fetchAndStoreAllUTXOsSequential(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, onProgress = null, addressLimit = null, startOffset = 0) {
         try {
             this.resetCancelFlag();
@@ -132,32 +179,21 @@ export class UTXOFetcher {
 
                 const batchResults = await Promise.all(batchPromises);
 
-                // Process batch results and update storage optimally
-                for (const result of batchResults) {
-                    processedCount++;
-                    
-                    if (result.success && result.utxos && result.utxos.length > 0) {
-                        utxoMap[result.address] = result.utxos;
-                        currentUTXOs[result.address] = result.utxos;
-                    } else {
-                        // Remove address if no UTXOs found
-                        delete currentUTXOs[result.address];
-                    }
+                // Process batch results using non-blocking method
+                processedCount = await this.processUTXOBatch(
+                    batchResults, 
+                    currentUTXOs, 
+                    utxoMap, 
+                    processedCount, 
+                    startOffset, 
+                    totalAddressCount, 
+                    onProgress
+                );
 
-                    if (onProgress) {
-                        onProgress({
-                            address: result.address,
-                            utxos: result.utxos || [],
-                            processed: processedCount + startOffset,
-                            total: totalAddressCount,
-                            hasUtxos: result.success && result.utxos && result.utxos.length > 0,
-                            error: result.error || null
-                        });
-                    }
-                }
-
-                // Save storage once per batch instead of per address
-                await saveUTXOs(currentUTXOs, blockchain, network);
+                // Save storage once per batch instead of per address (non-blocking)
+                setTimeout(async () => {
+                    await saveUTXOs(currentUTXOs, blockchain, network);
+                }, 0);
 
                 // Add delay only for mempool.space and only between batches
                 if (i + batchSize < filteredAddresses.length) {
@@ -170,20 +206,27 @@ export class UTXOFetcher {
                 }
             }
 
-            // No need to store final UTXO map - individual addresses were already saved during progress
+            // Final storage save (non-blocking)
+            setTimeout(async () => {
+                await saveUTXOs(currentUTXOs, blockchain, network);
+            }, 0);
 
-            // Process UTXOs for received transaction detection
+            // Process UTXOs for received transaction detection (non-blocking)
             if (Object.keys(utxoMap).length > 0) {
-                try {
-                    const transactionRecorder = new TransactionRecorder(blockchain, network);
-                    await transactionRecorder.processUTXOsForReceivedTransactions(utxoMap, addressEntries);
-                } catch (error) {
-                    // Don't fail the entire UTXO fetch if transaction processing fails
-                }
+                setTimeout(async () => {
+                    try {
+                        const transactionRecorder = new TransactionRecorder(blockchain, network);
+                        await transactionRecorder.processUTXOsForReceivedTransactions(utxoMap, addressEntries);
+                    } catch (error) {
+                        // Don't fail the entire UTXO fetch if transaction processing fails
+                        console.warn('Transaction processing failed:', error.message);
+                    }
+                }, 100); // Small delay to ensure UTXO processing completes first
             }
 
             return utxoMap;
         } catch (error) {
+            console.error('UTXO fetching failed:', error.message);
             return {};
         }
     }
