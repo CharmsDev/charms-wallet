@@ -57,24 +57,25 @@ export default function SendForm({ formState, onSend, onCancel }) {
             // Sort UTXOs by value (largest first) for optimal selection
             const sortedUtxos = [...allUtxos].sort((a, b) => b.value - a.value);
             
-            // Try to find the optimal number of UTXOs that maximizes the amount after fees
-            let bestMaxAmount = 0;
-            let bestUtxoCount = 1;
+            // For Max: Use ALL available UTXOs and calculate exact fee
+            const allSelectedUtxos = sortedUtxos;
+            const totalValue = allSelectedUtxos.reduce((sum, utxo) => sum + utxo.value, 0);
             
-            for (let utxoCount = 1; utxoCount <= sortedUtxos.length; utxoCount++) {
-                const selectedUtxos = sortedUtxos.slice(0, utxoCount);
-                const totalValue = selectedUtxos.reduce((sum, utxo) => sum + utxo.value, 0);
-                const feeForThisSelection = selector.calculateMixedFee(selectedUtxos, 1, currentFeeRate);
-                const maxAmountForThisSelection = Math.max(0, totalValue - feeForThisSelection);
-                
-                if (maxAmountForThisSelection > bestMaxAmount) {
-                    bestMaxAmount = maxAmountForThisSelection;
-                    bestUtxoCount = utxoCount;
-                }
-            }
+            // Calculate fee for transaction with 1 output (no change for Max)
+            const exactFee = selector.calculateMixedFee(allSelectedUtxos, 1, currentFeeRate);
+            const minFee = Math.max(exactFee, 200); // Apply minimum fee
             
+            // Max amount = total value - exact fee (no change)
+            const maxAmount = totalValue - minFee;
             
-            const maxAmount = bestMaxAmount;
+            console.log('[SendForm] Max calculation:', {
+                totalUtxos: allSelectedUtxos.length,
+                totalValue,
+                exactFee,
+                minFee,
+                maxAmount,
+                feeRate: currentFeeRate
+            });
             
             setAmount(maxAmount.toString());
             
@@ -176,6 +177,24 @@ export default function SendForm({ formState, onSend, onCancel }) {
                     </button>
                 </div>
             </div>
+
+            {/* Error message display */}
+            {error && (
+                <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg">
+                    <p className="text-red-400 text-sm">{error}</p>
+                </div>
+            )}
+
+            {/* Validation errors */}
+            {showValidationErrors && (
+                <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+                    <p className="text-yellow-400 text-sm">
+                        Please check: 
+                        {!isAddressValid && ' Valid destination address required.'}
+                        {!isAmountValid && ' Minimum amount is 546 satoshis.'}
+                    </p>
+                </div>
+            )}
 
             <div className="flex justify-end space-x-3 mt-6">
                 <button

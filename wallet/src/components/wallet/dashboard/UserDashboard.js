@@ -87,17 +87,12 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
         if (isRefreshing) return;
         setIsRefreshing(true);
         try {
-            // Import the helper for limited refresh
-            const { refreshFirstAddresses } = await import('@/services/utxo/address-refresh-helper');
-            
+            // Use centralized batch scanner with a limit of 12 addresses
             await Promise.all([
-                refreshFirstAddresses(12, activeBlockchain, activeNetwork), // Only refresh first 12 addresses
+                refreshUTXOs(activeBlockchain, activeNetwork, 24), // 12 indices = 24 addresses (receive + change)
                 loadAddresses(activeBlockchain, activeNetwork),
                 loadCharms(activeBlockchain, activeNetwork)
             ]);
-            
-            // Reload UTXOs from storage to update the UI
-            await loadUTXOs(activeBlockchain, activeNetwork);
         } catch (error) {
             console.error("Failed to refresh wallet data:", error);
         } finally {

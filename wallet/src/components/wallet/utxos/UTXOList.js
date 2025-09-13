@@ -37,6 +37,11 @@ export default function UTXOList() {
         initialized,
         cancelUTXORefresh
     } = useUTXOs();
+    
+    // Progressive refresh state
+    const [refreshOffset, setRefreshOffset] = useState(0);
+    const [isProgressiveRefresh, setIsProgressiveRefresh] = useState(false);
+    const [totalAddressesToScan, setTotalAddressesToScan] = useState(0);
     const { addresses, loadAddresses } = useAddresses();
     const { activeBlockchain, activeNetwork, isBitcoin, isCardano } = useBlockchain();
     const { seedPhrase } = useWallet();
@@ -58,7 +63,7 @@ export default function UTXOList() {
     useEffect(() => {
         // Only auto-refresh if we have addresses and UTXOs are already loaded
         if (addresses.length > 0 && initialized && (config.bitcoin.isRegtest() || isCardano())) {
-            refreshUTXOs(activeBlockchain, activeNetwork);
+            refreshUTXOs(activeBlockchain, activeNetwork, 24, 0); // Start with first 24 addresses
         }
     }, [addresses, initialized, activeBlockchain, activeNetwork, refreshUTXOs, isCardano]);
 
@@ -98,8 +103,52 @@ export default function UTXOList() {
         });
     }, [flattenedUtxos]);
 
+    const handleCancel = () => {
+        // Reset progressive refresh state when canceling
+        setIsProgressiveRefresh(false);
+        setRefreshOffset(0);
+        setTotalAddressesToScan(0);
+        // Call the store's cancel function
+        cancelUTXORefresh();
+    };
+
     const handleRefresh = async () => {
-        await refreshUTXOs(activeBlockchain, activeNetwork);
+        if (isProgressiveRefresh) {
+            // Continue progressive refresh
+            const newOffset = refreshOffset + 24;
+            setRefreshOffset(newOffset);
+            await refreshUTXOs(activeBlockchain, activeNetwork, 24, newOffset);
+            
+            // Check if we've scanned all addresses
+            if (newOffset + 24 >= totalAddressesToScan) {
+                setIsProgressiveRefresh(false);
+                setRefreshOffset(0);
+            }
+        } else {
+            // Start progressive refresh
+            // Get total addresses count first
+            const { getAddresses } = await import('@/services/storage');
+            const addressEntries = await getAddresses(activeBlockchain, activeNetwork);
+            const totalAddresses = addressEntries
+                .filter(entry => !entry.blockchain || entry.blockchain === activeBlockchain)
+                .length;
+            
+            setTotalAddressesToScan(totalAddresses);
+            setRefreshOffset(0);
+            setIsProgressiveRefresh(true);
+            
+            // Start with first 24 addresses
+            await refreshUTXOs(activeBlockchain, activeNetwork, 24, 0);
+            
+            // Update offset after first batch
+            setRefreshOffset(24);
+            
+            // If we have 24 or fewer addresses total, finish immediately
+            if (totalAddresses <= 24) {
+                setIsProgressiveRefresh(false);
+                setRefreshOffset(0);
+            }
+        }
     };
 
     const handleOpenSendDialog = () => {
@@ -118,36 +167,32 @@ export default function UTXOList() {
             }
         } catch (error) {
             console.error('[UTXOList] Error handling transaction completion:', error);
-            refreshUTXOs(activeBlockchain, activeNetwork);
+            refreshUTXOs(activeBlockchain, activeNetwork, 24, 0); // Start with first 24 addresses
         }
     };
 
     if (error) {
         return (
             <div>
-                <div className="p-6 flex justify-between items-center">
-                    <h2 className="text-xl font-bold gradient-text">Your UTXOs</h2>
-                    <div className="flex space-x-2">
+                <div className="p-4 sm:p-6 flex justify-between items-center">
+                    <h2 className="text-xl font-bold gradient-text hidden md:block">Your UTXOs</h2>
+                    <div className="flex items-center flex-wrap gap-2 sm:gap-3">
                         <button
                             className="btn btn-primary"
                             onClick={handleRefresh}
                             disabled={refreshProgress.isRefreshing}
                         >
-                            {refreshProgress.isRefreshing ? (
-                                <div className="flex items-center space-x-2">
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                    <span>
-                                        {refreshProgress.processed}/{refreshProgress.total}
-                                    </span>
-                                </div>
-                            ) : (
-                                'Refresh'
-                            )}
+                            {refreshProgress.isRefreshing 
+                                ? `Scanning... ${refreshProgress.processed}/${refreshProgress.total}` 
+                                : isProgressiveRefresh 
+                                    ? `Continue (${refreshOffset}/${totalAddressesToScan})` 
+                                    : 'Refresh'
+                            }
                         </button>
-                        {refreshProgress.isRefreshing && (
+                        {(refreshProgress.isRefreshing || isProgressiveRefresh) && (
                             <button
                                 className="btn bg-red-600 hover:bg-red-700 text-white"
-                                onClick={cancelUTXORefresh}
+                                onClick={handleCancel}
                             >
                                 Cancel
                             </button>
@@ -163,9 +208,9 @@ export default function UTXOList() {
 
     return (
         <div>
-            <div className="p-6 flex justify-between items-center">
-                <h2 className="text-xl font-bold gradient-text">Your UTXOs</h2>
-                <div className="flex space-x-2">
+            <div className="p-4 sm:p-6 flex justify-between items-center">
+                <h2 className="text-xl font-bold gradient-text hidden md:block">Your UTXOs</h2>
+                <div className="flex items-center flex-wrap gap-2 sm:gap-3">
                     {isBitcoin() && (
                         <button
                             className={`btn ${confirmedUtxos.length === 0 ? 'opacity-50 cursor-not-allowed bg-dark-700' : 'btn-bitcoin'}`}
@@ -198,14 +243,16 @@ export default function UTXOList() {
                                     {refreshProgress.processed}/{refreshProgress.total}
                                 </span>
                             </div>
+                        ) : isProgressiveRefresh ? (
+                            `Continue (${refreshOffset}/${totalAddressesToScan})`
                         ) : (
                             'Refresh'
                         )}
                     </button>
-                    {refreshProgress.isRefreshing && (
+                    {(refreshProgress.isRefreshing || isProgressiveRefresh) && (
                         <button
                             className="btn bg-red-600 hover:bg-red-700 text-white ml-2"
-                            onClick={cancelUTXORefresh}
+                            onClick={handleCancel}
                         >
                             Cancel
                         </button>

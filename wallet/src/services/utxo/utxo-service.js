@@ -45,8 +45,8 @@ export class UTXOService {
         }
     }
 
-    async fetchAndStoreAllUTXOsSequential(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, onProgress = null) {
-        return await this.fetcher.fetchAndStoreAllUTXOsSequential(blockchain, network, onProgress);
+    async fetchAndStoreAllUTXOsSequential(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, onProgress = null, addressLimit = null, startOffset = 0) {
+        return await this.fetcher.fetchAndStoreAllUTXOsSequential(blockchain, network, onProgress, addressLimit, startOffset);
     }
 
     // ============================================================================
