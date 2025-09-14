@@ -19,7 +19,6 @@ export function hasRunes(transactionData) {
         return false;
     } catch (error) {
         // If parsing fails, assume no runes to avoid false positives
-        console.log(`[RUNES_CHECK] Error checking runes:`, error.message);
         return false;
     }
 }
@@ -40,7 +39,6 @@ export function isRuneUtxo(utxo, transactionData = null) {
         
         // Without transaction data, assume 546 sat UTXOs are runes
         // This is a heuristic - 546 sats is the dust limit and commonly used for runes
-        console.log(`[RUNES_HEURISTIC] Assuming UTXO ${utxo.txid}:${utxo.vout} (546 sats) contains runes`);
         return true;
     }
     
@@ -64,7 +62,6 @@ export function getRunesInfo(transactionData) {
         
         return null;
     } catch (error) {
-        console.log(`[RUNES_INFO] Error getting runes info:`, error.message);
         return null;
     }
 }
@@ -85,7 +82,6 @@ export function isRuneEtching(transactionData) {
         
         return false;
     } catch (error) {
-        console.log(`[RUNES_ETCHING] Error checking rune etching:`, error.message);
         return false;
     }
 }
@@ -106,7 +102,6 @@ export function isRuneMint(transactionData) {
         
         return false;
     } catch (error) {
-        console.log(`[RUNES_MINT] Error checking rune mint:`, error.message);
         return false;
     }
 }

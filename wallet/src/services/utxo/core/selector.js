@@ -64,15 +64,10 @@ export class UTXOSelector {
         });
 
         if (candidateUtxos.length === 0) {
-            console.log('[SELECTOR] No spendable UTXOs available');
-            console.log('[SELECTOR] Total UTXOs checked:', availableUtxos.length);
-            console.log('[SELECTOR] Charms count:', charms.length);
-            console.log('[SELECTOR] Locked UTXOs count:', this.lockedUtxos.size);
             throw new Error('No valid UTXOs available. Wallet refresh required.');
         }
 
         const sortedUtxos = [...candidateUtxos].sort((a, b) => b.value - a.value);
-        console.log(`[SELECTOR] Found ${candidateUtxos.length} spendable UTXOs for amount ${amountInSats} sats`);
         
         const selectedUtxos = [];
         let totalSelected = 0;
@@ -134,12 +129,9 @@ export class UTXOSelector {
         const maxPossible = totalSpendable - estimatedFeeForMax;
         const isMaxTransaction = Math.abs(amountInSats - maxPossible) <= 10; // Allow small tolerance
         
-        console.log(`[SELECTOR] Total spendable: ${totalSpendable}, Max possible: ${maxPossible}, Requested: ${amountInSats}`);
         
         if (isMaxTransaction) {
             // For max transactions, use all UTXOs and no change
-            console.log(`[SELECTOR] Max transaction detected: using all ${sortedUtxos.length} UTXOs`);
-            console.log(`[SELECTOR] Total value: ${totalSpendable}, Fee: ${estimatedFeeForMax}, Amount: ${amountInSats}`);
             return {
                 selectedUtxos: sortedUtxos,
                 totalValue: totalSpendable,

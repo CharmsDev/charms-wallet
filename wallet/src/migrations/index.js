@@ -16,7 +16,6 @@ const getExecutedMigrations = () => {
         const executed = localStorage.getItem(MIGRATION_STORAGE_KEY);
         return executed ? JSON.parse(executed) : [];
     } catch (error) {
-        console.error('[MIGRATIONS] Error reading executed migrations:', error);
         return [];
     }
 };
@@ -30,10 +29,8 @@ const markMigrationExecuted = (migrationId) => {
         if (!executed.includes(migrationId)) {
             executed.push(migrationId);
             localStorage.setItem(MIGRATION_STORAGE_KEY, JSON.stringify(executed));
-            console.log(`[MIGRATIONS] Marked migration ${migrationId} as executed`);
         }
     } catch (error) {
-        console.error(`[MIGRATIONS] Error marking migration ${migrationId} as executed:`, error);
     }
 };
 
@@ -50,18 +47,14 @@ const isMigrationExecuted = (migrationId) => {
  */
 const executeMigration = async (migration) => {
     if (isMigrationExecuted(migration.id)) {
-        console.log(`[MIGRATIONS] Skipping already executed migration: ${migration.id}`);
         return;
     }
 
-    console.log(`[MIGRATIONS] Executing migration: ${migration.id} - ${migration.description}`);
     
     try {
         await migration.execute();
         markMigrationExecuted(migration.id);
-        console.log(`[MIGRATIONS] Successfully executed migration: ${migration.id}`);
     } catch (error) {
-        console.error(`[MIGRATIONS] Failed to execute migration ${migration.id}:`, error);
         throw error;
     }
 };
@@ -70,11 +63,8 @@ const executeMigration = async (migration) => {
  * Runs all pending migrations in ascending id order.
  */
 export const runMigrations = async () => {
-    console.log('[MIGRATIONS] Starting migration process...');
-    
     // Show current migration status
     const executedMigrations = getExecutedMigrations();
-    console.log('[MIGRATIONS] Previously executed migrations:', executedMigrations);
     
     // Import all migration modules
     const migrations = [];
@@ -89,28 +79,23 @@ export const runMigrations = async () => {
         // migrations.push(migration002.default);
         
     } catch (error) {
-        console.error('[MIGRATIONS] Error importing migration modules:', error);
     }
 
     // Sort migrations by ID to ensure proper execution order
     migrations.sort((a, b) => a.id.localeCompare(b.id));
 
-    console.log(`[MIGRATIONS] Found ${migrations.length} migration(s) to process`);
 
     // Execute each migration
     for (const migration of migrations) {
         try {
             await executeMigration(migration);
         } catch (error) {
-            console.error(`[MIGRATIONS] Migration ${migration.id} failed, stopping migration process`);
             break;
         }
     }
 
     // Show final migration status
     const finalExecutedMigrations = getExecutedMigrations();
-    console.log('[MIGRATIONS] Final executed migrations:', finalExecutedMigrations);
-    console.log('[MIGRATIONS] Migration process completed');
 };
 
 /**
@@ -128,5 +113,4 @@ export const getMigrationStatus = () => {
  */
 export const resetMigrations = () => {
     localStorage.removeItem(MIGRATION_STORAGE_KEY);
-    console.log('[MIGRATIONS] All migration flags reset');
 };
