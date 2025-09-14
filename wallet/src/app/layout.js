@@ -4,6 +4,7 @@ import { WalletProvider } from "@/stores/walletStore";
 import { NetworkProvider } from "@/contexts/NetworkContext";
 import { UTXOProvider } from "@/stores/utxoStore";
 import { CharmsProvider } from "@/stores/charmsStore";
+import { WasmProvider } from "@/contexts/WasmContext";
 import Script from 'next/script';
 
 export const metadata = {
@@ -17,13 +18,15 @@ export default function RootLayout({ children }) {
       <body>
         <WalletProvider>
           <NetworkProvider>
-            <UTXOProvider>
-              <CharmsProvider>
-                <MainLayout>
-                  {children}
-                </MainLayout>
-              </CharmsProvider>
-            </UTXOProvider>
+            <WasmProvider>
+              <UTXOProvider>
+                <CharmsProvider>
+                  <MainLayout>
+                    {children}
+                  </MainLayout>
+                </CharmsProvider>
+              </UTXOProvider>
+            </WasmProvider>
           </NetworkProvider>
         </WalletProvider>
         <Script
