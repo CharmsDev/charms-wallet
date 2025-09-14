@@ -1,0 +1,22 @@
+{
+  "name": "charms-lib",
+  "type": "module",
+  "collaborators": [
+    "Ivan Mikushin <ivan@charms.dev>"
+  ],
+  "description": "Charms Wasm Library",
+  "version": "0.9.2",
+  "license": "MIT",
+  "files": [
+    "charms_lib_bg.wasm",
+    "charms_lib.js",
+    "charms_lib_bg.js",
+    "charms_lib.d.ts"
+  ],
+  "main": "charms_lib.js",
+  "types": "charms_lib.d.ts",
+  "sideEffects": [
+    "./charms_lib.js",
+    "./snippets/*"
+  ]
+}

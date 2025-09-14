@@ -68,14 +68,6 @@ export default function SendForm({ formState, onSend, onCancel }) {
             // Max amount = total value - exact fee (no change)
             const maxAmount = totalValue - minFee;
             
-            console.log('[SendForm] Max calculation:', {
-                totalUtxos: allSelectedUtxos.length,
-                totalValue,
-                exactFee,
-                minFee,
-                maxAmount,
-                feeRate: currentFeeRate
-            });
             
             setAmount(maxAmount.toString());
             
@@ -87,28 +79,12 @@ export default function SendForm({ formState, onSend, onCancel }) {
     };
 
     const handleSend = () => {
-        // Debug logging para identificar problemas
-        console.log('[SendForm] Button clicked:', {
-            canSubmit,
-            isAddressValid,
-            isAmountValid,
-            destinationAddress: destinationAddress?.length,
-            amount,
-            utxosCount: utxos ? Object.keys(utxos).length : 0,
-            addressesCount: addresses?.length || 0
-        });
 
         if (canSubmit) {
             setShowValidationErrors(false);
             onSend();
         } else {
             setShowValidationErrors(true);
-            console.warn('[SendForm] Validation failed:', {
-                isAddressValid,
-                isAmountValid,
-                destinationAddress,
-                amount
-            });
         }
     };
 

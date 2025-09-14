@@ -2,6 +2,8 @@ import { ProcessedCharm, UTXOMap } from '@/types';
 import { isNFT, isToken, getCharmDisplayName } from './utils/charm-utils';
 import { bitcoinApiRouter } from '../shared/bitcoin-api-router';
 import { extractAppInputsByVout } from './cbor-extractor';
+import { getGlobalWasmModule } from '@/contexts/WasmContext';
+
 
 /**
  * Attempts to reconstruct a canonical Charm APP ID from `app_public_inputs`.
@@ -88,10 +90,13 @@ async function getCharmsJs() {
  * This is a facade that orchestrates the various modules
  */
 class CharmsService {
+    
     /**
      * Gets all charms from the provided UTXOs using QuickNode for transaction data
      */
     async getCharmsByUTXOs(utxos: UTXOMap, network: 'mainnet' | 'testnet4'): Promise<ProcessedCharm[]> {
+        const wasmModule = getGlobalWasmModule();
+        
         try {
             // Load charms-js dynamically
             const charms = await getCharmsJs();
@@ -104,6 +109,7 @@ class CharmsService {
             if (!decodeTransaction) {
                 return [];
             }
+
 
             // Get all unique transaction IDs
             let txIds = Array.from(new Set(Object.values(utxos).flat().map(utxo => utxo.txid)));
@@ -122,12 +128,23 @@ class CharmsService {
             }
 
             for (const txId of txIds) {
-                try {
+
                     // Get transaction hex from Bitcoin API Router (mempool.space)
                     const txHex = await bitcoinApiRouter.getTransactionHex(txId, network);
                     
                     if (!txHex) {
                         continue;
+                    }
+
+                    // Test WASM extractAndVerifySpell function
+                    try {
+                        // Pass txHex directly, not wrapped in object
+                        let param = {"bitcoin": txHex};
+                        let charmsJson = wasmModule.extractAndVerifySpell(param, false);
+                        console.log(charmsJson);
+                    } catch (wasmError) {
+                        // WASM error occurred, continue with charms-js only
+
                     }
 
                     // Decode and extract charms using transaction hex directly
@@ -182,10 +199,7 @@ class CharmsService {
                             charmsArray.push(charm);
                         }
                     }
-                } catch (error) {
-                    // Skip this transaction if we can't fetch it
-                    continue;
-                }
+
             }
 
             return charmsArray;
