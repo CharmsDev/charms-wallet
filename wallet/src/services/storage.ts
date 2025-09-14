@@ -139,17 +139,8 @@ export const saveUTXOs = async (utxoMap: UTXOMap, blockchain?: string, network?:
 
 export const getUTXOs = async (blockchain?: string, network?: string): Promise<UTXOMap> => {
     const storageKey = getStorageKey(STORAGE_KEYS.UTXOS, blockchain, network);
-    console.log(`[STORAGE] Getting UTXOs with key: ${storageKey}`);
     const stored = localStorage.getItem(storageKey);
     const result = stored ? JSON.parse(stored) : {};
-    console.log(`[STORAGE] Retrieved UTXOs:`, Object.keys(result).length, 'addresses');
-    
-    // Log sample addresses to verify network consistency
-    const sampleAddresses = Object.keys(result).slice(0, 2);
-    sampleAddresses.forEach(address => {
-        const prefix = address.substring(0, 4);
-        console.log(`[STORAGE] Address prefix: ${prefix} (${address.length} chars)`);
-    });
     
     
     
@@ -254,7 +245,6 @@ export const saveCharms = async (charms: any[], blockchain: string = BLOCKCHAINS
         };
         localStorage.setItem(key, JSON.stringify(charmsData));
     } catch (error) {
-        console.error('[STORAGE] Failed to save charms:', error);
         throw error;
     }
 };
@@ -271,7 +261,6 @@ export const getCharms = async (blockchain: string = BLOCKCHAINS.BITCOIN, networ
         const charmsData = JSON.parse(stored);
         return charmsData.charms || [];
     } catch (error) {
-        console.error('[STORAGE] Failed to load charms:', error);
         return [];
     }
 };

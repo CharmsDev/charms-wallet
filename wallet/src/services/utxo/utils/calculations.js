@@ -22,13 +22,11 @@ export class UTXOCalculations {
         
         // Check for ordinals/inscriptions if transaction data is available
         if (transactionData && hasOrdinals(transactionData, utxo.vout)) {
-            console.log(`[UTXO_FILTER] Excluding UTXO ${utxoId} - contains ordinals/inscriptions`);
             return false;
         }
         
         // Check for runes (both with transaction data and heuristic for 546 sat UTXOs)
         if (isRuneUtxo(utxo, transactionData)) {
-            console.log(`[UTXO_FILTER] Excluding UTXO ${utxoId} - contains runes`);
             return false;
         }
         
@@ -104,8 +102,6 @@ export class UTXOCalculations {
         let excludedUtxos = 0;
         const processedUtxos = new Set();
 
-        console.log(`[BALANCE] Calculating spendable balance (excluding charms, 1000 sat UTXOs, ordinals, and runes)`);
-
         Object.values(utxoMap).forEach(utxos => {
             utxos.forEach(utxo => {
                 const utxoId = `${utxo.txid}:${utxo.vout}`;
@@ -123,15 +119,12 @@ export class UTXOCalculations {
                 // Use centralized spendability check
                 if (this.isUtxoSpendable(utxo, charms, lockedUtxos, transactionData)) {
                     total += utxo.value;
-                    console.log(`[BALANCE] Spendable UTXO ${utxoId} (${utxo.value} sats)`);
                 } else {
                     excludedUtxos++;
-                    console.log(`[BALANCE] Excluded UTXO ${utxoId} (${utxo.value} sats)`);
                 }
             });
         });
 
-        console.log(`[BALANCE] Spendable total: ${total} sats from ${totalUtxos - excludedUtxos} UTXOs (excluded ${excludedUtxos})`);
         return total;
     }
 

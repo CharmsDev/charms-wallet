@@ -39,7 +39,6 @@ export function hasOrdinals(transactionData, outputIndex) {
         return false;
     } catch (error) {
         // If parsing fails, assume no ordinals to avoid false positives
-        console.log(`[ORDINALS_CHECK] Error checking ordinals:`, error.message);
         return false;
     }
 }
@@ -80,7 +79,6 @@ export function getOrdinalsInfo(transactionData) {
         
         return inscriptions;
     } catch (error) {
-        console.log(`[ORDINALS_INFO] Error getting ordinals info:`, error.message);
         return [];
     }
 }

@@ -13,7 +13,6 @@ const migration = {
     version: '1.0.0',
     
     async execute() {
-        console.log('[MIGRATION 001] Starting UTXO normalization...');
         
         const networks = [
             { blockchain: BLOCKCHAINS.BITCOIN, network: NETWORKS.BITCOIN.MAINNET, prefix: 'bc1' },
@@ -25,12 +24,10 @@ const migration = {
         
         for (const { blockchain, network, prefix } of networks) {
             const storageKey = `${blockchain}_${network}_wallet_utxos`;
-            console.log(`[MIGRATION 001] Processing ${storageKey}...`);
             
             try {
                 const stored = localStorage.getItem(storageKey);
                 if (!stored) {
-                    console.log(`[MIGRATION 001] No UTXOs found for ${storageKey}`);
                     continue;
                 }
                 
@@ -43,7 +40,6 @@ const migration = {
                     if (address.startsWith(prefix)) {
                         cleanedUtxos[address] = addressUtxos;
                     } else {
-                        console.log(`[MIGRATION 001] Removing address not matching prefix for ${network}: ${address}`);
                         removedCount++;
                     }
                 });
@@ -51,25 +47,20 @@ const migration = {
                 if (removedCount > 0) {
                     // Persist normalized UTXO map
                     localStorage.setItem(storageKey, JSON.stringify(cleanedUtxos));
-                    console.log(`[MIGRATION 001] Cleaned ${removedCount} addresses for ${network}`);
                     totalCleaned += removedCount;
                 } else {
-                    console.log(`[MIGRATION 001] No cleanup required for ${network}`);
                 }
                 
             } catch (error) {
-                console.error(`[MIGRATION 001] Error processing ${storageKey}:`, error);
             }
         }
         
-        console.log(`[MIGRATION 001] Normalization completed. Total addresses cleaned: ${totalCleaned}`);
         
         // Validate and remove orphaned or invalid UTXO keys
         await this.cleanOrphanedUtxoKeys();
     },
     
     async cleanOrphanedUtxoKeys() {
-        console.log('[MIGRATION 001] Validating UTXO storage keys...');
         
         const utxoKeyPattern = /^(bitcoin|cardano)_(mainnet|testnet|regtest)_wallet_utxos$/;
         const keysToCheck = [];
@@ -82,7 +73,6 @@ const migration = {
             }
         }
         
-        console.log(`[MIGRATION 001] Found ${keysToCheck.length} UTXO-related keys`);
         
         for (const key of keysToCheck) {
             try {
@@ -103,13 +93,11 @@ const migration = {
                         }
                         
                         if (!hasValidStructure) {
-                            console.log(`[MIGRATION 001] Removing invalid UTXO structure at key: ${key}`);
                             localStorage.removeItem(key);
                         }
                     }
                 }
             } catch (error) {
-                console.log(`[MIGRATION 001] Removing unparsable UTXO data at key: ${key}`);
                 localStorage.removeItem(key);
             }
         }

@@ -21,11 +21,8 @@ const useUTXOStore = create((set, get) => ({
 
         // Check if network has changed - if so, clear existing UTXOs
         const networkKey = `${blockchain}-${network}`;
-        console.log(`[UTXO STORE] Loading UTXOs for network: ${networkKey}`);
-        console.log(`[UTXO STORE] Current network in state: ${state.currentNetwork}`);
         
         if (state.currentNetwork && state.currentNetwork !== networkKey) {
-            console.log(`[UTXO STORE] Network changed from ${state.currentNetwork} to ${networkKey} - clearing UTXOs`);
             set({
                 utxos: {},
                 totalBalance: 0,
@@ -46,13 +43,6 @@ const useUTXOStore = create((set, get) => ({
 
         try {
             const storedUTXOs = await utxoService.getStoredUTXOs(blockchain, network);
-            console.log(`[UTXO STORE] Loaded UTXOs from storage:`, Object.keys(storedUTXOs || {}).length, 'addresses');
-            
-            // Log sample addresses to verify network
-            const sampleAddresses = Object.keys(storedUTXOs || {}).slice(0, 3);
-            if (sampleAddresses.length > 0) {
-                console.log(`[UTXO STORE] Sample addresses:`, sampleAddresses);
-            }
             
             // Deduplicate per-address by txid:vout in case storage contains duplicates
             const deduped = {};
