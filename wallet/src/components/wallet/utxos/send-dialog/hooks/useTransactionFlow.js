@@ -60,15 +60,9 @@ export function useTransactionFlow(formState, onClose) {
             // Use the same UTXO filtering logic as the Max button calculation
             const { utxoCalculations } = await import('@/services/utxo/utils/calculations');
             const spendableUtxos = utxoCalculations.getSpendableUtxos(utxos, charms);
-            const allUtxos = Object.values(spendableUtxos).flat().map(utxo => {
-                // Find the address for this UTXO from the original utxos map
-                for (const [address, addressUtxos] of Object.entries(utxos)) {
-                    if (addressUtxos.some(u => u.txid === utxo.txid && u.vout === utxo.vout)) {
-                        return { ...utxo, address };
-                    }
-                }
-                return utxo;
-            });
+            const allUtxos = Object.entries(spendableUtxos).flatMap(([address, addressUtxos]) => 
+                addressUtxos.map(utxo => ({ ...utxo, address }))
+            );
             
             
             if (allUtxos.length === 0) {

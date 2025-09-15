@@ -130,10 +130,10 @@ export class UTXOCalculations {
 
     // Get list of spendable UTXOs using the centralized spendability check
     getSpendableUtxos(utxoMap, charms = [], lockedUtxos = null, transactionDataMap = null) {
-        const spendableUtxos = [];
+        const spendableUtxos = {};
         const processedUtxos = new Set();
 
-        Object.values(utxoMap).forEach(utxos => {
+        Object.entries(utxoMap).forEach(([address, utxos]) => {
             utxos.forEach(utxo => {
                 const utxoId = `${utxo.txid}:${utxo.vout}`;
                 
@@ -148,7 +148,10 @@ export class UTXOCalculations {
                 
                 // Use centralized spendability check
                 if (this.isUtxoSpendable(utxo, charms, lockedUtxos, transactionData)) {
-                    spendableUtxos.push(utxo);
+                    if (!spendableUtxos[address]) {
+                        spendableUtxos[address] = [];
+                    }
+                    spendableUtxos[address].push(utxo);
                 }
             });
         });

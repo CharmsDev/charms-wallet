@@ -52,7 +52,9 @@ export default function SendForm({ formState, onSend, onCancel }) {
             // Use UTXOSelector for optimal UTXO selection
             const { UTXOSelector } = await import('@/services/utxo/core/selector');
             const selector = new UTXOSelector();
-            const allUtxos = Object.values(spendableUtxos).flat();
+            const allUtxos = Object.entries(spendableUtxos).flatMap(([address, addressUtxos]) => 
+                addressUtxos.map(utxo => ({ ...utxo, address }))
+            );
             
             // Sort UTXOs by value (largest first) for optimal selection
             const sortedUtxos = [...allUtxos].sort((a, b) => b.value - a.value);
