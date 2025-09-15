@@ -72,7 +72,10 @@ class BitcoinScureSigner {
                 
                 log(`Processing input ${i}: ${utxo.txid}:${utxo.vout}`);
                 
-                const addresses = await getAddresses();
+                // Get addresses for the correct network
+                const blockchain = 'bitcoin';
+                const network = this.isMainnetNetwork ? 'mainnet' : 'testnet';
+                const addresses = await getAddresses(blockchain, network);
                 const addressInfo = addresses.find(addr => addr.address === utxo.address);
 
                 if (!addressInfo) {
@@ -137,7 +140,10 @@ class BitcoinScureSigner {
                 let changeAddress = transactionData.changeAddress;
                 
                 if (!changeAddress) {
-                    const addresses = await getAddresses();
+                    // Get addresses for the correct network
+                    const blockchain = 'bitcoin';
+                    const network = this.isMainnetNetwork ? 'mainnet' : 'testnet';
+                    const addresses = await getAddresses(blockchain, network);
                     changeAddress = addresses.find(addr => addr.isChange)?.address || addresses[0].address;
                 }
 
@@ -149,7 +155,10 @@ class BitcoinScureSigner {
                 });
             }
 
-            const addressesAll = await getAddresses();
+            // Get addresses for the correct network
+            const blockchain = 'bitcoin';
+            const network = this.isMainnetNetwork ? 'mainnet' : 'testnet';
+            const addressesAll = await getAddresses(blockchain, network);
             const keyMap = new Map();
 
             for (let inputIndex = 0; inputIndex < transactionData.utxos.length; inputIndex++) {
