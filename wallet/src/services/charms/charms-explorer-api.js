@@ -50,15 +50,18 @@ class CharmsExplorerAPI {
 
             const referenceData = await response.json();
             
-            // Merge reference data with original charm data
+            // Merge reference data with original charm data, preserving CharmObj structure
             return {
                 ...charmData,
-                ...referenceData,
-                // Preserve original charm-specific data
-                amount: charmData.amount,
-                utxo: charmData.utxo,
-                txid: charmData.txid,
-                vout: charmData.vout
+                // Update metadata with reference data
+                metadata: {
+                    ...charmData.metadata,
+                    ...referenceData.metadata
+                },
+                // Add convenience fields at root level if provided by reference data
+                name: referenceData.name || charmData.name,
+                description: referenceData.description || charmData.description,
+                image: referenceData.image || charmData.image
             };
 
         } catch (error) {
@@ -86,65 +89,38 @@ class CharmsExplorerAPI {
      * @returns {Object} Enhanced charm data with BRO token information
      */
     getBroTokenData(charmData) {
-        // Normalize amount from cache/service. Cached charms may already store a converted decimal string
-        // in amount.remaining (e.g., "0.00000056") instead of the raw integer. Detect and handle both.
-        const sourceRemaining = (charmData.amount && charmData.amount.remaining != null)
-            ? charmData.amount.remaining
-            : (charmData.amount ?? 0);
-
-        let rawAmount = 0; // integer representation we will store alongside
-        let displayAmount = 0; // human-readable number we want to show
-
-        const isStringInput = typeof sourceRemaining === 'string';
-        const parsed = isStringInput ? parseFloat(sourceRemaining) : sourceRemaining;
-
-        try {
-        } catch (e) { /* noop for SSR */ }
-
-        if (!sourceRemaining || isNaN(parsed)) {
-            rawAmount = 0;
-            displayAmount = 0;
-        } else if (isStringInput) {
-            // Any string numeric from cache is considered a display unit already (e.g., '56.25' or '0.00000056')
-            // Reconstruct raw from display
-            displayAmount = parsed;
-            rawAmount = Math.round(parsed * Math.pow(10, BRO_TOKEN_DATA.decimals));
-        } else {
-            // Assume raw integer value (e.g., 5625000000) and convert to decimal display
-            rawAmount = parsed;
-            displayAmount = rawAmount / Math.pow(10, BRO_TOKEN_DATA.decimals);
-        }
-
-        // Format: avoid forcing 8 decimals; let UI format. Keep up to 8, trim trailing zeros.
+        // Get the raw amount from the CharmObj structure
+        const rawAmount = charmData.amount || 0;
+        
+        // Convert to display amount using decimals
+        const displayAmount = rawAmount / Math.pow(10, BRO_TOKEN_DATA.decimals);
+        
+        // Format display amount - trim trailing zeros
         const displayAmountStr = (() => {
             const num = Number(displayAmount);
             if (Number.isInteger(num)) return String(num);
             return num.toFixed(8).replace(/\.0+$/,'').replace(/(\.[0-9]*?)0+$/,'$1');
         })();
-        try {
-        } catch (e) { /* noop for SSR */ }
         
+        // Return enhanced CharmObj following the standard structure
         return {
             ...charmData,
-            name: BRO_TOKEN_DATA.name,
-            decimals: BRO_TOKEN_DATA.decimals,
-            image: BRO_TOKEN_DATA.image,
-            description: BRO_TOKEN_DATA.description,
-            displayAmount: displayAmountStr,
-            // Keep original amount for calculations
-            rawAmount: rawAmount,
-            // Mark as BRO token for special handling
-            isBroToken: true,
-            // Update amount object if it exists
-            amount: charmData.amount ? {
-                ...charmData.amount,
+            // Override metadata with BRO token data
+            metadata: {
+                ...charmData.metadata,
                 name: BRO_TOKEN_DATA.name,
-                image: BRO_TOKEN_DATA.image,
                 description: BRO_TOKEN_DATA.description,
-                remaining: displayAmountStr,
-                ticker: "$BRO",
-                originalRemaining: rawAmount // Keep original raw amount for calculations
-            } : undefined
+                image: BRO_TOKEN_DATA.image,
+                ticker: "$BRO"
+            },
+            // Add convenience fields at root level for easier access
+            name: BRO_TOKEN_DATA.name,
+            description: BRO_TOKEN_DATA.description,
+            image: BRO_TOKEN_DATA.image,
+            ticker: "$BRO",
+            displayAmount: displayAmountStr,
+            decimals: BRO_TOKEN_DATA.decimals,
+            isBroToken: true
         };
     }
 

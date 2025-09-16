@@ -5,13 +5,33 @@ import { useCharms } from '@/stores/charmsStore';
 import CharmCard from './CharmCard';
 
 export default function CharmsList() {
-    const { charms, isLoading, error, loadCharms, refreshCharms, isNFT, getCharmDisplayName } = useCharms();
+    const { charms, isLoading, loadingProgress, error, loadCharms, refreshCharms, isNFT, getCharmDisplayName } = useCharms();
     const [selectedType, setSelectedType] = useState('all'); // 'all', 'nft', 'token'
 
     // Load charms on mount
     useEffect(() => {
         loadCharms();
     }, []);
+
+    // Auto-scroll to show new charms when they're added during loading
+    useEffect(() => {
+        if (isLoading && charms.length > 0) {
+            // Smooth scroll to show the newly added charms
+            const timer = setTimeout(() => {
+                const charmsGrid = document.querySelector('.grid');
+                if (charmsGrid) {
+                    const lastCharm = charmsGrid.lastElementChild;
+                    if (lastCharm) {
+                        lastCharm.scrollIntoView({ 
+                            behavior: 'smooth', 
+                            block: 'nearest' 
+                        });
+                    }
+                }
+            }, 200);
+            return () => clearTimeout(timer);
+        }
+    }, [charms.length, isLoading]);
 
     const filteredCharms = charms.filter(charm => {
         if (selectedType === 'all') return true;
@@ -78,12 +98,28 @@ export default function CharmsList() {
                     </div>
                 )}
 
-                {isLoading ? (
+                {/* Show loading indicator only when no charms are loaded yet */}
+                {isLoading && charms.length === 0 ? (
                     <div className="text-center py-8">
                         <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-500"></div>
-                        <p className="mt-2 text-dark-300">Loading charms...</p>
+                        <p className="mt-2 text-dark-300">
+                            {loadingProgress ? 
+                                `Scanning transactions for charms... (${loadingProgress.current}/${loadingProgress.total})` : 
+                                'Scanning transactions for charms...'
+                            }
+                        </p>
+                        {loadingProgress && loadingProgress.total > 0 && (
+                            <div className="mt-4 w-full max-w-xs mx-auto">
+                                <div className="bg-dark-700 rounded-full h-2">
+                                    <div 
+                                        className="bg-primary-500 h-2 rounded-full transition-all duration-300"
+                                        style={{ width: `${(loadingProgress.current / loadingProgress.total) * 100}%` }}
+                                    ></div>
+                                </div>
+                            </div>
+                        )}
                     </div>
-                ) : filteredCharms.length === 0 ? (
+                ) : filteredCharms.length === 0 && !isLoading ? (
                     <div className="text-center py-8 glass-effect rounded-xl">
                         <p className="text-dark-300">No charms found.</p>
                         {selectedType !== 'all' && (
@@ -93,10 +129,43 @@ export default function CharmsList() {
                         )}
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {filteredCharms.map((charm) => (
-                            <CharmCard key={`${charm.txid}-${charm.outputIndex}`} charm={charm} />
-                        ))}
+                    <div>
+                        {/* Show loading progress when charms are being loaded */}
+                        {isLoading && loadingProgress && (
+                            <div className="mb-4 p-3 bg-dark-800/50 rounded-lg border border-primary-500/20">
+                                <div className="flex items-center justify-between text-sm text-dark-300 mb-2">
+                                    <span>🔄 {charms.length === 0 ? 'Scanning transactions for charms...' : 'Scanning more transactions...'}</span>
+                                    <span>{loadingProgress.current}/{loadingProgress.total}</span>
+                                </div>
+                                <div className="bg-dark-700 rounded-full h-1.5">
+                                    <div 
+                                        className="bg-primary-500 h-1.5 rounded-full transition-all duration-300"
+                                        style={{ width: `${(loadingProgress.current / loadingProgress.total) * 100}%` }}
+                                    ></div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Always show charms grid, even during loading */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {filteredCharms.map((charm, index) => (
+                                <CharmCard 
+                                    key={`${charm.appId || charm.txid}-${charm.outputIndex || index}`} 
+                                    charm={charm}
+                                    className="animate-fade-in"
+                                />
+                            ))}
+                        </div>
+                        
+                        {/* Show a subtle indicator when new charms are being added */}
+                        {isLoading && (
+                            <div className="mt-4 text-center">
+                                <div className="inline-flex items-center gap-2 text-sm text-dark-400">
+                                    <div className="animate-pulse w-2 h-2 bg-primary-500 rounded-full"></div>
+                                    <span>Scanning transactions for charms...</span>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
