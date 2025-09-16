@@ -1,37 +1,37 @@
-import { ProcessedCharm } from '@/types';
+import { CharmObj } from '@/types';
 
 /**
  * Helper method to determine if a charm is an NFT
  */
-export function isNFT(charm: ProcessedCharm): boolean {
+export function isNFT(charm: CharmObj): boolean {
     return charm.app && charm.app.type === 'n';
 }
 
 /**
  * Helper method to determine if a charm is a token
  */
-export function isToken(charm: ProcessedCharm): boolean {
+export function isToken(charm: CharmObj): boolean {
     return charm.app && charm.app.type === 't';
 }
 
 /**
  * Helper method to get a display name for a charm
  */
-export function getCharmDisplayName(charm: ProcessedCharm): string {
-    // If the charm has a name or ticker, use that
-    if (charm.amount.name) {
-        return charm.amount.name;
+export function getCharmDisplayName(charm: CharmObj): string {
+    // If the charm has a name or ticker in metadata, use that
+    if (charm.metadata?.name) {
+        return charm.metadata.name;
     }
 
     // Otherwise, use the ticker or a fallback
-    if (charm.amount.ticker) {
-        return charm.amount.ticker;
+    if (charm.metadata?.ticker) {
+        return charm.metadata.ticker;
     }
 
     // Last resort fallback
     if (isNFT(charm)) {
-        return `NFT: ${charm.id}`;
+        return `NFT: ${charm.appId}`;
     } else {
-        return `Token: ${charm.id}`;
+        return `Token: ${charm.appId}`;
     }
 }

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useWallet } from '@/stores/walletStore';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useCharms } from '@/stores/charmsStore';
-import { ProcessedCharm } from '@/types';
+import { CharmObj } from '@/types';
 
 import CharmDetailsStep from './transfer-steps/CharmDetailsStep';
 import SpellJsonStep from './transfer-steps/SpellJsonStep';

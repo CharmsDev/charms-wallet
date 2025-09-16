@@ -1,223 +1,136 @@
-import { ProcessedCharm, UTXOMap } from '@/types';
+import { CharmObj, UTXOMap } from '@/types';
 import { isNFT, isToken, getCharmDisplayName } from './utils/charm-utils';
 import { bitcoinApiRouter } from '../shared/bitcoin-api-router';
-import { extractAppInputsByVout } from './cbor-extractor';
-import { getGlobalWasmModule } from '@/contexts/WasmContext';
-
+import { initializeWasm, isWasmAvailable, extractCharmsForWallet } from 'charms-js';
 
 /**
- * Attempts to reconstruct a canonical Charm APP ID from `app_public_inputs`.
- * This is necessary when the `appId` from `charms-js` is a placeholder like '$0000'.
- * It searches for `app_public_inputs` in various possible locations within the charm data,
- * parses it, and reconstructs the `t/<hash1>/<hash2>` format.
- *
- * @param charmInstance - The charm instance object from charms-js.
- * @param appPublicInputs - Optional pre-extracted `app_public_inputs` from a CBOR extractor.
- * @returns The reconstructed APP ID, or the original `appId` if reconstruction fails.
+ * WASM initialization for charm extraction
+ * Uses charms-js NPM package v3.0.3 - WASM only, no fallbacks
  */
-function reconstructAppId(charmInstance: any, appPublicInputs?: any): string {
-    // If a valid appId already exists, use it directly.
-    if (charmInstance.appId && charmInstance.appId !== '$0000') {
-        return charmInstance.appId;
-    }
+let wasmInitialized = false;
 
-    // Gather potential sources of app_public_inputs from the charm object.
-    const candidates: any[] = [
-        appPublicInputs, // Pre-extracted inputs have priority.
-        charmInstance.app_public_inputs,
-        charmInstance.appPublicInputs,
-        charmInstance.publicInputs,
-        charmInstance.inputs,
-        charmInstance.data?.app_public_inputs,
-        charmInstance.spell?.app_public_inputs
-    ].filter(Boolean);
-
-    // Helper to normalize various data structures into a string.
-    const toStringCandidate = (src: any): string | null => {
-        if (typeof src === 'string') return src;
-        if (Array.isArray(src)) return src.join(',');
-        if (typeof src === 'object') {
-            for (const [k, v] of Object.entries(src)) {
-                if (typeof v === 'string' && v.startsWith('t,')) return v;
-                if (typeof k === 'string' && k.startsWith('t,')) return k;
-            }
-        }
-        return null;
-    };
-
-    for (const candidate of candidates) {
-        const inputStr = toStringCandidate(candidate);
-        if (!inputStr || !inputStr.startsWith('t,')) continue;
-
-        try {
-            const parts = inputStr.split(',');
-            // A valid App ID requires 't' plus 64 bytes for the two hashes.
-            if (parts.length >= 65) {
-                const hash1Bytes = parts.slice(1, 33).map(x => parseInt(x.trim(), 10));
-                const hash1 = Buffer.from(hash1Bytes).toString('hex');
-                const hash2Bytes = parts.slice(33, 65).map(x => parseInt(x.trim(), 10));
-                const hash2 = Buffer.from(hash2Bytes).toString('hex');
-                return `t/${hash1}/${hash2}`;
-            }
-        } catch (error) {
-            // Ignore parsing errors and try the next candidate.
-            continue;
-        }
-    }
-
-    // Fallback to the original appId if reconstruction is not possible.
-    return charmInstance.appId || '$0000';
-}
-
-// Dynamic import for charms-js to handle browser compatibility
-let charmsJs: any = null;
-
-async function getCharmsJs() {
-    if (charmsJs) {
-        return charmsJs;
-    }
-
+async function ensureWasmInitialized() {
+    if (wasmInitialized) return;
+    
     try {
-        charmsJs = await import('charms-js');
-        return charmsJs;
+        // Load the WASM bindings from the charms-js NPM package
+        const wasmBindings = await import('charms-js/dist/wasm/charms_lib_bg.js');
+        
+        // Fetch the WASM binary from the public directory
+        const wasmResponse = await fetch('/charms_lib_bg.wasm');
+        if (!wasmResponse.ok) {
+            throw new Error(`Failed to fetch WASM file: ${wasmResponse.status}`);
+        }
+        const wasmBuffer = await wasmResponse.arrayBuffer();
+        
+        // Instantiate the WASM module
+        const wasmModule = await WebAssembly.instantiate(wasmBuffer, {
+            './charms_lib_bg.js': wasmBindings
+        });
+        
+        // Set up the WASM bindings
+        wasmBindings.__wbg_set_wasm(wasmModule.instance.exports);
+        
+        // Initialize the WASM integration with the bindings
+        initializeWasm(wasmBindings);
+        
+        wasmInitialized = true;
+        console.log('✅ Charms WASM module initialized successfully');
     } catch (error) {
-        return null;
+        console.error('❌ Failed to initialize WASM:', error);
+        throw new Error('WASM initialization failed');
     }
 }
 
 /**
- * Service for handling Charms functionality
- * This is a facade that orchestrates the various modules
+ * Service for handling Charms functionality using charms-js v3.0.2
+ * WASM-only implementation with official charms-lib integration
  */
 class CharmsService {
     
     /**
-     * Gets all charms from the provided UTXOs using QuickNode for transaction data
+     * Gets transaction hex from the API
      */
-    async getCharmsByUTXOs(utxos: UTXOMap, network: 'mainnet' | 'testnet4'): Promise<ProcessedCharm[]> {
-        const wasmModule = getGlobalWasmModule();
-        
+    private async getTransactionHex(txid: string): Promise<string | null> {
         try {
-            // Load charms-js dynamically
-            const charms = await getCharmsJs();
-            if (!charms) {
-                return [];
-            }
-
-            const { decodeTransaction } = charms;
-
-            if (!decodeTransaction) {
-                return [];
-            }
-
-
+            const response = await bitcoinApiRouter.getTransactionHex(txid);
+            return response;
+        } catch (error) {
+            console.error(`Failed to get transaction hex for ${txid}:`, error);
+            return null;
+        }
+    }
+    
+    /**
+     * Gets all charms from the provided UTXOs using WASM-only extraction
+     */
+    async getCharmsByUTXOs(utxos: UTXOMap, network: 'mainnet' | 'testnet4' = 'testnet4'): Promise<CharmObj[]> {
+        try {
+            // Ensure WASM is initialized for optimal performance
+            await ensureWasmInitialized();
+            
             // Get all unique transaction IDs
-            let txIds = Array.from(new Set(Object.values(utxos).flat().map(utxo => utxo.txid)));
+            const txIds = Array.from(new Set(
+                Object.values(utxos).flat().map((utxo: any) => utxo.txid)
+            ));
 
             if (txIds.length === 0) {
                 return [];
             }
 
-            const charmsArray: ProcessedCharm[] = [];
-            // Build a fast lookup of wallet outpoints to avoid address-format mismatches
+            const allCharms: CharmObj[] = [];
+            
+            // Build wallet outpoints lookup for ownership verification
             const walletOutpoints = new Set<string>();
             for (const [addr, list] of Object.entries(utxos)) {
-                for (const u of list) {
-                    walletOutpoints.add(`${u.txid}:${u.vout}`);
+                for (const utxo of list as any[]) {
+                    walletOutpoints.add(`${utxo.txid}:${utxo.vout}`);
                 }
             }
-
+            
+            // Process each unique transaction
             for (const txId of txIds) {
-
-                    // Get transaction hex from Bitcoin API Router (mempool.space)
-                    const txHex = await bitcoinApiRouter.getTransactionHex(txId, network);
-                    
+                try {
+                    // Get transaction hex
+                    const txHex = await this.getTransactionHex(txId);
                     if (!txHex) {
+                        console.warn(`Could not fetch transaction hex for ${txId}`);
                         continue;
                     }
-
-                    // Test WASM extractAndVerifySpell function
-                    try {
-                        // Pass txHex directly, not wrapped in object
-                        let param = {"bitcoin": txHex};
-                        let charmsJson = wasmModule.extractAndVerifySpell(param, false);
-                        console.log(charmsJson);
-                    } catch (wasmError) {
-                        // WASM error occurred, continue with charms-js only
-
-                    }
-
-                    // Decode and extract charms using transaction hex directly
-                    const charmsResult = await decodeTransaction(txHex, { network });
-
-                    if (charmsResult && 'error' in charmsResult) {
-                        continue;
-                    }
-
-                    if (!charmsResult || !Array.isArray(charmsResult)) {
-                        continue;
-                    }
-
-                    // Extract app_public_inputs using CBOR extractor as fallback
-                    const appInputsByVout = extractAppInputsByVout(txHex);
                     
-                    for (const charmInstance of charmsResult) {
-                        const outIndex = charmInstance.utxo?.index;
-                        const belongsToWallet = outIndex !== undefined && walletOutpoints.has(`${txId}:${outIndex}`);
-
-                        if (belongsToWallet) {
-                            // Try to get app_public_inputs from CBOR extractor
-                            const appInputs = (outIndex !== undefined) ? appInputsByVout.get(outIndex) : undefined;
-                            
-                            const reconstructedAppId = reconstructAppId(charmInstance, appInputs);
-                            
-                            const ticker = charmInstance.name || charmInstance.ticker || (charmInstance.value !== undefined ? 'CHARMS-TOKEN' : 'CHARMS-NFT');
-                            const remaining = charmInstance.value ?? charmInstance.remaining ?? 1;
-
-                            const charm: ProcessedCharm = {
-                                uniqueId: `${txId}-${reconstructedAppId}-${charmInstance.utxo.index}`,
-                                id: reconstructedAppId,
-                                appId: reconstructedAppId, // Add explicit appId field for easier access
-                                amount: {
-                                    ticker: ticker,
-                                    remaining: remaining,
-                                    name: charmInstance.name,
-                                    description: charmInstance.description,
-                                    image: charmInstance.image,
-                                    image_hash: charmInstance.image_hash,
-                                    url: charmInstance.url,
-                                    appId: reconstructedAppId // Add reconstructed appId to amount object too
-                                },
-                                app: charmInstance.app,
-                                outputIndex: charmInstance.utxo.index,
-                                txid: txId,
-                                address: charmInstance.address,
-                                commitTxId: null,
-                                spellTxId: null
-                            };
-
-                            charmsArray.push(charm);
-                        }
-                    }
-
+                    // Extract and normalize charms using charms-js wallet adapter
+                    const processedCharms = await extractCharmsForWallet(
+                        txHex, 
+                        txId, 
+                        walletOutpoints, 
+                        network
+                    );
+                    
+                    allCharms.push(...processedCharms);
+                    
+                } catch (error) {
+                    console.error(`Error processing charms for transaction ${txId}:`, error);
+                }
             }
-
-            return charmsArray;
+            
+            return allCharms;
+            
         } catch (error) {
+            console.error('Error in getCharmsByUTXOs:', error);
             return [];
         }
     }
 
-    // Expose utility methods
-    isNFT(charm: ProcessedCharm): boolean {
+    // Utility methods
+    isNFT(charm: CharmObj): boolean {
         return isNFT(charm);
     }
 
-    isToken(charm: ProcessedCharm): boolean {
+    isToken(charm: CharmObj): boolean {
         return isToken(charm);
     }
 
-    getCharmDisplayName(charm: ProcessedCharm): string {
+    getCharmDisplayName(charm: CharmObj): string {
         return getCharmDisplayName(charm);
     }
 }

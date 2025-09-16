@@ -95,7 +95,7 @@ export default function CharmsList() {
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {filteredCharms.map((charm) => (
-                            <CharmCard key={charm.uniqueId} charm={charm} />
+                            <CharmCard key={`${charm.txid}-${charm.outputIndex}`} charm={charm} />
                         ))}
                     </div>
                 )}
