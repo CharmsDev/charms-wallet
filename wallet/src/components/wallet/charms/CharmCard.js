@@ -20,13 +20,40 @@ export default function CharmCard({ charm }) {
     const [showTransferDialog, setShowTransferDialog] = useState(false);
     const [imageError, setImageError] = useState(false);
 
-    // Extract charm metadata with priority for enhanced data
-    const name = charm.name || charm.amount?.name;
-    const description = charm.description || charm.amount?.description;
-    const image = !imageError && (charm.image || charm.amount?.image);
-    const displayAmount = charm.displayAmount || charm.amount?.remaining;
+    // Debug logging to identify problematic data
+    console.log('CharmCard received charm:', charm);
+    console.log('CharmCard metadata:', charm.metadata);
+    console.log('CharmCard amount:', charm.amount);
+    console.log('CharmCard amount type:', typeof charm.amount);
+    if (typeof charm.amount === 'object') {
+        console.log('CharmCard amount keys:', Object.keys(charm.amount));
+        console.log('CharmCard amount values:', Object.values(charm.amount));
+    }
+
+    // Extract charm metadata from CharmObj structure - ensure all values are strings
+    const name = typeof (charm.metadata?.name || charm.name) === 'string' 
+        ? (charm.metadata?.name || charm.name) 
+        : JSON.stringify(charm.metadata?.name || charm.name || '');
+    const description = typeof (charm.metadata?.description || charm.description) === 'string' 
+        ? (charm.metadata?.description || charm.description) 
+        : JSON.stringify(charm.metadata?.description || charm.description || '');
+    const image = !imageError && (charm.metadata?.image || charm.image);
+    // Ensure amount is a number, not an object
+    let displayAmount = 0;
+    if (typeof charm.amount === 'number') {
+        displayAmount = charm.amount;
+    } else if (typeof charm.amount === 'object' && charm.amount !== null) {
+        // If amount is an object, try to extract a numeric value
+        displayAmount = charm.amount.value || charm.amount.amount || charm.amount.remaining || 0;
+        console.warn('Amount was an object, extracted value:', displayAmount);
+    } else {
+        displayAmount = 0;
+        console.warn('Amount was not a number or object, defaulting to 0');
+    }
     const placeholderImage = "https://charms.dev/_astro/logo-charms-dark.Ceshk2t3.png";
-    const url = charm.url || charm.amount?.url;
+    const url = typeof (charm.metadata?.url || charm.url) === 'string' 
+        ? (charm.metadata?.url || charm.url) 
+        : null;
 
     return (
         <div className="card card-hover flex flex-col h-full">
@@ -61,7 +88,12 @@ export default function CharmCard({ charm }) {
                     {!isNftCharm && (
                         <div className="text-right">
                             <span className="text-lg font-bold text-bitcoin-400 bitcoin-glow-text">{displayAmount}</span>
-                            <p className="text-xs text-dark-300">{charm.amount?.ticker}</p>
+                            <p className="text-xs text-dark-300">
+                                {typeof charm.metadata?.ticker === 'string' 
+                                    ? charm.metadata.ticker 
+                                    : (charm.metadata?.ticker ? JSON.stringify(charm.metadata.ticker) : '')
+                                }
+                            </p>
                         </div>
                     )}
                 </div>
@@ -89,9 +121,9 @@ export default function CharmCard({ charm }) {
 
                 <div className="mt-4 pt-4 border-t border-dark-700">
                     <div className="flex flex-col space-y-2 text-xs text-dark-400">
-                        <div className="flex flex-col">
-                            <span>ID:</span>
-                            <span className="font-mono break-all mt-1 text-dark-300">{charm.id}</span>
+                        <div className="charm-id">
+                            <span className="label">ID:</span>
+                            <span className="value">{charm.appId}</span>
                         </div>
                         <div className="flex flex-col">
                             <span>UTXO:</span>
