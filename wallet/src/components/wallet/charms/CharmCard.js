@@ -20,40 +20,18 @@ export default function CharmCard({ charm }) {
     const [showTransferDialog, setShowTransferDialog] = useState(false);
     const [imageError, setImageError] = useState(false);
 
-    // Debug logging to identify problematic data
-    console.log('CharmCard received charm:', charm);
-    console.log('CharmCard metadata:', charm.metadata);
-    console.log('CharmCard amount:', charm.amount);
-    console.log('CharmCard amount type:', typeof charm.amount);
-    if (typeof charm.amount === 'object') {
-        console.log('CharmCard amount keys:', Object.keys(charm.amount));
-        console.log('CharmCard amount values:', Object.values(charm.amount));
-    }
 
-    // Extract charm metadata from CharmObj structure - ensure all values are strings
-    const name = typeof (charm.metadata?.name || charm.name) === 'string' 
-        ? (charm.metadata?.name || charm.name) 
-        : JSON.stringify(charm.metadata?.name || charm.name || '');
-    const description = typeof (charm.metadata?.description || charm.description) === 'string' 
-        ? (charm.metadata?.description || charm.description) 
-        : JSON.stringify(charm.metadata?.description || charm.description || '');
-    const image = !imageError && (charm.metadata?.image || charm.image);
-    // Ensure amount is a number, not an object
-    let displayAmount = 0;
-    if (typeof charm.amount === 'number') {
-        displayAmount = charm.amount;
-    } else if (typeof charm.amount === 'object' && charm.amount !== null) {
-        // If amount is an object, try to extract a numeric value
-        displayAmount = charm.amount.value || charm.amount.amount || charm.amount.remaining || 0;
-        console.warn('Amount was an object, extracted value:', displayAmount);
-    } else {
-        displayAmount = 0;
-        console.warn('Amount was not a number or object, defaulting to 0');
-    }
+    // Extract data from CharmObj - follow the standard CharmObj structure
+    const name = charm.name || charm.metadata?.name || getCharmDisplayName(charm);
+    const description = charm.description || charm.metadata?.description || '';
+    const image = !imageError && (charm.image || charm.metadata?.image);
+    const url = charm.url || charm.metadata?.url || null;
+    const ticker = charm.ticker || charm.metadata?.ticker || '';
+    
+    // Handle amount - use displayAmount if available (from BRO processing), otherwise use amount
+    const displayAmount = charm.displayAmount || charm.amount || 0;
+    
     const placeholderImage = "https://charms.dev/_astro/logo-charms-dark.Ceshk2t3.png";
-    const url = typeof (charm.metadata?.url || charm.url) === 'string' 
-        ? (charm.metadata?.url || charm.url) 
-        : null;
 
     return (
         <div className="card card-hover flex flex-col h-full">
@@ -73,7 +51,7 @@ export default function CharmCard({ charm }) {
                         <h3 className="font-bold text-white">
                             {name || getCharmDisplayName(charm)}
                         </h3>
-                        <p className="text-sm text-dark-300 mt-1">
+                        <div className="flex items-center gap-2 mt-1">
                             {isNftCharm ? (
                                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-900/30 text-primary-400">
                                     NFT
@@ -83,16 +61,16 @@ export default function CharmCard({ charm }) {
                                     Token
                                 </span>
                             )}
-                        </p>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400 border border-green-500/20">
+                                ✓ Validated Proof
+                            </span>
+                        </div>
                     </div>
                     {!isNftCharm && (
                         <div className="text-right">
                             <span className="text-lg font-bold text-bitcoin-400 bitcoin-glow-text">{displayAmount}</span>
                             <p className="text-xs text-dark-300">
-                                {typeof charm.metadata?.ticker === 'string' 
-                                    ? charm.metadata.ticker 
-                                    : (charm.metadata?.ticker ? JSON.stringify(charm.metadata.ticker) : '')
-                                }
+                                {ticker}
                             </p>
                         </div>
                     )}

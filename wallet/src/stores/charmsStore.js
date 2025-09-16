@@ -23,6 +23,7 @@ export function CharmsProvider({ children }) {
     const [error, setError] = useState(null);
     const [initialized, setInitialized] = useState(false);
     const [currentNetwork, setCurrentNetwork] = useState(null);
+    const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0 });
     const fetchPromiseRef = useRef(null);
     const lastFetchRef = useRef({ sig: null, at: 0 });
     const { utxos } = useUTXOs();
@@ -77,7 +78,31 @@ export function CharmsProvider({ children }) {
         }
     };
 
-    // Load charms from API and cache them
+    // Add charm progressively as they are processed (with deduplication)
+    const addCharm = async (charm) => {
+        const enhancedCharm = await charmsExplorerAPI.processCharmsWithReferenceData([charm]);
+        setCharms(prevCharms => {
+            // Create a unique key for each charm based on txid and outputIndex
+            const getCharmKey = (c) => `${c.txid}-${c.outputIndex}`;
+            
+            // Check if this charm already exists
+            const existingKeys = new Set(prevCharms.map(getCharmKey));
+            const newCharmsToAdd = enhancedCharm.filter(c => !existingKeys.has(getCharmKey(c)));
+            
+            if (newCharmsToAdd.length === 0) {
+                return prevCharms; // No new charms to add
+            }
+            const newCharms = [...prevCharms, ...newCharmsToAdd];
+            
+            // Save to cache progressively
+            saveCharms(newCharms, activeBlockchain, activeNetwork).catch(e => 
+                console.warn('[CHARMS] Failed to save progressive charms', e)
+            );
+            return newCharms;
+        });
+    };
+
+    // Load charms progressively from API
     const loadCharms = async (forceRefresh = false) => {
         // If no UTXOs available, skip
         if (Object.keys(utxos).length === 0) return;
@@ -101,16 +126,29 @@ export function CharmsProvider({ children }) {
             try {
                 setIsLoading(true);
                 setError(null);
+                setLoadingProgress({ current: 0, total: txIds.length });
+                
+                // Clear existing charms when starting fresh load
+                if (forceRefresh) {
+                    setCharms([]);
+                }
+                
                 const charmsNetwork = activeNetwork === 'testnet4' ? 'testnet4' : 'mainnet';
-                const fetchedCharms = await charmsService.getCharmsByUTXOs(utxos, charmsNetwork);
-                const enhancedCharms = await charmsExplorerAPI.processCharmsWithReferenceData(fetchedCharms);
-                setCharms(enhancedCharms);
-                await saveCharms(enhancedCharms, activeBlockchain, activeNetwork);
+                
+                // Process charms progressively using the new service method
+                await charmsService.getCharmsByUTXOsProgressive(
+                    utxos, 
+                    charmsNetwork,
+                    addCharm,
+                    (current, total) => setLoadingProgress({ current, total })
+                );
+                
             } catch (error) {
                 console.error('[CHARMS] Failed to load charms:', error);
                 setError('Failed to load charms');
             } finally {
                 setIsLoading(false);
+                setLoadingProgress({ current: 0, total: 0 });
                 lastFetchRef.current = { sig, at: Date.now() };
                 fetchPromiseRef.current = null;
             }
@@ -142,6 +180,7 @@ export function CharmsProvider({ children }) {
         isLoading,
         error,
         initialized,
+        loadingProgress,
         loadCharms,
         refreshCharms,
         isNFT,
