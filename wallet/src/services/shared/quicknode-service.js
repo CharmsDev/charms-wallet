@@ -34,9 +34,15 @@ export class QuickNodeService {
      * Check if QuickNode direct configuration is available
      */
     isAvailable(network) {
-        const url = config.bitcoin.getQuickNodeApiUrl(network);
-        const key = config.bitcoin.getQuickNodeApiKey(network);
+        const target = (network || config.bitcoin.network || '').toString().toLowerCase();
+        const url = config.bitcoin.getQuickNodeApiUrl(target);
+        const key = config.bitcoin.getQuickNodeApiKey(target);
         const available = !!(url && url.trim() !== '' && key && key.trim() !== '');
+        // Debug without leaking secrets
+        try {
+            const maskedKey = key ? `${key.slice(0, 4)}…${key.slice(-4)}` : '(none)';
+            console.log(`[QuickNodeService] isAvailable(${target}) url=${!!url} key=${key ? 'set' : 'missing'} (${maskedKey}) available=${available}`);
+        } catch (_) {}
         return available;
     }
 
