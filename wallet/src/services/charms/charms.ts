@@ -10,11 +10,11 @@ import { extractAndVerifySpell } from 'charms-js';
 class CharmsService {
     
     /**
-     * Gets transaction hex from the API
+     * Gets transaction hex from the API for a specific network
      */
-    private async getTransactionHex(txid: string): Promise<string | null> {
+    private async getTransactionHex(txid: string, network?: 'mainnet' | 'testnet4'): Promise<string | null> {
         try {
-            const response = await bitcoinApiRouter.getTransactionHex(txid);
+            const response = await bitcoinApiRouter.getTransactionHex(txid, network);
             return response;
         } catch (error) {
             return null;
@@ -43,8 +43,8 @@ class CharmsService {
             // Process each unique transaction
             for (const txId of txIds) {
                 try {
-                    // Get transaction hex
-                    const txHex = await this.getTransactionHex(txId);
+                    // Get transaction hex for the active network
+                    const txHex = await this.getTransactionHex(txId, network);
                     if (!txHex) {
                         continue;
                     }
@@ -97,8 +97,8 @@ class CharmsService {
                 onProgress(i, txIds.length);
                 
                 try {
-                    // Get transaction hex
-                    const txHex = await this.getTransactionHex(txId);
+                    // Get transaction hex for the active network
+                    const txHex = await this.getTransactionHex(txId, network);
                     if (!txHex) {
                         continue;
                     }

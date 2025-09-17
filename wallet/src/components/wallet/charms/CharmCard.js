@@ -26,10 +26,21 @@ export default function CharmCard({ charm }) {
     const description = charm.description || charm.metadata?.description || '';
     const image = !imageError && (charm.image || charm.metadata?.image);
     const url = charm.url || charm.metadata?.url || null;
-    const ticker = charm.ticker || charm.metadata?.ticker || '';
+    // Prefer explicit ticker, then metadata, then amount.ticker if amount is structured
+    const ticker = charm.ticker || charm.metadata?.ticker || charm.amount?.ticker || '';
     
-    // Handle amount - use displayAmount if available (from BRO processing), otherwise use amount
-    const displayAmount = charm.displayAmount || charm.amount || 0;
+    // Handle amount - ensure we never render an object
+    // Prefer displayAmount (already normalized). If not present, derive from amount:
+    // - if amount is an object, use amount.remaining
+    // - if amount is a number/string, use it directly
+    let displayAmount = charm.displayAmount;
+    if (displayAmount === undefined || displayAmount === null) {
+        if (charm && typeof charm.amount === 'object' && charm.amount !== null) {
+            displayAmount = charm.amount?.remaining ?? 0;
+        } else {
+            displayAmount = charm?.amount ?? 0;
+        }
+    }
     
     const placeholderImage = "https://charms.dev/_astro/logo-charms-dark.Ceshk2t3.png";
 
