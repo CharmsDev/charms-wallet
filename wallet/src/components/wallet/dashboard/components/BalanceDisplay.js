@@ -5,7 +5,7 @@ import { useCharms } from '@/stores/charmsStore';
 import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
 import { useBlockchain } from '@/stores/blockchainStore';
 
-export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoading, network, onRefresh, isRefreshing }) {
+export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoading, network, onRefresh, isRefreshing, refreshProgress }) {
     const [showUSD, setShowUSD] = useState(false);
     const [trend, setTrend] = useState(null);
     const { charms, loadCharms, isLoading: charmsLoading, initialized } = useCharms();
@@ -111,7 +111,11 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
                         onClick={onRefresh}
                         disabled={isRefreshing}
                         className="glass-effect p-2 rounded-md hover:bg-dark-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Refresh Balances"
+                        title={isRefreshing ? 
+                            (refreshProgress?.isRefreshing && refreshProgress?.total > 0 ? 
+                                `Scanning addresses: ${refreshProgress.processed}/${refreshProgress.total}` : 
+                                "Refreshing UTXOs, addresses and charms...") : 
+                            "Refresh balances (scans 24 addresses)"}
                     >
                         <svg
                             className={`w-6 h-6 text-dark-300 ${isRefreshing ? 'animate-spin' : ''}`}

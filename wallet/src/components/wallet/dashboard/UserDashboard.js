@@ -27,7 +27,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     const [isRefreshing, setIsRefreshing] = useState(false);
 
     const { hasWallet } = useWallet();
-    const { utxos, totalBalance, isLoading: utxosLoading, loadUTXOs, refreshUTXOs } = useUTXOs();
+    const { utxos, totalBalance, isLoading: utxosLoading, loadUTXOs, refreshUTXOs, refreshProgress } = useUTXOs();
     const { charms, isLoading: charmsLoading, loadCharms, refreshCharms } = useCharms();
     const { addresses, isLoading: addressesLoading, loadAddresses } = useAddresses();
     const { activeBlockchain, activeNetwork } = useBlockchain();
@@ -87,10 +87,19 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
         if (isRefreshing) return;
         setIsRefreshing(true);
         try {
+            console.log('[DASHBOARD] Starting refresh sequence...');
+            
             // Sequential refresh to ensure charms use updated UTXOs
+            console.log('[DASHBOARD] Step 1/3: Refreshing UTXOs (24 addresses)...');
             await refreshUTXOs(activeBlockchain, activeNetwork, 24); // 12 indices = 24 addresses (receive + change)
+            
+            console.log('[DASHBOARD] Step 2/3: Loading addresses...');
             await loadAddresses(activeBlockchain, activeNetwork);
+            
+            console.log('[DASHBOARD] Step 3/3: Force refreshing charms...');
             await refreshCharms(); // Force refresh to bypass cache and use updated UTXOs
+            
+            console.log('[DASHBOARD] Refresh sequence completed successfully');
         } catch (error) {
             console.error("Failed to refresh wallet data:", error);
         } finally {
@@ -158,6 +167,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                             network={activeNetwork}
                             onRefresh={handleRefresh}
                             isRefreshing={isRefreshing}
+                            refreshProgress={refreshProgress}
                         />
 
                         {/* Quick Actions */}
