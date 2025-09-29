@@ -28,7 +28,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
 
     const { hasWallet } = useWallet();
     const { utxos, totalBalance, isLoading: utxosLoading, loadUTXOs, refreshUTXOs } = useUTXOs();
-    const { charms, isLoading: charmsLoading, loadCharms } = useCharms();
+    const { charms, isLoading: charmsLoading, loadCharms, refreshCharms } = useCharms();
     const { addresses, isLoading: addressesLoading, loadAddresses } = useAddresses();
     const { activeBlockchain, activeNetwork } = useBlockchain();
 
@@ -87,12 +87,10 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
         if (isRefreshing) return;
         setIsRefreshing(true);
         try {
-            // Use centralized batch scanner with a limit of 12 addresses
-            await Promise.all([
-                refreshUTXOs(activeBlockchain, activeNetwork, 24), // 12 indices = 24 addresses (receive + change)
-                loadAddresses(activeBlockchain, activeNetwork),
-                loadCharms(activeBlockchain, activeNetwork)
-            ]);
+            // Sequential refresh to ensure charms use updated UTXOs
+            await refreshUTXOs(activeBlockchain, activeNetwork, 24); // 12 indices = 24 addresses (receive + change)
+            await loadAddresses(activeBlockchain, activeNetwork);
+            await refreshCharms(); // Force refresh to bypass cache and use updated UTXOs
         } catch (error) {
             console.error("Failed to refresh wallet data:", error);
         } finally {
