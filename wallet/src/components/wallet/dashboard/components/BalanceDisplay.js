@@ -149,10 +149,14 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
                                 onClick={toggleCurrency}
                             >
                                 <div className="text-2xl font-bold gradient-text mb-1">
-                                    {showUSD ? formatFiat(balance) : `${formatBTC(balance)} BTC`}
+                                    {isRefreshing ? (
+                                        <div className="h-8 bg-dark-700 rounded animate-pulse w-32"></div>
+                                    ) : (
+                                        showUSD ? formatFiat(balance) : `${formatBTC(balance)} BTC`
+                                    )}
                                 </div>
                                 <div className="text-sm text-dark-400">
-                                    {showUSD ? `${formatBTC(balance)} BTC` : formatFiat(balance)}
+                                    {isRefreshing ? 'Loading...' : (showUSD ? `${formatBTC(balance)} BTC` : formatFiat(balance))}
                                 </div>
                             </div>
                         </div>
