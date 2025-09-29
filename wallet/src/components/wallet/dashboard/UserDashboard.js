@@ -83,6 +83,33 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
         setShowSettingsDialog(true);
     };
 
+    /**
+     * OPTIMIZED DASHBOARD REFRESH SEQUENCE
+     * 
+     * This function implements a sequential refresh strategy to ensure data consistency:
+     * 
+     * 1. UTXOs FIRST (24 addresses = 12 indices × 2 types)
+     *    - Scans first 12 receive addresses (m/86'/0'/0'/0/0 to m/86'/0'/0'/0/11)
+     *    - Scans first 12 change addresses (m/86'/0'/0'/1/0 to m/86'/0'/0'/1/11)
+     *    - Updates balance in real-time during scan
+     *    - Deduplicates UTXOs by txid:vout
+     * 
+     * 2. ADDRESSES SECOND
+     *    - Refreshes address list for current network
+     *    - Ensures UI has latest address data
+     * 
+     * 3. CHARMS LAST (with force refresh)
+     *    - Uses refreshCharms() instead of loadCharms() to bypass cache
+     *    - Processes ALL UTXOs detected in step 1 for charm detection
+     *    - Recalculates BRO token balance with latest data
+     *    - Updates charm cache for faster subsequent loads
+     * 
+     * BENEFITS:
+     * - Guarantees charms use the most recent UTXO data
+     * - Prevents race conditions between UTXO and charm updates
+     * - Ensures BRO balance reflects all detected tokens
+     * - Provides detailed progress feedback to user
+     */
     const handleRefresh = async () => {
         if (isRefreshing) return;
         setIsRefreshing(true);
