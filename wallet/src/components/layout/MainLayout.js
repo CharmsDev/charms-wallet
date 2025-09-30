@@ -23,12 +23,12 @@ export default function MainLayout({ children }) {
         <div className="min-h-screen flex flex-col bg-dark-950 relative">
             <Header activeSection={activeSection} setActiveSection={handleSectionChange} />
 
-            {/* Main content section - added pt-32 to account for fixed header */}
-            <main className="flex-grow py-8 pt-32">
+            {/* Main content section - responsive padding for fixed header */}
+            <main className="flex-grow py-8 pt-28 sm:pt-20">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     {/* Wallet section */}
                     <div
-                        className={`transition-opacity duration-200 ${activeSection !== "wallets" ? "opacity-0 hidden" : ""
+                        className={`pt-6 transition-opacity duration-200 ${activeSection !== "wallets" ? "opacity-0 hidden" : ""
                             }`}
                     >
                         {children}
@@ -37,7 +37,7 @@ export default function MainLayout({ children }) {
                     {/* Addresses section - instant loading */}
                     {loadedSections.has('addresses') && (
                         <div
-                            className={`transition-opacity duration-200 ${activeSection !== "addresses" ? "opacity-0 hidden" : ""
+                            className={`pt-6 transition-opacity duration-200 ${activeSection !== "addresses" ? "opacity-0 hidden" : ""
                                 }`}
                         >
                             <AddressManager />
@@ -47,7 +47,7 @@ export default function MainLayout({ children }) {
                     {/* UTXOs section - instant loading */}
                     {loadedSections.has('utxos') && (
                         <div
-                            className={`transition-opacity duration-200 ${activeSection !== "utxos" ? "opacity-0 hidden" : ""
+                            className={`pt-6 transition-opacity duration-200 ${activeSection !== "utxos" ? "opacity-0 hidden" : ""
                                 }`}
                         >
                             <UTXOList />
@@ -57,7 +57,7 @@ export default function MainLayout({ children }) {
                     {/* Charms section - lazy loaded */}
                     {loadedSections.has('charms') && (
                         <div
-                            className={`transition-opacity duration-200 ${activeSection !== "charms" ? "opacity-0 hidden" : ""
+                            className={`pt-6 transition-opacity duration-200 ${activeSection !== "charms" ? "opacity-0 hidden" : ""
                                 }`}
                         >
                             <Suspense fallback={<div className="card p-6">Loading charms...</div>}>
