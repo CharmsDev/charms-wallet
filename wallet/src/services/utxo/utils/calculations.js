@@ -15,7 +15,7 @@ export class UTXOCalculations {
     isUtxoSpendable(utxo, charms = [], lockedUtxos = null, transactionData = null) {
         const utxoId = `${utxo.txid}:${utxo.vout}`;
 
-        // TMP Check if it's a potential charm (1000 sats)
+        // Temporary security filter to prevent spending potential charms
         if (isPotentialCharm(utxo)) {
             return false;
         }

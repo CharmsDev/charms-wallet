@@ -44,12 +44,12 @@ export function isCharmUtxo(utxo, charms = []) {
 }
 
 /**
- * Check if a UTXO is a potential charm (1000 sats)
+ * Check if a UTXO is a potential charm (temporary security filter)
  * @param {Object} utxo - The UTXO to check
- * @returns {boolean} - True if UTXO is 1000 sats (potential charm)
+ * @returns {boolean} - True if UTXO matches potential charm patterns
  */
 export function isPotentialCharm(utxo) {
-    return utxo.value === 1000;
+    return utxo.value === 1000 || utxo.value === 330;
 }
 
 /**
@@ -107,9 +107,9 @@ export function filterOutCharms(utxos, charms = []) {
 }
 
 /**
- * Filter UTXOs to exclude potential charms (1000 sats)
+ * Filter UTXOs to exclude potential charms (temporary security filter)
  * @param {Array} utxos - Array of UTXOs to filter
- * @returns {Array} - Filtered UTXOs without 1000 sat UTXOs
+ * @returns {Array} - Filtered UTXOs without potential charm patterns
  */
 export function filterOutPotentialCharms(utxos) {
     return utxos.filter(utxo => !isPotentialCharm(utxo));
