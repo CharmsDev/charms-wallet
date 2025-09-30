@@ -80,7 +80,7 @@ export default function Header({ activeSection, setActiveSection }) {
                             />
                             
                             {/* "Designed for" text with BOS logo */}
-                            <div className="flex items-center">
+                            <a href="https://bitcoinos.build/" target="_blank" rel="noopener noreferrer" className="flex items-center hover:opacity-80 transition-opacity">
                                 <span className="text-sm text-dark-400 whitespace-nowrap" style={{transform: 'translateY(5px)'}}>Designed for</span>
                                 <svg width="81" height="46" viewBox="0 0 680 386" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-90" style={{transform: 'translateY(8px)', marginLeft: '-13px'}}>
                                     <rect width="680" height="344" rx="4" fill="transparent"/>
@@ -101,7 +101,7 @@ export default function Header({ activeSection, setActiveSection }) {
                                         </clipPath>
                                     </defs>
                                 </svg>
-                            </div>
+                            </a>
                         </div>
 
                         {/* Blockchain and Network selection */}
@@ -182,7 +182,7 @@ export default function Header({ activeSection, setActiveSection }) {
                         
                         {/* Bottom row: Designed for BOS - aligned left and closer */}
                         <div className="flex justify-start" style={{marginTop: '-6px', marginBottom: '-10px'}}>
-                            <div className="flex items-center">
+                            <a href="https://bitcoinos.build/" target="_blank" rel="noopener noreferrer" className="flex items-center hover:opacity-80 transition-opacity">
                                 <span className="text-xs text-dark-400 whitespace-nowrap" style={{transform: 'translateY(2px)'}}>Designed for</span>
                                 <svg width="60" height="34" viewBox="0 0 680 386" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-90" style={{transform: 'translateY(3px)', marginLeft: '-8px'}}>
                                     <rect width="680" height="344" rx="4" fill="transparent"/>
@@ -203,7 +203,7 @@ export default function Header({ activeSection, setActiveSection }) {
                                         </clipPath>
                                     </defs>
                                 </svg>
-                            </div>
+                            </a>
                         </div>
                     </div>
                 </div>
