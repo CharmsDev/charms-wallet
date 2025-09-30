@@ -95,38 +95,44 @@ export class UTXOCalculations {
         return total;
     }
 
-    // Calculate spendable balance using the centralized spendability check
-    calculateSpendableBalance(utxoMap, charms = [], lockedUtxos = null, transactionDataMap = null) {
-        let total = 0;
-        let totalUtxos = 0;
-        let excludedUtxos = 0;
+    // Calculate both spendable and pending balances in a single pass
+    calculateBalances(utxoMap, charms = [], lockedUtxos = null, transactionDataMap = null) {
+        let spendable = 0;
+        let pending = 0;
         const processedUtxos = new Set();
 
         Object.values(utxoMap).forEach(utxos => {
             utxos.forEach(utxo => {
                 const utxoId = `${utxo.txid}:${utxo.vout}`;
-                
-                // Skip if already processed (avoid duplicates)
+
+                // Deduplicate UTXOs across addresses
                 if (processedUtxos.has(utxoId)) {
                     return;
                 }
                 processedUtxos.add(utxoId);
-                totalUtxos++;
-                
-                // Get transaction data for ordinals/runes checking if available
+
                 const transactionData = transactionDataMap ? transactionDataMap[utxo.txid] : null;
-                
-                // Use centralized spendability check
-                if (this.isUtxoSpendable(utxo, charms, lockedUtxos, transactionData)) {
-                    total += utxo.value;
+                const isUnconfirmed = !utxo.status?.confirmed || (utxo.confirmations && utxo.confirmations < 1);
+
+                // Exclusion checks shared with spendability
+                if (isPotentialCharm(utxo)) return;
+                if (transactionData && hasOrdinals(transactionData, utxo.vout)) return;
+                if (isRuneUtxo(utxo, transactionData)) return;
+                if (lockedUtxos && lockedUtxos.has(utxoId)) return;
+                if (isCharmUtxo(utxo, charms)) return;
+
+                if (isUnconfirmed) {
+                    pending += utxo.value;
                 } else {
-                    excludedUtxos++;
+                    spendable += utxo.value;
                 }
             });
         });
 
-        return total;
+        return { spendable, pending };
     }
+
+    // (Deprecated) calculateSpendableBalance and calculatePendingBalance removed in favor of calculateBalances()
 
     // Get list of spendable UTXOs using the centralized spendability check
     getSpendableUtxos(utxoMap, charms = [], lockedUtxos = null, transactionDataMap = null) {
