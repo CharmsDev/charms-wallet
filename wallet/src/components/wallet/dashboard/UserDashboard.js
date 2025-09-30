@@ -27,7 +27,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     const [isRefreshing, setIsRefreshing] = useState(false);
 
     const { hasWallet } = useWallet();
-    const { utxos, totalBalance, isLoading: utxosLoading, loadUTXOs, refreshUTXOs, refreshProgress } = useUTXOs();
+    const { utxos, totalBalance, pendingBalance, isLoading: utxosLoading, loadUTXOs, refreshUTXOs, refreshProgress } = useUTXOs();
     const { charms, isLoading: charmsLoading, loadCharms, refreshCharms } = useCharms();
     const { addresses, isLoading: addressesLoading, loadAddresses } = useAddresses();
     const { activeBlockchain, activeNetwork } = useBlockchain();
@@ -188,6 +188,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                         {/* Balance Display */}
                         <BalanceDisplay
                             balance={totalBalance}
+                            pendingBalance={pendingBalance}
                             btcPrice={btcPrice}
                             priceLoading={priceLoading}
                             isLoading={utxosLoading}

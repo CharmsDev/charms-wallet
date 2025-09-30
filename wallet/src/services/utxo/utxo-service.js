@@ -171,8 +171,9 @@ export class UTXOService {
         return this.calculations.calculateTotalBalance(utxoMap);
     }
 
-    calculateSpendableBalance(utxoMap, charms = []) {
-        return this.calculations.calculateSpendableBalance(utxoMap, charms);
+    // Single-pass computation for spendable and pending
+    calculateBalances(utxoMap, charms = []) {
+        return this.calculations.calculateBalances(utxoMap, charms);
     }
 
     formatSats(satoshis) {

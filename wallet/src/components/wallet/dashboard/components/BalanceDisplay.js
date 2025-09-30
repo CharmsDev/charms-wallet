@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useCharms } from '@/stores/charmsStore';
+import { useUTXOs } from '@/stores/utxoStore';
 import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
 import { useBlockchain } from '@/stores/blockchainStore';
 
-export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoading, network, onRefresh, isRefreshing, refreshProgress }) {
+export default function BalanceDisplay({ balance, pendingBalance, btcPrice, priceLoading, isLoading, network, onRefresh, isRefreshing, refreshProgress }) {
     const [showUSD, setShowUSD] = useState(false);
     const [trend, setTrend] = useState(null);
     const { charms, loadCharms, isLoading: charmsLoading, initialized } = useCharms();
@@ -159,6 +160,11 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
                                         showUSD ? formatFiat(balance) : `${formatBTC(balance)} BTC`
                                     )}
                                 </div>
+                                {!isRefreshing && (
+                                    <div className="text-xs text-orange-400 mb-1">
+                                        {pendingBalance > 0 ? `+${formatBTC(pendingBalance)} BTC pending` : 'No BTC pending'}
+                                    </div>
+                                )}
                                 <div className="text-sm text-dark-400">
                                     {isRefreshing ? 'Loading...' : (showUSD ? `${formatBTC(balance)} BTC` : formatFiat(balance))}
                                 </div>
@@ -191,6 +197,11 @@ export default function BalanceDisplay({ balance, btcPrice, priceLoading, isLoad
                                     `${broBalance.toFixed(2)} $BRO`
                                 )}
                             </div>
+                            {!charmsLoading && (
+                                <div className="text-xs text-orange-400 mb-1">
+                                    No $BRO pending
+                                </div>
+                            )}
                             <div className="text-sm text-dark-400">
                                 {charmsLoading ? 'Loading...' : (broBalance > 0 ? 'Token Balance' : 'No tokens')}
                             </div>

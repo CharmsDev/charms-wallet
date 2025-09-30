@@ -10,6 +10,7 @@ const useUTXOStore = create((set, get) => ({
     isLoading: false,
     error: null,
     totalBalance: 0,
+    pendingBalance: 0,
     refreshProgress: { processed: 0, total: 0, isRefreshing: false },
     initialized: false,
     cancelRefresh: false, // Flag to cancel ongoing refresh
@@ -26,6 +27,7 @@ const useUTXOStore = create((set, get) => ({
             set({
                 utxos: {},
                 totalBalance: 0,
+                pendingBalance: 0,
                 initialized: false,
                 error: null
             });
@@ -55,13 +57,16 @@ const useUTXOStore = create((set, get) => ({
                     return true;
                 });
             });
-            // Get charms to exclude from spendable balance
+            // Get charms to exclude from balances
             const charms = await getCharms(blockchain, network) || [];
-            const balance = utxoService.calculateSpendableBalance(deduped, charms);
+            // Single-pass computation: returns { spendable, pending }
+            const { spendable, pending } = utxoService.calculateBalances(deduped, charms);
 
             set({
                 utxos: deduped,
-                totalBalance: balance,
+                // NOTE: totalBalance here represents SPENDABLE balance by design
+                totalBalance: spendable,
+                pendingBalance: pending,
                 isLoading: false,
                 initialized: true
             });
@@ -71,6 +76,7 @@ const useUTXOStore = create((set, get) => ({
                 error: 'Failed to load UTXOs',
                 utxos: {},
                 totalBalance: 0,
+                pendingBalance: 0,
                 isLoading: false,
                 initialized: true
             });
@@ -151,13 +157,14 @@ const useUTXOStore = create((set, get) => ({
                     return true;
                 });
             });
-            // Get charms to exclude from spendable balance
+            // Get charms to exclude from balances
             const charms = await getCharms(blockchain, network) || [];
-            const finalBalance = utxoService.calculateSpendableBalance(finalUtxos, charms);
+            const { spendable: finalBalance, pending: finalPendingBalance } = utxoService.calculateBalances(finalUtxos, charms);
 
             set({
                 utxos: finalUtxos,
                 totalBalance: finalBalance,
+                pendingBalance: finalPendingBalance,
                 refreshProgress: { processed: 0, total: 0, isRefreshing: false }
             });
 
@@ -183,13 +190,14 @@ const useUTXOStore = create((set, get) => ({
     updateAfterTransaction: async (spentUtxos, newUtxos = {}, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
             const updatedUTXOs = await utxoService.updateAfterTransaction(spentUtxos, newUtxos, blockchain, network);
-            // Get charms to exclude from spendable balance
+            // Get charms to exclude from balances
             const charms = await getCharms(blockchain, network) || [];
-            const newBalance = utxoService.calculateSpendableBalance(updatedUTXOs, charms);
+            const { spendable: newBalance, pending: newPendingBalance } = utxoService.calculateBalances(updatedUTXOs, charms);
 
             set({
                 utxos: updatedUTXOs,
-                totalBalance: newBalance
+                totalBalance: newBalance,
+                pendingBalance: newPendingBalance
             });
 
             return updatedUTXOs;
@@ -214,6 +222,7 @@ const useUTXOStore = create((set, get) => ({
         set({
             utxos: {},
             totalBalance: 0,
+            pendingBalance: 0,
             error: null,
             refreshProgress: { processed: 0, total: 0, isRefreshing: false },
             initialized: false
