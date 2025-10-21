@@ -49,7 +49,7 @@ export function isCharmUtxo(utxo, charms = []) {
  * @returns {boolean} - True if UTXO matches potential charm patterns
  */
 export function isPotentialCharm(utxo) {
-    return utxo.value === 1000 || utxo.value === 330;
+    return utxo.value === 1000 || utxo.value === 330 || utxo.value === 333 || utxo.value === 777;
 }
 
 /**
