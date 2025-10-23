@@ -92,14 +92,17 @@ const useUTXOStore = create((set, get) => ({
         }
 
         try {
+            // Keep previous progress values to avoid showing 0/0 flash
+            const previousProgress = state.refreshProgress;
             set({
                 error: null,
-                refreshProgress: { processed: 0, total: 0, isRefreshing: true },
+                refreshProgress: { 
+                    processed: previousProgress.processed || 0, 
+                    total: previousProgress.total || 0, 
+                    isRefreshing: true 
+                },
                 cancelRefresh: false
             });
-
-
-            // Keep existing UTXOs - only update per address, don't clear everything
 
             // Progress callback to update UTXOs dynamically
             const onProgress = (progressData) => {
@@ -167,7 +170,6 @@ const useUTXOStore = create((set, get) => ({
                 pendingBalance: finalPendingBalance,
                 refreshProgress: { processed: 0, total: 0, isRefreshing: false }
             });
-
 
         } catch (error) {
             set({
