@@ -72,8 +72,9 @@ const useUTXOStore = create((set, get) => ({
             });
 
         } catch (error) {
+            console.error('[UTXOStore] Failed to load UTXOs:', error);
             set({
-                error: 'Failed to load UTXOs',
+                error: `Failed to load UTXOs: ${error.message}`,
                 utxos: {},
                 totalBalance: 0,
                 pendingBalance: 0,
