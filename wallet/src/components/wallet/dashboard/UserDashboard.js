@@ -114,19 +114,10 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
         if (isRefreshing) return;
         setIsRefreshing(true);
         try {
-            console.log('[DASHBOARD] Starting refresh sequence...');
-            
             // Sequential refresh to ensure charms use updated UTXOs
-            console.log('[DASHBOARD] Step 1/3: Refreshing UTXOs (24 addresses)...');
             await refreshUTXOs(activeBlockchain, activeNetwork, 24); // 12 indices = 24 addresses (receive + change)
-            
-            console.log('[DASHBOARD] Step 2/3: Loading addresses...');
             await loadAddresses(activeBlockchain, activeNetwork);
-            
-            console.log('[DASHBOARD] Step 3/3: Force refreshing charms...');
             await refreshCharms(); // Force refresh to bypass cache and use updated UTXOs
-            
-            console.log('[DASHBOARD] Refresh sequence completed successfully');
         } catch (error) {
             console.error("Failed to refresh wallet data:", error);
         } finally {

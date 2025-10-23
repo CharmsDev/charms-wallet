@@ -38,11 +38,6 @@ export class QuickNodeService {
         const url = config.bitcoin.getQuickNodeApiUrl(target);
         const key = config.bitcoin.getQuickNodeApiKey(target);
         const available = !!(url && url.trim() !== '' && key && key.trim() !== '');
-        // Debug without leaking secrets
-        try {
-            const maskedKey = key ? `${key.slice(0, 4)}…${key.slice(-4)}` : '(none)';
-            console.log(`[QuickNodeService] isAvailable(${target}) url=${!!url} key=${key ? 'set' : 'missing'} (${maskedKey}) available=${available}`);
-        } catch (_) {}
         return available;
     }
 

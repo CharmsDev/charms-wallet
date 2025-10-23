@@ -48,27 +48,20 @@ export class BitcoinApiRouter {
         // Ensure downstream calls receive the resolved network
         const opArgs = [...args.slice(0, -1), network].filter((v) => v !== undefined);
 
-        // Check QuickNode availability with detailed logging
+        // Check QuickNode availability
         const isQuickNodeAvailable = quickNodeService.isAvailable(network);
-        console.log(`[BitcoinApiRouter] ${operation} for network ${network}:`);
-        console.log(`[BitcoinApiRouter] QuickNode available: ${isQuickNodeAvailable}`);
         
         // Try QuickNode first if available
         if (isQuickNodeAvailable) {
             try {
-                console.log(`[BitcoinApiRouter] Trying QuickNode ${operation}...`);
                 const result = await quickNodeService[operation](...opArgs);
-                console.log(`[BitcoinApiRouter] QuickNode ${operation} succeeded`);
                 return result;
             } catch (error) {
-                console.log(`[BitcoinApiRouter] QuickNode ${operation} failed, falling back to mempool.space:`, error.message);
+                // Fallback to mempool.space on error
             }
-        } else {
-            console.log(`[BitcoinApiRouter] QuickNode not available, going directly to mempool.space`);
         }
 
         // Fallback to mempool.space
-        console.log(`[BitcoinApiRouter] Using mempool.space for ${operation}`);
         return await this._callMempoolWithNormalization(operation, ...opArgs);
     }
 
