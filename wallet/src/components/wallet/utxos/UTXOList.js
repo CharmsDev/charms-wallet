@@ -267,15 +267,6 @@ export default function UTXOList() {
                 </div>
             </div>
 
-            <div className="mb-4 p-4 card">
-                <p className="text-lg">
-                    Total Balance:
-                    <span className={`font-bold ${isBitcoin() ? 'text-bitcoin-400 bitcoin-glow-text' : 'text-cardano-400 cardano-glow-text'}`}>
-                        {formatValue(totalBalance)}
-                    </span>
-                </p>
-            </div>
-
             <div className="card">
                 {isLoading ? (
                     <div className="p-8 text-center">

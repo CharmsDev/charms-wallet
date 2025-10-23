@@ -224,6 +224,24 @@ export class MempoolService {
         const url = `${baseUrl}/address/${address}/txs`;
         return await this._makeHttpRequest(url);
     }
+
+    /**
+     * Get current network fee estimates
+     * Returns fee rates in sat/vB for different priority levels
+     */
+    async getFeeEstimates(network = null) {
+        const baseUrl = this._getMempoolUrl(network);
+        const url = `${baseUrl}/v1/fees/recommended`;
+        const data = await this._makeHttpRequest(url);
+        
+        return {
+            fastest: data.fastestFee || 20,
+            halfHour: data.halfHourFee || 15,
+            hour: data.hourFee || 10,
+            economy: data.economyFee || 5,
+            minimum: data.minimumFee || 1
+        };
+    }
 }
 
 export const mempoolService = new MempoolService();

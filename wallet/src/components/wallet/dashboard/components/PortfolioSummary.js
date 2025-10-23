@@ -1,24 +1,45 @@
 'use client';
 
+import { useBlockchain } from '@/stores/blockchainStore';
+import { getBalance } from '@/services/storage';
+import { useState, useEffect } from 'react';
+
 export default function PortfolioSummary({ utxos, charms, addresses, isLoading }) {
-    // Calculate portfolio stats
+    const { activeBlockchain, activeNetwork } = useBlockchain();
+    const [balanceData, setBalanceData] = useState(null);
+
+    // Load balance data from localStorage
+    useEffect(() => {
+        const data = getBalance(activeBlockchain, activeNetwork);
+        setBalanceData(data);
+    }, [activeBlockchain, activeNetwork, utxos]); // Reload when UTXOs change
+
+    // Get stats from localStorage balance
     const getPortfolioStats = () => {
+        if (balanceData) {
+            return {
+                spendable: balanceData.spendable || 0,
+                pending: balanceData.pending || 0,
+                nonSpendable: balanceData.nonSpendable || 0,
+                utxoCount: balanceData.utxoCount || 0,
+                charmsCount: balanceData.charmCount || 0,
+                ordinalCount: balanceData.ordinalCount || 0,
+                runeCount: balanceData.runeCount || 0
+            };
+        }
+        
+        // Fallback to old calculation if no balance data
         const utxoCount = Object.keys(utxos || {}).length;
-        const utxoValue = Object.values(utxos || {}).reduce((total, utxo) => total + (utxo.value || 0), 0);
-        
         const charmsCount = charms?.length || 0;
-        const charmsValue = charms?.reduce((total, charm) => total + (charm.value || 0), 0) || 0;
-        
-        const addressCount = addresses?.length || 0;
-        const usedAddresses = addresses?.filter(addr => addr.used)?.length || 0;
         
         return {
+            spendable: 0,
+            pending: 0,
+            nonSpendable: 0,
             utxoCount,
-            utxoValue,
             charmsCount,
-            charmsValue,
-            addressCount,
-            usedAddresses
+            ordinalCount: 0,
+            runeCount: 0
         };
     };
 
@@ -33,23 +54,26 @@ export default function PortfolioSummary({ utxos, charms, addresses, isLoading }
         {
             title: 'UTXOs',
             value: stats.utxoCount,
-            subtitle: `${formatBTC(stats.utxoValue)} BTC`,
             icon: '💰',
             color: 'text-bitcoin-400'
         },
         {
             title: 'Charms',
             value: stats.charmsCount,
-            subtitle: stats.charmsValue > 0 ? `${formatBTC(stats.charmsValue)} BTC` : 'No value',
             icon: '✨',
             color: 'text-purple-400'
         },
         {
-            title: 'Addresses',
-            value: stats.addressCount,
-            subtitle: `${stats.usedAddresses} used`,
-            icon: '📍',
-            color: 'text-blue-400'
+            title: 'Ordinals',
+            value: stats.ordinalCount,
+            icon: '🖼️',
+            color: 'text-orange-400'
+        },
+        {
+            title: 'Runes',
+            value: stats.runeCount,
+            icon: '🪙',
+            color: 'text-cyan-400'
         }
     ];
 
@@ -58,31 +82,27 @@ export default function PortfolioSummary({ utxos, charms, addresses, isLoading }
             <h3 className="text-lg font-semibold gradient-text mb-4">Portfolio Summary</h3>
             
             {isLoading ? (
-                <div className="space-y-4">
-                    {[1, 2, 3].map((i) => (
-                        <div key={i} className="glass-effect p-4 rounded-lg">
-                            <div className="flex items-center justify-between">
-                                <div className="space-y-2">
-                                    <div className="h-4 bg-dark-700 rounded w-16 animate-pulse"></div>
-                                    <div className="h-6 bg-dark-700 rounded w-12 animate-pulse"></div>
-                                    <div className="h-3 bg-dark-700 rounded w-20 animate-pulse"></div>
-                                </div>
-                                <div className="h-8 w-8 bg-dark-700 rounded animate-pulse"></div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="glass-effect p-3 rounded-lg">
+                            <div className="space-y-2">
+                                <div className="h-3 bg-dark-700 rounded w-16 animate-pulse"></div>
+                                <div className="h-5 bg-dark-700 rounded w-20 animate-pulse"></div>
+                                <div className="h-3 bg-dark-700 rounded w-24 animate-pulse"></div>
                             </div>
                         </div>
                     ))}
                 </div>
             ) : (
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {portfolioCards.map((card, index) => (
                         <div key={index} className="glass-effect p-4 rounded-lg hover:bg-dark-800/50 transition-colors">
                             <div className="flex items-center justify-between">
                                 <div>
                                     <p className="text-sm text-dark-400 mb-1">{card.title}</p>
-                                    <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
-                                    <p className="text-xs text-dark-500">{card.subtitle}</p>
+                                    <p className={`text-3xl font-bold ${card.color}`}>{card.value}</p>
                                 </div>
-                                <div className="text-2xl opacity-60">{card.icon}</div>
+                                <div className="text-3xl opacity-60">{card.icon}</div>
                             </div>
                         </div>
                     ))}

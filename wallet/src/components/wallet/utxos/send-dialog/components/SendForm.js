@@ -23,6 +23,7 @@ export default function SendForm({ formState, onSend, onCancel }) {
     // Validation states
     const [showValidationErrors, setShowValidationErrors] = useState(false);
     const [isCalculatingMax, setIsCalculatingMax] = useState(false);
+    const [currentFeeRate, setCurrentFeeRate] = useState(null);
     const isAddressValid = destinationAddress && destinationAddress.trim().length > 0;
     const amountNum = parseInt(amount) || 0;
     const isAmountValid = amountNum >= 546;
@@ -32,19 +33,26 @@ export default function SendForm({ formState, onSend, onCancel }) {
         setIsCalculatingMax(true);
         
         try {
+            console.log('[MAXAMOUNT] === START ===');
+            console.log('[MAXAMOUNT] UTXOs in store:', Object.keys(utxos).length, 'addresses');
+            console.log('[MAXAMOUNT] Charms to exclude:', charms.length);
+            
             // Get current fee estimates from network
             const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
             const feeEstimates = await bitcoinApiRouter.getFeeEstimates(activeNetwork);
-            const currentFeeRate = feeEstimates.fees.halfHour; // Use 30-min confirmation fee
-            
+            const feeRate = feeEstimates.fees.halfHour; // Use 30-min confirmation fee
+            setCurrentFeeRate(feeRate);
+            console.log('[MAXAMOUNT] Fee rate:', feeRate, 'sat/vB');
             
             if (!feeEstimates.success) {
             }
             
             // Get spendable UTXOs using the same logic as the selector
             const spendableUtxos = utxoCalculations.getSpendableUtxos(utxos, charms);
+            console.log('[MAXAMOUNT] Spendable addresses after filter:', Object.keys(spendableUtxos).length);
             
             if (Object.keys(spendableUtxos).length === 0) {
+                console.log('[MAXAMOUNT] ERROR: No spendable UTXOs');
                 setAmount('0');
                 return;
             }
@@ -55,6 +63,8 @@ export default function SendForm({ formState, onSend, onCancel }) {
             const allUtxos = Object.entries(spendableUtxos).flatMap(([address, addressUtxos]) => 
                 addressUtxos.map(utxo => ({ ...utxo, address }))
             );
+            console.log('[MAXAMOUNT] Flattened UTXOs:', allUtxos.length);
+            allUtxos.forEach(u => console.log(`[MAXAMOUNT]   ${u.value} sats`));
             
             // Sort UTXOs by value (largest first) for optimal selection
             const sortedUtxos = [...allUtxos].sort((a, b) => b.value - a.value);
@@ -62,18 +72,20 @@ export default function SendForm({ formState, onSend, onCancel }) {
             // For Max: Use ALL available UTXOs and calculate exact fee
             const allSelectedUtxos = sortedUtxos;
             const totalValue = allSelectedUtxos.reduce((sum, utxo) => sum + utxo.value, 0);
+            console.log('[MAXAMOUNT] Total value:', totalValue, 'sats');
             
             // Calculate fee for transaction with 1 output (no change for Max)
-            const exactFee = selector.calculateMixedFee(allSelectedUtxos, 1, currentFeeRate);
-            const minFee = Math.max(exactFee, 200); // Apply minimum fee
+            const exactFee = selector.calculateMixedFee(allSelectedUtxos, 1, feeRate);
+            console.log('[MAXAMOUNT] Calculated fee:', exactFee, 'sats at', feeRate, 'sat/vB');
             
             // Max amount = total value - exact fee (no change)
-            const maxAmount = totalValue - minFee;
-            
+            const maxAmount = totalValue - exactFee;
+            console.log('[MAXAMOUNT] === RESULT === Max:', maxAmount, 'sats');
             
             setAmount(maxAmount.toString());
             
         } catch (error) {
+            console.error('[MAXAMOUNT] ERROR:', error);
             setAmount('0');
         } finally {
             setIsCalculatingMax(false);
@@ -92,7 +104,15 @@ export default function SendForm({ formState, onSend, onCancel }) {
 
     return (
         <>
-            <h2 className="text-xl font-bold gradient-text mb-4">Send Bitcoin</h2>
+            <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold gradient-text">Send Bitcoin</h2>
+                {currentFeeRate && (
+                    <div className="glass-effect px-3 py-2 rounded-lg">
+                        <div className="text-xs text-dark-400 uppercase tracking-wide">Network Fee</div>
+                        <div className="text-sm font-bold text-bitcoin-400">{currentFeeRate} sat/vB</div>
+                    </div>
+                )}
+            </div>
 
             <div className="mb-4">
                 <label className="block text-sm font-medium text-dark-200 mb-2">
