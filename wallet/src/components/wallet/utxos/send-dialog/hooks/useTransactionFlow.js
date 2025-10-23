@@ -101,15 +101,20 @@ export function useTransactionFlow(formState, onClose) {
             if (isMaxTransaction) {
                 // For Max transactions: use ALL UTXOs, calculate exact fee for 1 output
                 const exactFee = selector.calculateMixedFee(allUtxos, 1, currentFeeRate);
-                const minFee = Math.max(exactFee, 200);
-                const adjustedAmount = totalAvailable - minFee;
+                const adjustedAmount = totalAvailable - exactFee;
+                
+                console.log('[TX-FLOW] Max transaction detected');
+                console.log('[TX-FLOW] Total available:', totalAvailable, 'sats');
+                console.log('[TX-FLOW] Calculated fee:', exactFee, 'sats at', currentFeeRate, 'sat/vB');
+                console.log('[TX-FLOW] Adjusted amount:', adjustedAmount, 'sats');
                 
                 selectionResult = {
                     selectedUtxos: allUtxos,
                     totalSelected: totalAvailable,
-                    estimatedFee: minFee,
+                    estimatedFee: exactFee,
                     change: 0,
-                    adjustedAmount
+                    adjustedAmount,
+                    feeRate: currentFeeRate
                 };
                 
             } else {
@@ -124,6 +129,14 @@ export function useTransactionFlow(formState, onClose) {
                     activeNetwork
                 );
                 
+                console.log('[TX-FLOW] Regular transaction');
+                console.log('[TX-FLOW] Selected UTXOs:', selectionResult.selectedUtxos?.length);
+                console.log('[TX-FLOW] Total selected:', selectionResult.totalSelected, 'sats');
+                console.log('[TX-FLOW] Estimated fee:', selectionResult.estimatedFee, 'sats at', currentFeeRate, 'sat/vB');
+                console.log('[TX-FLOW] Change:', selectionResult.change, 'sats');
+                
+                // Add fee rate to result
+                selectionResult.feeRate = currentFeeRate;
             }
             
             if (!selectionResult.selectedUtxos || selectionResult.selectedUtxos.length === 0) {
@@ -155,6 +168,7 @@ export function useTransactionFlow(formState, onClose) {
                 estimatedFee: selectionResult.estimatedFee,
                 change: selectionResult.change,
                 adjustedAmount: selectionResult.adjustedAmount || amountInSats,
+                feeRate: selectionResult.feeRate,
                 destinationAddress: formState.destinationAddress,
                 originalAmount: amountInSats,
                 txHex: result.signedTxHex,

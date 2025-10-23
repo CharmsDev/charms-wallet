@@ -53,16 +53,7 @@ export class UTXOService {
     // STORAGE OPERATIONS
     // ============================================================================
 
-    async getStoredUTXOs(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
-        const utxos = await getUTXOs(blockchain, network);
-        
-        // Filter out pending UTXOs
-        const filtered = this.filterPendingUTXOs(utxos);
-        return filtered;
-    }
-
     async getStoredUTXOsRaw(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
-        // Get UTXOs without filtering pending ones
         return await getUTXOs(blockchain, network);
     }
 
@@ -189,7 +180,7 @@ export class UTXOService {
     }
 
     async findUtxosByTxid(txid, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
-        const utxoMap = await this.getStoredUTXOs(blockchain, network);
+        const utxoMap = await this.getStoredUTXOsRaw(blockchain, network);
         return this.calculations.findUtxosByTxid(utxoMap, txid);
     }
 
@@ -352,104 +343,6 @@ export class UTXOService {
         };
     }
 
-    // ============================================================================
-    // PENDING UTXOs MANAGEMENT
-    // ============================================================================
-
-    getPendingUTXOsKey(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
-        return `pending_utxos_${blockchain}_${network}`;
-    }
-
-    async markUTXOsAsPending(utxos, txid, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
-        try {
-            const key = this.getPendingUTXOsKey(blockchain, network);
-            const existing = JSON.parse(localStorage.getItem(key) || '{}');
-
-            const timestamp = Date.now();
-            for (const utxo of utxos) {
-                const utxoKey = `${utxo.txid}:${utxo.vout}`;
-                existing[utxoKey] = {
-                    txid: utxo.txid,
-                    vout: utxo.vout,
-                    value: utxo.value,
-                    address: utxo.address,
-                    pendingTxid: txid,
-                    timestamp
-                };
-            }
-
-            localStorage.setItem(key, JSON.stringify(existing));
-        } catch (error) {
-        }
-    }
-
-    async clearPendingUTXOs(txid, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
-        try {
-            const key = this.getPendingUTXOsKey(blockchain, network);
-            const existing = JSON.parse(localStorage.getItem(key) || '{}');
-
-            let cleared = 0;
-            for (const [utxoKey, pendingUtxo] of Object.entries(existing)) {
-                if (pendingUtxo.pendingTxid === txid) {
-                    delete existing[utxoKey];
-                    cleared++;
-                }
-            }
-
-            localStorage.setItem(key, JSON.stringify(existing));
-        } catch (error) {
-        }
-    }
-
-    filterPendingUTXOs(utxoMap, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
-        try {
-            const key = this.getPendingUTXOsKey(blockchain, network);
-            const pendingUtxos = JSON.parse(localStorage.getItem(key) || '{}');
-
-            if (Object.keys(pendingUtxos).length === 0) {
-                return utxoMap;
-            }
-
-            const filtered = {};
-            for (const [address, utxos] of Object.entries(utxoMap)) {
-                filtered[address] = utxos.filter(utxo => {
-                    const utxoKey = `${utxo.txid}:${utxo.vout}`;
-                    const isPending = pendingUtxos[utxoKey];
-                    if (isPending) {
-                        return false;
-                    }
-                    return true;
-                });
-            }
-
-            return filtered;
-        } catch (error) {
-            return utxoMap;
-        }
-    }
-
-    async cleanupOldPendingUTXOs(maxAgeHours = 24, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
-        try {
-            const key = this.getPendingUTXOsKey(blockchain, network);
-            const existing = JSON.parse(localStorage.getItem(key) || '{}');
-
-            const maxAge = maxAgeHours * 60 * 60 * 1000;
-            const now = Date.now();
-            let cleaned = 0;
-
-            for (const [utxoKey, pendingUtxo] of Object.entries(existing)) {
-                if (now - pendingUtxo.timestamp > maxAge) {
-                    delete existing[utxoKey];
-                    cleaned++;
-                }
-            }
-
-            if (cleaned > 0) {
-                localStorage.setItem(key, JSON.stringify(existing));
-            }
-        } catch (error) {
-        }
-    }
 }
 
 // Singleton instance export

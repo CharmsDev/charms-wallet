@@ -2,8 +2,8 @@
 
 import { create } from 'zustand';
 import { utxoService } from '@/services/utxo';
+import { getCharms, getBalance, saveBalance } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from './blockchainStore';
-import { getCharms } from '@/services/storage';
 
 const useUTXOStore = create((set, get) => ({
     utxos: {},
@@ -44,7 +44,7 @@ const useUTXOStore = create((set, get) => ({
         set({ isLoading: true, error: null });
 
         try {
-            const storedUTXOs = await utxoService.getStoredUTXOs(blockchain, network);
+            const storedUTXOs = await utxoService.getStoredUTXOsRaw(blockchain, network);
             
             // Deduplicate per-address by txid:vout in case storage contains duplicates
             const deduped = {};
@@ -57,19 +57,35 @@ const useUTXOStore = create((set, get) => ({
                     return true;
                 });
             });
-            // Get charms to exclude from balances
-            const charms = await getCharms(blockchain, network) || [];
-            // Single-pass computation: returns { spendable, pending }
-            const { spendable, pending } = utxoService.calculateBalances(deduped, charms);
-
-            set({
-                utxos: deduped,
-                // NOTE: totalBalance here represents SPENDABLE balance by design
-                totalBalance: spendable,
-                pendingBalance: pending,
-                isLoading: false,
-                initialized: true
-            });
+            
+            // Try to load balance from localStorage first
+            const storedBalance = getBalance(blockchain, network);
+            
+            if (storedBalance) {
+                // Use cached balance
+                set({
+                    utxos: deduped,
+                    totalBalance: storedBalance.spendable,
+                    pendingBalance: storedBalance.pending,
+                    isLoading: false,
+                    initialized: true
+                });
+            } else {
+                // Calculate balance if not in cache (fallback)
+                const charms = await getCharms(blockchain, network) || [];
+                const balanceData = utxoService.calculateBalances(deduped, charms);
+                
+                // Save calculated balance to localStorage
+                saveBalance(blockchain, network, balanceData);
+                
+                set({
+                    utxos: deduped,
+                    totalBalance: balanceData.spendable,
+                    pendingBalance: balanceData.pending,
+                    isLoading: false,
+                    initialized: true
+                });
+            }
 
         } catch (error) {
             console.error('[UTXOStore] Failed to load UTXOs:', error);
@@ -163,12 +179,15 @@ const useUTXOStore = create((set, get) => ({
             });
             // Get charms to exclude from balances
             const charms = await getCharms(blockchain, network) || [];
-            const { spendable: finalBalance, pending: finalPendingBalance } = utxoService.calculateBalances(finalUtxos, charms);
+            const balanceData = utxoService.calculateBalances(finalUtxos, charms);
+
+            // Save balance to localStorage
+            saveBalance(blockchain, network, balanceData);
 
             set({
                 utxos: finalUtxos,
-                totalBalance: finalBalance,
-                pendingBalance: finalPendingBalance,
+                totalBalance: balanceData.spendable,
+                pendingBalance: balanceData.pending,
                 refreshProgress: { processed: 0, total: 0, isRefreshing: false }
             });
 
@@ -195,12 +214,15 @@ const useUTXOStore = create((set, get) => ({
             const updatedUTXOs = await utxoService.updateAfterTransaction(spentUtxos, newUtxos, blockchain, network);
             // Get charms to exclude from balances
             const charms = await getCharms(blockchain, network) || [];
-            const { spendable: newBalance, pending: newPendingBalance } = utxoService.calculateBalances(updatedUTXOs, charms);
+            const balanceData = utxoService.calculateBalances(updatedUTXOs, charms);
+
+            // Save balance to localStorage
+            saveBalance(blockchain, network, balanceData);
 
             set({
                 utxos: updatedUTXOs,
-                totalBalance: newBalance,
-                pendingBalance: newPendingBalance
+                totalBalance: balanceData.spendable,
+                pendingBalance: balanceData.pending
             });
 
             return updatedUTXOs;

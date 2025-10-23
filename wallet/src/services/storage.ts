@@ -9,6 +9,7 @@ export const STORAGE_KEYS = {
     UTXOS: 'wallet_utxos',
     TRANSACTIONS: 'wallet_transactions',
     CHARMS: 'wallet_charms',
+    BALANCE: 'balance',
     ACTIVE_BLOCKCHAIN: 'active_blockchain',
     ACTIVE_NETWORK: 'active_network'
 };
@@ -262,5 +263,62 @@ export const getCharms = async (blockchain: string = BLOCKCHAINS.BITCOIN, networ
         return charmsData.charms || [];
     } catch (error) {
         return [];
+    }
+};
+
+// Balance storage - centralized balance storage with extended stats
+export interface BalanceData {
+    spendable: number;
+    pending: number;
+    nonSpendable: number;
+    utxoCount: number;
+    charmCount: number;
+    ordinalCount: number;
+    runeCount: number;
+    timestamp: number;
+}
+
+export const saveBalance = (
+    blockchain: string, 
+    network: string, 
+    data: {
+        spendable: number;
+        pending: number;
+        nonSpendable: number;
+        utxoCount: number;
+        charmCount: number;
+        ordinalCount: number;
+        runeCount: number;
+    }
+): void => {
+    try {
+        const stored = localStorage.getItem(STORAGE_KEYS.BALANCE);
+        const balances = stored ? JSON.parse(stored) : {};
+        
+        if (!balances[blockchain]) {
+            balances[blockchain] = {};
+        }
+        
+        balances[blockchain][network] = {
+            ...data,
+            timestamp: Date.now()
+        };
+        
+        localStorage.setItem(STORAGE_KEYS.BALANCE, JSON.stringify(balances));
+    } catch (error) {
+        console.error('Failed to save balance:', error);
+    }
+};
+
+export const getBalance = (blockchain: string, network: string): BalanceData | null => {
+    try {
+        const stored = localStorage.getItem(STORAGE_KEYS.BALANCE);
+        if (!stored) return null;
+        
+        const balances = JSON.parse(stored);
+        return balances[blockchain]?.[network] || null;
+    } catch (error) {
+        console.error('Failed to get balance:', error);
+        return null;
     }
 };

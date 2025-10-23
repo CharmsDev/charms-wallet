@@ -38,7 +38,7 @@ export function ConfirmationDialog({
                 <div className="mb-6 bg-dark-800 border border-dark-600 rounded-lg p-4">
                     <h3 className="text-lg font-semibold text-dark-100 mb-3">Transaction Summary</h3>
                     
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-3 gap-3 mb-3">
                         {/* Amount Sent */}
                         <div className="bg-dark-900 rounded-lg p-3 border border-dark-700">
                             <div className="text-xs text-dark-400 uppercase tracking-wide mb-1">Amount Sent</div>
@@ -53,6 +53,11 @@ export function ConfirmationDialog({
                             <div className="text-lg font-bold text-orange-400">
                                 {formatSats(transactionData.estimatedFee || 0)} sats
                             </div>
+                            {transactionData.feeRate && (
+                                <div className="text-xs text-dark-500 mt-1">
+                                    {transactionData.feeRate} sat/vB
+                                </div>
+                            )}
                         </div>
 
                         {/* Change */}

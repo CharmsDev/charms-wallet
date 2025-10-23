@@ -2,7 +2,8 @@
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
 import { utxoService } from '@/services/utxo/utxo-service';
 import { getCharms } from '@/services/storage';
-import { utxoCalculations } from '@/services/utxo/utils/calculations';
+import { utxoCalculations } from '../utils/calculations';
+import { calculateMixedFee } from '@/services/wallet/utils/fee';
 
 export class UTXOSelector {
     constructor() {
@@ -72,11 +73,8 @@ export class UTXOSelector {
         const selectedUtxos = [];
         let totalSelected = 0;
 
+        // Start with estimated fee for 2 outputs (destination + change)
         let estimatedFee = this.calculateMixedFee([], 2, feeRate);
-        const minimumFee = 200;
-        if (estimatedFee < minimumFee) {
-            estimatedFee = minimumFee;
-        }
 
         const targetAmount = amountInSats + estimatedFee;
 
@@ -164,11 +162,8 @@ export class UTXOSelector {
         const selectedUtxos = [];
         let totalSelected = 0;
 
+        // Calculate estimated fee for 2 outputs (destination + change)
         let estimatedFee = this.calculateMixedFee([], 2, feeRate);
-        const minimumFee = 200;
-        if (estimatedFee < minimumFee) {
-            estimatedFee = minimumFee;
-        }
 
         const totalNeeded = amountInSats + estimatedFee;
 
@@ -192,13 +187,7 @@ export class UTXOSelector {
     }
 
     calculateMixedFee(utxos, outputCount, feeRate = 1) {
-        const inputSize = utxos.reduce((sum, utxo) => {
-            const inputType = utxo.scriptPubKey?.startsWith('76a9') ? 148 : 57;
-            return sum + inputType;
-        }, 0);
-
-        const estimatedSize = inputSize + (outputCount * 34) + 10;
-        return Math.ceil(estimatedSize * feeRate);
+        return calculateMixedFee(utxos, outputCount, feeRate);
     }
 
     lockUtxos(utxos) {

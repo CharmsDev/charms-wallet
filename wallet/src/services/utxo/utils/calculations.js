@@ -2,6 +2,7 @@
 import { hasOrdinals } from './ordinals';
 import { hasRunes, isRuneUtxo } from './runes';
 import { isCharmUtxo, isPotentialCharm } from './charms';
+import { calculateFee, calculateMixedFee as calculateMixedFeeUtil } from '@/services/wallet/utils/fee';
 
 export class UTXOCalculations {
     /**
@@ -14,57 +15,48 @@ export class UTXOCalculations {
      */
     isUtxoSpendable(utxo, charms = [], lockedUtxos = null, transactionData = null) {
         const utxoId = `${utxo.txid}:${utxo.vout}`;
-
-        // Temporary security filter to prevent spending potential charms
+        
+        // Check potential charm values first (330, 333, 777, 1000)
         if (isPotentialCharm(utxo)) {
             return false;
         }
         
-        // Check for ordinals/inscriptions if transaction data is available
+        // Check if UTXO has ordinals
         if (transactionData && hasOrdinals(transactionData, utxo.vout)) {
             return false;
         }
         
-        // Check for runes (both with transaction data and heuristic for 546 sat UTXOs)
+        // Check if UTXO is a rune
         if (isRuneUtxo(utxo, transactionData)) {
             return false;
         }
         
-        // Check if locked
-        if (lockedUtxos && lockedUtxos.has(utxoId)) {
-            return false;
-        }
-        
-        // Check if unconfirmed
+        // Check if UTXO is unconfirmed
         const isUnconfirmed = !utxo.status?.confirmed || (utxo.confirmations && utxo.confirmations < 1);
         if (isUnconfirmed) {
             return false;
         }
         
-        // Check if it's a charm UTXO
+        // Check if UTXO is locked
+        if (lockedUtxos && lockedUtxos.has(utxoId)) {
+            return false;
+        }
+        
+        // Check if UTXO is a confirmed charm
         if (isCharmUtxo(utxo, charms)) {
             return false;
         }
-                
+        
         return true;
     }
     // Calculate fee for a transaction with standard inputs
     calculateFee(inputCount, outputCount, feeRate = 1) {
-        // Size estimation: Taproot inputs (57 bytes) + outputs (34 bytes) + overhead (10 bytes)
-        const estimatedSize = (inputCount * 57) + (outputCount * 34) + 10;
-        return Math.ceil(estimatedSize * feeRate);
+        return calculateFee(inputCount, outputCount, feeRate);
     }
 
     // Calculate fee for a transaction with mixed input types
     calculateMixedFee(utxos, outputCount, feeRate = 1) {
-        const inputSize = utxos.reduce((sum, utxo) => {
-            // P2PKH (148 bytes) vs Taproot (57 bytes)
-            const inputType = utxo.scriptPubKey?.startsWith('76a9') ? 148 : 57;
-            return sum + inputType;
-        }, 0);
-
-        const estimatedSize = inputSize + (outputCount * 34) + 10;
-        return Math.ceil(estimatedSize * feeRate);
+        return calculateMixedFeeUtil(utxos, outputCount, feeRate);
     }
 
     // Convert satoshis to BTC
@@ -99,9 +91,15 @@ export class UTXOCalculations {
     calculateBalances(utxoMap, charms = [], lockedUtxos = null, transactionDataMap = null) {
         let spendable = 0;
         let pending = 0;
+        let nonSpendable = 0;
+        let utxoCount = 0;
+        let charmCount = 0;
+        let ordinalCount = 0;
+        let runeCount = 0;
         const processedUtxos = new Set();
 
-        Object.values(utxoMap).forEach(utxos => {
+        Object.entries(utxoMap).forEach(([address, utxos]) => {
+            
             utxos.forEach(utxo => {
                 const utxoId = `${utxo.txid}:${utxo.vout}`;
 
@@ -110,16 +108,35 @@ export class UTXOCalculations {
                     return;
                 }
                 processedUtxos.add(utxoId);
+                utxoCount++;
 
                 const transactionData = transactionDataMap ? transactionDataMap[utxo.txid] : null;
                 const isUnconfirmed = !utxo.status?.confirmed || (utxo.confirmations && utxo.confirmations < 1);
 
                 // Exclusion checks shared with spendability
-                if (isPotentialCharm(utxo)) return;
-                if (transactionData && hasOrdinals(transactionData, utxo.vout)) return;
-                if (isRuneUtxo(utxo, transactionData)) return;
-                if (lockedUtxos && lockedUtxos.has(utxoId)) return;
-                if (isCharmUtxo(utxo, charms)) return;
+                if (isPotentialCharm(utxo)) {
+                    nonSpendable += utxo.value;
+                    return;
+                }
+                if (transactionData && hasOrdinals(transactionData, utxo.vout)) {
+                    ordinalCount++;
+                    nonSpendable += utxo.value;
+                    return;
+                }
+                if (isRuneUtxo(utxo, transactionData)) {
+                    runeCount++;
+                    nonSpendable += utxo.value;
+                    return;
+                }
+                if (lockedUtxos && lockedUtxos.has(utxoId)) {
+                    nonSpendable += utxo.value;
+                    return;
+                }
+                if (isCharmUtxo(utxo, charms)) {
+                    charmCount++;
+                    nonSpendable += utxo.value;
+                    return;
+                }
 
                 if (isUnconfirmed) {
                     pending += utxo.value;
@@ -129,7 +146,15 @@ export class UTXOCalculations {
             });
         });
 
-        return { spendable, pending };
+        return { 
+            spendable, 
+            pending, 
+            nonSpendable,
+            utxoCount,
+            charmCount,
+            ordinalCount,
+            runeCount
+        };
     }
 
     // (Deprecated) calculateSpendableBalance and calculatePendingBalance removed in favor of calculateBalances()
@@ -148,11 +173,9 @@ export class UTXOCalculations {
                     return;
                 }
                 processedUtxos.add(utxoId);
-                
-                // Get transaction data for ordinals/runes checking if available
+
                 const transactionData = transactionDataMap ? transactionDataMap[utxo.txid] : null;
                 
-                // Use centralized spendability check
                 if (this.isUtxoSpendable(utxo, charms, lockedUtxos, transactionData)) {
                     if (!spendableUtxos[address]) {
                         spendableUtxos[address] = [];

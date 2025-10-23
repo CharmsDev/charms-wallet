@@ -3,6 +3,7 @@
 import config from '@/config';
 import { quickNodeService } from './quicknode-service';
 import { mempoolService } from './mempool-service';
+import { NETWORKS } from '@/stores/blockchainStore';
 import {
     normalizeMempoolUTXOs,
     normalizeMempoolTransaction,
@@ -204,20 +205,59 @@ export class BitcoinApiRouter {
     /**
      * Get current Bitcoin network fee estimates
      * Returns fee rates in sat/vB for different priority levels
-     * Uses fallback to default rates since mempool.space removed
+     * Tries QuickNode first, falls back to mempool.space
      */
     async getFeeEstimates(network = null) {
-        // Return reasonable default rates since we're QuickNode-only now
-        return {
-            success: true,
-            fees: {
-                fastest: 20,    // Next block
-                halfHour: 15,   // ~30 minutes
-                hour: 10,       // ~1 hour
-                economy: 5,     // Low priority
-                minimum: 1      // Minimum relay fee
+        const targetNetwork = this._getCurrentNetwork(network);
+        
+        // Try QuickNode first if available
+        if (quickNodeService.isAvailable(targetNetwork)) {
+            try {
+                const result = await quickNodeService.makeRequest('estimatesmartfee', [6], targetNetwork);
+                
+                if (result && result.feerate) {
+                    // Convert BTC/kB to sat/vB: 1 BTC/kB = 100,000 sat/vB
+                    const satPerVByte = Math.ceil(result.feerate * 100000);
+                    
+                    return {
+                        success: true,
+                        source: 'quicknode',
+                        fees: {
+                            fastest: satPerVByte + 2,
+                            halfHour: satPerVByte,
+                            hour: Math.max(1, satPerVByte - 1),
+                            economy: Math.max(1, satPerVByte - 2),
+                            minimum: 1
+                        }
+                    };
+                }
+            } catch (error) {
+                // Fallback to mempool.space
             }
-        };
+        }
+        
+        // Fallback to mempool.space
+        try {
+            const fees = await mempoolService.getFeeEstimates(targetNetwork);
+            return {
+                success: true,
+                source: 'mempool.space',
+                fees
+            };
+        } catch (error) {
+            // Return defaults if all sources fail
+            return {
+                success: false,
+                source: 'defaults',
+                fees: {
+                    fastest: 20,
+                    halfHour: 15,
+                    hour: 10,
+                    economy: 5,
+                    minimum: 1
+                }
+            };
+        }
     }
 
     /**
