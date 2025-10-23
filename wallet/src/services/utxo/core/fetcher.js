@@ -79,7 +79,7 @@ export class UTXOFetcher {
      * Process UTXO batch results in a non-blocking way
      * Uses setTimeout to yield control back to the event loop
      */
-    async processUTXOBatch(batchResults, currentUTXOs, utxoMap, processedCount, startOffset, totalAddressCount, onProgress) {
+    async processUTXOBatch(batchResults, currentUTXOs, utxoMap, processedCount, totalAddressCount, onProgress) {
         return new Promise((resolve) => {
             let batchProcessedCount = processedCount;
             let currentIndex = 0;
@@ -105,7 +105,7 @@ export class UTXOFetcher {
                     onProgress({
                         address: result.address,
                         utxos: result.utxos || [],
-                        processed: batchProcessedCount + startOffset,
+                        processed: batchProcessedCount,
                         total: totalAddressCount,
                         hasUtxos: result.success && result.utxos && result.utxos.length > 0,
                         error: result.error || null
@@ -185,7 +185,6 @@ export class UTXOFetcher {
                     currentUTXOs, 
                     utxoMap, 
                     processedCount, 
-                    startOffset, 
                     totalAddressCount, 
                     onProgress
                 );
