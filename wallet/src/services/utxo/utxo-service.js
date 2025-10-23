@@ -401,39 +401,12 @@ export class UTXOService {
         }
     }
 
-    filterPendingUTXOs(utxoMap, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
-        try {
-            const key = this.getPendingUTXOsKey(blockchain, network);
-            const pendingUtxos = JSON.parse(localStorage.getItem(key) || '{}');
-
-            if (Object.keys(pendingUtxos).length === 0) {
-                return utxoMap;
-            }
-
-            const filtered = {};
-            for (const [address, utxos] of Object.entries(utxoMap)) {
-                filtered[address] = utxos.filter(utxo => {
-                    const utxoKey = `${utxo.txid}:${utxo.vout}`;
-                    const isPending = pendingUtxos[utxoKey];
-                    if (isPending) {
-                        return false;
-                    }
-                    return true;
-                });
-            }
-
-            return filtered;
-        } catch (error) {
-            return utxoMap;
-        }
-    }
-
     async cleanupOldPendingUTXOs(maxAgeHours = 24, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
         try {
             const key = this.getPendingUTXOsKey(blockchain, network);
             const existing = JSON.parse(localStorage.getItem(key) || '{}');
 
-            const maxAge = maxAgeHours * 60 * 60 * 1000; // Convert to milliseconds
+            const maxAge = maxAgeHours * 60 * 60 * 1000;
             const now = Date.now();
             let cleaned = 0;
 

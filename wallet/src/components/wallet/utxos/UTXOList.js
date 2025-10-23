@@ -116,11 +116,13 @@ export default function UTXOList() {
         if (isProgressiveRefresh) {
             // Continue progressive refresh
             const newOffset = refreshOffset + 24;
+            await refreshUTXOs(activeBlockchain, activeNetwork, 24, refreshOffset);
+            
+            // Update offset after refresh completes
             setRefreshOffset(newOffset);
-            await refreshUTXOs(activeBlockchain, activeNetwork, 24, newOffset);
             
             // Check if we've scanned all addresses
-            if (newOffset + 24 >= totalAddressesToScan) {
+            if (newOffset >= totalAddressesToScan) {
                 setIsProgressiveRefresh(false);
                 setRefreshOffset(0);
             }
@@ -134,13 +136,12 @@ export default function UTXOList() {
                 .length;
             
             setTotalAddressesToScan(totalAddresses);
-            setRefreshOffset(0);
             setIsProgressiveRefresh(true);
             
             // Start with first 24 addresses
             await refreshUTXOs(activeBlockchain, activeNetwork, 24, 0);
             
-            // Update offset after first batch
+            // Update offset after first batch completes
             setRefreshOffset(24);
             
             // If we have 24 or fewer addresses total, finish immediately
@@ -183,7 +184,10 @@ export default function UTXOList() {
                             disabled={refreshProgress.isRefreshing}
                         >
                             {refreshProgress.isRefreshing 
-                                ? `Scanning... ${refreshProgress.processed}/${refreshProgress.total}` 
+                                ? `Scanning... ${isProgressiveRefresh 
+                                    ? `${refreshOffset + refreshProgress.processed}/${totalAddressesToScan}`
+                                    : `${refreshProgress.processed}/${refreshProgress.total}`
+                                }` 
                                 : isProgressiveRefresh 
                                     ? `Continue (${refreshOffset}/${totalAddressesToScan})` 
                                     : 'Refresh'
@@ -240,7 +244,10 @@ export default function UTXOList() {
                             <div className="flex items-center space-x-2">
                                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                                 <span>
-                                    {refreshProgress.processed}/{refreshProgress.total}
+                                    {isProgressiveRefresh 
+                                        ? `${refreshOffset + refreshProgress.processed}/${totalAddressesToScan}`
+                                        : `${refreshProgress.processed}/${refreshProgress.total}`
+                                    }
                                 </span>
                             </div>
                         ) : isProgressiveRefresh ? (
