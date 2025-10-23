@@ -109,13 +109,11 @@ const useUTXOStore = create((set, get) => ({
         }
 
         try {
-            // Keep previous progress values to avoid showing 0/0 flash
-            const previousProgress = state.refreshProgress;
             set({
                 error: null,
                 refreshProgress: { 
-                    processed: previousProgress.processed || 0, 
-                    total: previousProgress.total || 0, 
+                    processed: 0, 
+                    total: 0, 
                     isRefreshing: true 
                 },
                 cancelRefresh: false

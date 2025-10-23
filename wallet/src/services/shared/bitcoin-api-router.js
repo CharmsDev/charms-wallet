@@ -261,8 +261,9 @@ export class BitcoinApiRouter {
     }
 
     /**
-     * Legacy compatibility method - RPC-style calls with QuickNode-first fallback
-     * This maintains compatibility with any code expecting RPC-style calls
+     * RPC-style method wrapper with QuickNode-first fallback
+     * Maps Bitcoin RPC methods to appropriate API calls (QuickNode or mempool.space)
+     * Used by transaction history service and fee estimation
      */
     async makeRequest(method, params = [], network = null) {
         // Try QuickNode first if available

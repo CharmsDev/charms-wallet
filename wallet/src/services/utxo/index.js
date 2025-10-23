@@ -6,12 +6,12 @@ import { utxoVerifier } from './core/verifier';
 // Main service export
 export { utxoService };
 
-// Legacy compatibility exports for existing code
+// Alternative export names (unused, can be removed in future cleanup)
 export const utxoStorageService = utxoService;
 export const utxoVerificationService = utxoVerifier;
 export const utxoManager = utxoService;
 
-// UtxoSelector class for compatibility
+// UtxoSelector wrapper class (used by transaction-orchestrator)
 export class UtxoSelector {
     constructor() {
         this.selector = utxoSelector;
