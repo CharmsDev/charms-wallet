@@ -5,8 +5,12 @@ import { useUTXOs } from '@/stores/utxoStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useWallet } from '@/stores/walletStore';
+import { useCharms } from '@/stores/charmsStore';
 import config from '@/config';
 import { utxoService } from '@/services/utxo';
+import { utxoCalculations } from '@/services/utxo/utils/calculations';
+import { getUIPreferences, updateUIPreference } from '@/services/preferences/ui-preferences';
+import Switch from '@/components/ui/Switch';
 import SendBitcoinDialog from './SendBitcoinDialog';
 
 // Helper function for sorting UTXOs to ensure consistent ordering
@@ -45,7 +49,20 @@ export default function UTXOList() {
     const { addresses, loadAddresses } = useAddresses();
     const { activeBlockchain, activeNetwork, isBitcoin, isCardano } = useBlockchain();
     const { seedPhrase } = useWallet();
+    const { charms } = useCharms();
     const [isSendDialogOpen, setIsSendDialogOpen] = useState(false);
+    const [showOnlySpendable, setShowOnlySpendable] = useState(true);
+
+    // Load UI preferences from centralized storage on mount
+    useEffect(() => {
+        const preferences = getUIPreferences();
+        setShowOnlySpendable(preferences.utxoList.showOnlySpendable);
+    }, []);
+
+    // Save UI preference when it changes
+    useEffect(() => {
+        updateUIPreference('utxoList', { showOnlySpendable });
+    }, [showOnlySpendable]);
 
     // Load addresses when component mounts - CRITICAL for UTXO loading to work
     useEffect(() => {
@@ -77,6 +94,14 @@ export default function UTXOList() {
             const addressIndex = addressEntry?.index ?? 999999; // Put unknown addresses at the end
 
             addressUtxos.forEach(utxo => {
+                // Apply spendability filter if switch is enabled
+                if (showOnlySpendable) {
+                    const transactionData = null; // Transaction data not loaded in list view
+                    if (!utxoCalculations.isUtxoSpendable(utxo, charms, null, transactionData)) {
+                        return; // Skip non-spendable UTXOs
+                    }
+                }
+                
                 flattened.push({
                     ...utxo,
                     address,
@@ -89,7 +114,7 @@ export default function UTXOList() {
         });
 
         return flattened.sort(sortUtxos);
-    }, [utxos, addresses, formatValue]);
+    }, [utxos, addresses, formatValue, showOnlySpendable, charms]);
 
     // Derive confirmed UTXOs from the flattened list
     const confirmedUtxos = useMemo(() => {
@@ -214,7 +239,14 @@ export default function UTXOList() {
         <div>
             <div className="p-4 sm:p-6 flex justify-between items-center">
                 <h2 className="text-xl font-bold gradient-text hidden md:block">Your UTXOs</h2>
-                <div className="flex items-center flex-wrap gap-2 sm:gap-3">
+                <div className="flex items-center flex-wrap gap-3 sm:gap-4">
+                    <div className="mr-[30px]">
+                        <Switch
+                            checked={showOnlySpendable}
+                            onChange={(e) => setShowOnlySpendable(e.target.checked)}
+                            label="Show only spendable"
+                        />
+                    </div>
                     {isBitcoin() && (
                         <button
                             className={`btn ${confirmedUtxos.length === 0 ? 'opacity-50 cursor-not-allowed bg-dark-700' : 'btn-bitcoin'}`}
@@ -318,7 +350,7 @@ export default function UTXOList() {
                                                 <div className={isBitcoin() ? "text-bitcoin-400" : "text-cardano-400"}>
                                                     {utxo.formattedValue}
                                                 </div>
-                                                <div className="mt-1">
+                                                <div className="mt-1 flex gap-2">
                                                     {(utxo.status?.confirmed !== false) ? (
                                                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400">
                                                             Confirmed
@@ -326,6 +358,11 @@ export default function UTXOList() {
                                                     ) : (
                                                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-900/30 text-yellow-400">
                                                             Pending
+                                                        </span>
+                                                    )}
+                                                    {!utxoCalculations.isUtxoSpendable(utxo, charms, null, null) && (
+                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900/30 text-red-400">
+                                                            Reserved
                                                         </span>
                                                     )}
                                                 </div>
