@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { utxoService } from '@/services/utxo';
-import { getCharms, getBalance, saveBalance } from '@/services/storage';
+import { getCharms, getBalance, saveBalance, saveUTXOs } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from './blockchainStore';
 
 const useUTXOStore = create((set, get) => ({
@@ -46,9 +46,16 @@ const useUTXOStore = create((set, get) => ({
         try {
             const storedUTXOs = await utxoService.getStoredUTXOsRaw(blockchain, network);
             
-            // Deduplicate per-address by txid:vout in case storage contains duplicates
+            // Filter out wrong network addresses and deduplicate
+            const networkPrefix = network === 'mainnet' ? 'bc1' : 'tb1';
             const deduped = {};
             Object.entries(storedUTXOs || {}).forEach(([addr, list]) => {
+                // Skip addresses from wrong network
+                if (!addr.startsWith(networkPrefix)) {
+                    console.warn(`[UTXO Store] Skipping wrong network address: ${addr} (expected ${networkPrefix})`);
+                    return;
+                }
+                
                 const seen = new Set();
                 deduped[addr] = (list || []).filter(u => {
                     const key = `${u.txid}:${u.vout}`;
@@ -57,6 +64,14 @@ const useUTXOStore = create((set, get) => ({
                     return true;
                 });
             });
+            
+            // Clean up storage if we filtered out wrong-network addresses
+            const originalAddressCount = Object.keys(storedUTXOs || {}).length;
+            const cleanedAddressCount = Object.keys(deduped).length;
+            if (originalAddressCount !== cleanedAddressCount) {
+                console.warn(`[UTXO Store] Cleaned ${originalAddressCount - cleanedAddressCount} wrong-network addresses from storage`);
+                await saveUTXOs(deduped, blockchain, network);
+            }
             
             // Try to load balance from localStorage first
             const storedBalance = getBalance(blockchain, network);
