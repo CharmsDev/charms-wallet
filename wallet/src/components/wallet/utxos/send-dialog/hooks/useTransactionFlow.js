@@ -223,7 +223,14 @@ export function useTransactionFlow(formState, onClose) {
 
 
             if (spentUtxos.length > 0) {
-                throw new Error(`${spentUtxos.length} UTXO(s) were spent by another transaction. Please refresh your wallet and try again.`);
+                // Remove spent UTXOs from storage (spent outside this wallet)
+                const spentUtxosList = spentUtxos.map(s => {
+                    const [txid, vout] = s.utxo.split(':');
+                    return { txid, vout: parseInt(vout) };
+                });
+                await updateAfterTransaction(spentUtxosList, {}, 'bitcoin', activeNetwork);
+                
+                throw new Error(`${spentUtxos.length} UTXO(s) were already spent. They have been removed from your wallet.`);
             }
 
             if (failedVerifications.length > 0) {
@@ -238,6 +245,9 @@ export function useTransactionFlow(formState, onClose) {
                 throw new Error(broadcastResult.error || 'Failed to broadcast transaction');
             }
 
+            // Remove spent UTXOs from storage immediately after successful broadcast
+            await updateAfterTransaction(transactionData.selectedUtxos, {}, 'bitcoin', activeNetwork);
+
             setTxId(broadcastResult.txid);
             setShowConfirmation(false);
             setShowSuccess(true);
@@ -245,8 +255,15 @@ export function useTransactionFlow(formState, onClose) {
         } catch (err) {
             setShowPreparing(false);
             
-            if (err.message.includes('bad-txns-inputs-missingorspent') || err.message.includes('UTXOs were spent')) {
-                formState.setError('The UTXOs used in this transaction are no longer available. Please refresh your wallet and try again.');
+            if (err.message.includes('bad-txns-inputs-missingorspent')) {
+                // UTXOs were spent between verification and broadcast - remove them
+                if (transactionData?.selectedUtxos) {
+                    await updateAfterTransaction(transactionData.selectedUtxos, {}, 'bitcoin', activeNetwork);
+                }
+                formState.setError('The UTXOs were spent by another transaction. They have been removed from your wallet.');
+            } else if (err.message.includes('already spent')) {
+                // Already handled and removed during verification
+                formState.setError(err.message);
             } else {
                 formState.setError(err.message || 'Transaction broadcast failed');
             }
