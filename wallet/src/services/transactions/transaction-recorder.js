@@ -1,11 +1,15 @@
 'use client';
 
 import { addTransaction, getTransactions, getAddresses } from '@/services/storage';
+import { MempoolService } from '@/services/shared/mempool-service';
+import { classifyTransaction } from './transaction-classifier';
 
 export class TransactionRecorder {
     constructor(blockchain, network) {
         this.blockchain = blockchain;
         this.network = network;
+        // Cache for block timestamps to avoid excessive API calls
+        this.timestampCache = new Map();
     }
 
     // Generate unique transaction ID
@@ -30,6 +34,10 @@ export class TransactionRecorder {
                 from: addresses.from || [],
                 to: addresses.to || []
             },
+            // Add inputs if available
+            inputs: txData.inputs || [],
+            // Add outputs if available
+            outputs: txData.outputs || [],
             metadata: {
                 changeAmount: txData.change || 0,
                 totalInputs: txData.totalSelected || 0
@@ -91,31 +99,91 @@ export class TransactionRecorder {
             });
 
             // Process each transaction group
+            const mempoolService = new MempoolService();
+            
             for (const [txid, txUtxos] of Object.entries(txGroups)) {
-                if (existingTxids.has(txid)) {
-                    continue; // Skip if already processed
-                }
-
                 // Calculate total amount for this transaction
                 const totalAmount = txUtxos.reduce((sum, utxo) => sum + (utxo.value || 0), 0);
-                const timestamp = txUtxos[0].timestamp || Date.now();
+                
+                // Get timestamp from block time (in seconds), convert to milliseconds
+                let blockTime = txUtxos[0].status?.block_time || txUtxos[0].blockTime;
+                const blockHeight = txUtxos[0].status?.block_height || txUtxos[0].blockHeight;
+                
+                // If no block_time but we have blockHeight, fetch it from API (with cache)
+                if (!blockTime && blockHeight) {
+                    // Check cache first
+                    if (this.timestampCache.has(blockHeight)) {
+                        blockTime = this.timestampCache.get(blockHeight);
+                    } else {
+                        console.log(`[TX Recorder] Fetching block timestamp for height ${blockHeight}...`);
+                        blockTime = await mempoolService.getBlockTimestamp(blockHeight, this.network);
+                        if (blockTime) {
+                            console.log(`[TX Recorder] Got timestamp ${blockTime} for block ${blockHeight}`);
+                            // Cache the result
+                            this.timestampCache.set(blockHeight, blockTime);
+                        }
+                    }
+                }
+                
+                const timestamp = blockTime ? blockTime * 1000 : Date.now();
 
-                // Create received transaction entry
+                // Fetch full transaction details from API (inputs, outputs, fee)
+                let inputs = [];
+                let outputs = [];
+                let fee = null;
+                try {
+                    const response = await mempoolService.getTransaction(txid, this.network);
+                    const txDetails = response?.tx || response;
+                    
+                    if (txDetails) {
+                        // Extract inputs
+                        inputs = (txDetails.vin || []).map(input => ({
+                            txid: input.txid,
+                            vout: input.vout,
+                            address: input.prevout?.scriptpubkey_address || null,
+                            value: input.prevout?.value || null
+                        }));
+                        
+                        // Extract ALL outputs (not just received ones)
+                        outputs = (txDetails.vout || []).map(output => ({
+                            address: output.scriptpubkey_address || null,
+                            amount: output.value || 0,
+                            vout: output.n
+                        }));
+                        
+                        fee = txDetails.fee || null;
+                    }
+                } catch (error) {
+                    console.warn(`[TX Recorder] Failed to fetch tx details for ${txid}:`, error.message);
+                }
+
+                // Create transaction object
                 const transaction = {
                     id: this.generateTransactionId('received', timestamp),
                     txid,
-                    type: 'received',
+                    type: 'received', // Will be updated by classifier
                     amount: totalAmount,
                     timestamp: timestamp,
                     status: 'confirmed',
                     addresses: {
-                        received: txUtxos[0].address
+                        received: txUtxos.map(u => u.address)
                     },
-                    blockHeight: txUtxos[0].blockHeight,
+                    inputs: inputs,
+                    outputs: outputs,
+                    fee: fee,
+                    blockHeight: blockHeight,
                     confirmations: Math.min(...txUtxos.map(utxo => utxo.confirmations || 1))
                 };
 
-                await addTransaction(transaction, this.blockchain, this.network);
+                // Classify transaction type
+                transaction.type = classifyTransaction(transaction, addresses);
+
+                // Save or update transaction
+                if (existingTxids.has(txid)) {
+                    await this.updateExistingTransaction(txid, transaction, blockTime !== null);
+                } else {
+                    await addTransaction(transaction, this.blockchain, this.network);
+                }
             }
         } catch (error) {
             throw error;
@@ -154,6 +222,44 @@ export class TransactionRecorder {
             return transactions.some(tx => tx.txid === txid && tx.type === type);
         } catch (error) {
             return false;
+        }
+    }
+
+    // Update existing transaction with new data (for refresh functionality)
+    async updateExistingTransaction(txid, newTransactionData, updateTimestamp = false) {
+        try {
+            const transactions = await getTransactions(this.blockchain, this.network);
+            const updatedTransactions = transactions.map(tx => {
+                if (tx.txid === txid && tx.type === newTransactionData.type) {
+                    // Merge new data, always update inputs, outputs, and fee if available
+                    const updated = {
+                        ...tx,
+                        ...newTransactionData,
+                        id: tx.id, // Keep original ID
+                        // Always update inputs if provided
+                        inputs: newTransactionData.inputs || tx.inputs || [],
+                        // Always update outputs if provided
+                        outputs: newTransactionData.outputs || tx.outputs || [],
+                        // Always update fee if provided
+                        fee: newTransactionData.fee !== undefined ? newTransactionData.fee : tx.fee,
+                    };
+                    
+                    // Update timestamp only if we have a real block timestamp
+                    if (updateTimestamp && newTransactionData.timestamp) {
+                        updated.timestamp = newTransactionData.timestamp;
+                    } else {
+                        updated.timestamp = tx.timestamp; // Keep original
+                    }
+                    
+                    return updated;
+                }
+                return tx;
+            });
+
+            const { saveTransactions } = await import('@/services/storage');
+            await saveTransactions(updatedTransactions, this.blockchain, this.network);
+        } catch (error) {
+            throw error;
         }
     }
 }

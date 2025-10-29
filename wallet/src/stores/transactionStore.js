@@ -53,13 +53,16 @@ const useTransactionStore = create((set, get) => ({
         try {
             const storedTransactions = await getTransactions(blockchain, network);
 
+            // Sort transactions by timestamp (most recent first)
+            const sortedTransactions = storedTransactions.sort((a, b) => b.timestamp - a.timestamp);
+
             // Calculate pagination info
-            const totalTransactions = storedTransactions.length;
+            const totalTransactions = sortedTransactions.length;
             const pageSize = state.pagination.pageSize;
             const totalPages = Math.ceil(totalTransactions / pageSize);
 
             set({
-                transactions: storedTransactions,
+                transactions: sortedTransactions,
                 isLoading: false,
                 initialized: true,
                 error: null,
@@ -141,16 +144,14 @@ const useTransactionStore = create((set, get) => ({
         }
     },
 
-    // Process UTXOs to detect received transactions (excluding change addresses)
+    // Process UTXOs to detect received transactions (manual refresh only)
     processUTXOsForReceivedTransactions: async (utxos, addresses, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
             const transactionRecorder = new TransactionRecorder(blockchain, network);
             await transactionRecorder.processUTXOsForReceivedTransactions(utxos, addresses);
-
-            // Reload transactions to get the updated list
             await get().loadTransactions(blockchain, network);
-
         } catch (error) {
+            console.error('Error processing transactions:', error);
             set({ error: error.message });
         }
     },

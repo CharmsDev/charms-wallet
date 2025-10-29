@@ -128,12 +128,39 @@ export class BitcoinTransactionOrchestrator {
         // Record sent transaction after successful broadcast
         if (broadcastResult.success && broadcastResult.txid) {
             try {
+                // Prepare inputs from selected UTXOs
+                const inputs = processResult.selectedUtxos.map(utxo => ({
+                    txid: utxo.txid,
+                    vout: utxo.vout,
+                    address: utxo.address,
+                    value: utxo.value
+                }));
+
+                // Prepare outputs (destination + change if exists)
+                const outputs = [
+                    {
+                        address: destinationAddress,
+                        amount: amountInSats,
+                        vout: 0
+                    }
+                ];
+                
+                if (processResult.change > 0 && processResult.changeAddress) {
+                    outputs.push({
+                        address: processResult.changeAddress,
+                        amount: processResult.change,
+                        vout: 1
+                    });
+                }
+
                 const recordedTransaction = await this.transactionRecorder.recordSentTransaction(
                     {
                         txid: broadcastResult.txid,
                         amountInSats: amountInSats,
                         change: processResult.change,
-                        totalSelected: processResult.totalSelected
+                        totalSelected: processResult.totalSelected,
+                        inputs: inputs,
+                        outputs: outputs
                     },
                     processResult.estimatedFee,
                     {

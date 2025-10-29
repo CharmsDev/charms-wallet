@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 import { useTransactions } from '@/stores/transactionStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useAddresses } from '@/stores/addressesStore';
+import { useUTXOStore } from '@/stores/utxoStore';
+import TransactionDetailsModal from './TransactionDetailsModal';
+import { getTransactionLabel, getTransactionIcon } from '@/services/transactions/transaction-classifier';
 
 export default function RecentTransactions({ utxos, isLoading }) {
     const {
@@ -19,6 +22,11 @@ export default function RecentTransactions({ utxos, isLoading }) {
     } = useTransactions();
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const { addresses } = useAddresses();
+    const { refreshUTXOs, refreshProgress } = useUTXOStore();
+    const [selectedTransaction, setSelectedTransaction] = useState(null);
+    
+    // Use refresh progress from UTXO store
+    const isRefreshing = refreshProgress.isRefreshing;
 
     // Get current page transactions
     const paginatedTransactions = getPaginatedTransactions();
@@ -27,37 +35,15 @@ export default function RecentTransactions({ utxos, isLoading }) {
     useEffect(() => {
     }, [transactions, pagination.currentPage, pagination.totalPages, paginatedTransactions.length]);
 
-    // Listen for new transaction events and reload
-    useEffect(() => {
-        const handleTransactionRecorded = (event) => {
-            loadTransactions(activeBlockchain, activeNetwork);
-        };
-
-        window.addEventListener('transactionRecorded', handleTransactionRecorded);
-        return () => window.removeEventListener('transactionRecorded', handleTransactionRecorded);
-    }, [activeBlockchain, activeNetwork, loadTransactions]);
-
-    // Handle transaction click - open mempool.space
-    const handleTransactionClick = (txId) => {
-        const baseUrl = activeNetwork === 'mainnet'
-            ? 'https://mempool.space'
-            : 'https://mempool.space/testnet4';
-
-        const url = `${baseUrl}/tx/${txId}`;
-        window.open(url, '_blank', 'noopener,noreferrer');
+    // Handle transaction click - show details modal
+    const handleTransactionClick = (tx) => {
+        setSelectedTransaction(tx);
     };
 
-    // Load transactions when component mounts or network changes
+    // Load transactions from localStorage only on mount or network change
     useEffect(() => {
         loadTransactions(activeBlockchain, activeNetwork);
     }, [activeBlockchain, activeNetwork, loadTransactions]);
-
-    // Process UTXOs to detect received transactions when UTXOs change
-    useEffect(() => {
-        if (utxos && Object.keys(utxos).length > 0 && addresses && addresses.length > 0) {
-            processUTXOsForReceivedTransactions(utxos, addresses, activeBlockchain, activeNetwork);
-        }
-    }, [utxos, addresses, activeBlockchain, activeNetwork, processUTXOsForReceivedTransactions]);
 
     const formatBTC = (satoshis) => {
         const btc = satoshis / 100000000;
@@ -73,6 +59,22 @@ export default function RecentTransactions({ utxos, isLoading }) {
         });
     };
 
+    const handleRefreshTransactions = async () => {
+        if (isRefreshing || !addresses || addresses.length === 0) return;
+        
+        try {
+            // Refresh UTXOs from blockchain (scans first 10 addresses)
+            await refreshUTXOs(activeBlockchain, activeNetwork, 10);
+            
+            // Process UTXOs to detect and update transactions
+            if (utxos && Object.keys(utxos).length > 0) {
+                await processUTXOsForReceivedTransactions(utxos, addresses, activeBlockchain, activeNetwork);
+            }
+        } catch (error) {
+            console.error('Failed to refresh transactions:', error);
+        }
+    };
+
     const getStatusColor = (status) => {
         switch (status) {
             case 'confirmed': return 'text-green-400';
@@ -83,18 +85,25 @@ export default function RecentTransactions({ utxos, isLoading }) {
     };
 
     const getTypeIcon = (type) => {
-        switch (type) {
-            case 'sent': return '↗';
-            case 'received': return '↙';
-            default: return '•';
-        }
+        return getTransactionIcon(type);
     };
 
     const getTransactionDescription = (tx) => {
-        if (tx.type === 'sent') {
-            return 'Sent Bitcoin';
-        } else {
-            return 'Received Bitcoin';
+        return getTransactionLabel(tx.type);
+    };
+
+    const getIconStyle = (type) => {
+        switch (type) {
+            case 'sent':
+                return 'bg-red-500/20 text-red-400';
+            case 'received':
+                return 'bg-green-500/20 text-green-400';
+            case 'bro_mining':
+                return 'bg-orange-500/20 text-orange-400';
+            case 'bro_mint':
+                return 'bg-purple-500/20 text-purple-400';
+            default:
+                return 'bg-dark-500/20 text-dark-400';
         }
     };
 
@@ -102,8 +111,16 @@ export default function RecentTransactions({ utxos, isLoading }) {
         <div className="card p-6">
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold gradient-text">Recent Transactions</h3>
-                <button className="text-sm text-primary-400 hover:text-primary-300 transition-colors">
-                    View All
+                <button 
+                    onClick={handleRefreshTransactions}
+                    disabled={isRefreshing}
+                    className="text-sm text-primary-400 hover:text-primary-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    title="Refresh transaction history"
+                >
+                    <svg className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    {isRefreshing ? 'Refreshing...' : 'Refresh'}
                 </button>
             </div>
 
@@ -137,21 +154,28 @@ export default function RecentTransactions({ utxos, isLoading }) {
                         {paginatedTransactions.map((tx) => (
                             <div
                                 key={tx.id}
-                                onClick={() => handleTransactionClick(tx.txid)}
+                                onClick={() => handleTransactionClick(tx)}
                                 className="p-3 glass-effect rounded-lg hover:bg-dark-800/50 transition-colors cursor-pointer"
-                                title={`Click to view transaction ${tx.txid} on mempool.space`}
+                                title="Click to view transaction details"
                             >
                                 {/* Mobile-first responsive layout */}
                                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                     {/* Left section: Icon + Transaction info */}
                                     <div className="flex items-center space-x-3 min-w-0 flex-1">
-                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${tx.type === 'received' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                                            }`}>
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${getIconStyle(tx.type)}`}>
                                             {getTypeIcon(tx.type)}
                                         </div>
                                         <div className="min-w-0 flex-1">
-                                            <p className="font-medium text-white truncate">{getTransactionDescription(tx)}</p>
-                                            <p className="text-xs text-dark-400 hover:text-primary-400 transition-colors truncate">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <p className="font-medium text-white">{getTransactionDescription(tx)}</p>
+                                                <span className="text-dark-500">•</span>
+                                                <p className="text-sm text-dark-400">{formatDate(tx.timestamp)}</p>
+                                            </div>
+                                            {/* Full txid on desktop, truncated on mobile */}
+                                            <p className="hidden lg:block text-xs text-dark-400 hover:text-primary-400 transition-colors font-mono break-all">
+                                                {tx.txid}
+                                            </p>
+                                            <p className="lg:hidden text-xs text-dark-400 hover:text-primary-400 transition-colors truncate font-mono">
                                                 {tx.txid.slice(0, 8)}...{tx.txid.slice(-8)}
                                             </p>
                                         </div>
@@ -162,16 +186,17 @@ export default function RecentTransactions({ utxos, isLoading }) {
                                         <p className={`font-medium text-sm sm:text-base ${tx.type === 'received' ? 'text-green-400' : 'text-red-400'}`}>
                                             {tx.type === 'received' ? '+' : '-'}{formatBTC(tx.amount)} BTC
                                         </p>
-                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                                        <div className="flex items-center justify-end gap-x-2 text-xs">
                                             <span className={getStatusColor(tx.status)}>{tx.status}</span>
+                                            {tx.blockHeight && (
+                                                <span className="text-dark-500">({tx.blockHeight.toLocaleString()})</span>
+                                            )}
                                             {tx.fee && tx.type === 'sent' && (
                                                 <>
                                                     <span className="text-dark-500 hidden sm:inline">•</span>
                                                     <span className="text-dark-400">Fee: {formatBTC(tx.fee)}</span>
                                                 </>
                                             )}
-                                            <span className="text-dark-500 hidden sm:inline">•</span>
-                                            <span className="text-dark-400">{formatDate(tx.timestamp)}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -240,6 +265,15 @@ export default function RecentTransactions({ utxos, isLoading }) {
                         </div>
                     )}
                 </>
+            )}
+
+            {/* Transaction Details Modal */}
+            {selectedTransaction && (
+                <TransactionDetailsModal
+                    transaction={selectedTransaction}
+                    network={activeNetwork}
+                    onClose={() => setSelectedTransaction(null)}
+                />
             )}
         </div>
     );
