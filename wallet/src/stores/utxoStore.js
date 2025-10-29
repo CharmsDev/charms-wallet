@@ -287,6 +287,9 @@ export const useUTXOs = () => {
     return state;
 };
 
+// Export the store directly for components that need it
+export { useUTXOStore };
+
 // For backward compatibility, export a provider that doesn't do anything
 export function UTXOProvider({ children }) {
     return children;

@@ -12,7 +12,9 @@ export class MempoolService {
         this.txHexCache = new Map(); // key: `${network}:${txid}` -> { value, expiry }
         this.txCacheTTL = 60 * 1000; // 60s TTL for tx hex
         this.inflight = new Map(); // key -> Promise
-        this.retryDelays = [300, 700, 1500]; // backoff for 429/5xx
+        this.retryDelays = [500, 1000, 2000]; // backoff for 429/5xx
+        this.lastRequestTime = 0; // Track last request time
+        this.minRequestInterval = 200; // Minimum 200ms between requests
     }
 
     // Create a timeout signal compatible with mobile browsers that may not support AbortSignal.timeout
@@ -37,6 +39,39 @@ export class MempoolService {
     }
 
     /**
+     * Get block timestamp by block height
+     */
+    async getBlockTimestamp(blockHeight, network) {
+        try {
+            const baseUrl = this._getMempoolUrl(network);
+            const hashUrl = `${baseUrl}/block-height/${blockHeight}`;
+            
+            // Apply rate limiting before getting block hash
+            await this._rateLimit();
+            
+            // Get block hash first (returns plain text, not JSON)
+            const hashResponse = await fetch(hashUrl, {
+                signal: this._createTimeoutSignal(this.timeout),
+            });
+            
+            if (!hashResponse.ok) {
+                throw new Error(`Failed to get block hash: ${hashResponse.status}`);
+            }
+            
+            const blockHash = await hashResponse.text();
+            
+            // Then get block details (returns JSON) - _makeHttpRequest has its own rate limiting
+            const blockUrl = `${baseUrl}/block/${blockHash}`;
+            const block = await this._makeHttpRequest(blockUrl);
+            
+            return block.timestamp; // Unix timestamp in seconds
+        } catch (error) {
+            console.warn(`[Mempool] Failed to get block timestamp for height ${blockHeight}:`, error.message);
+            return null;
+        }
+    }
+
+    /**
      * Get mempool.space API URL for network
      */
     _getMempoolUrl(network) {
@@ -50,10 +85,28 @@ export class MempoolService {
     }
 
     /**
+     * Rate limit requests to avoid 429 errors
+     */
+    async _rateLimit() {
+        const now = Date.now();
+        const timeSinceLastRequest = now - this.lastRequestTime;
+        
+        if (timeSinceLastRequest < this.minRequestInterval) {
+            const delay = this.minRequestInterval - timeSinceLastRequest;
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
+        this.lastRequestTime = Date.now();
+    }
+
+    /**
      * Make HTTP request to mempool.space API with retry logic
      */
     async _makeHttpRequest(url, options = {}) {
         const attempt = async () => {
+            // Apply rate limiting
+            await this._rateLimit();
+            
             const response = await fetch(url, {
                 ...options,
                 signal: this._createTimeoutSignal(this.timeout),
