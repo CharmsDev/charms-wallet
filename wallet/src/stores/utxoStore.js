@@ -46,13 +46,11 @@ const useUTXOStore = create((set, get) => ({
         try {
             const storedUTXOs = await utxoService.getStoredUTXOsRaw(blockchain, network);
             
-            // Filter out wrong network addresses and deduplicate
+            // Filter by network prefix and deduplicate UTXOs
             const networkPrefix = network === 'mainnet' ? 'bc1' : 'tb1';
             const deduped = {};
             Object.entries(storedUTXOs || {}).forEach(([addr, list]) => {
-                // Skip addresses from wrong network
                 if (!addr.startsWith(networkPrefix)) {
-                    console.warn(`[UTXO Store] Skipping wrong network address: ${addr} (expected ${networkPrefix})`);
                     return;
                 }
                 
@@ -65,19 +63,17 @@ const useUTXOStore = create((set, get) => ({
                 });
             });
             
-            // Clean up storage if we filtered out wrong-network addresses
+            // Update storage if addresses were filtered
             const originalAddressCount = Object.keys(storedUTXOs || {}).length;
             const cleanedAddressCount = Object.keys(deduped).length;
             if (originalAddressCount !== cleanedAddressCount) {
-                console.warn(`[UTXO Store] Cleaned ${originalAddressCount - cleanedAddressCount} wrong-network addresses from storage`);
                 await saveUTXOs(deduped, blockchain, network);
             }
             
-            // Try to load balance from localStorage first
+            // Load balance from cache if available
             const storedBalance = getBalance(blockchain, network);
             
             if (storedBalance) {
-                // Use cached balance
                 set({
                     utxos: deduped,
                     totalBalance: storedBalance.spendable,
@@ -103,7 +99,6 @@ const useUTXOStore = create((set, get) => ({
             }
 
         } catch (error) {
-            console.error('[UTXOStore] Failed to load UTXOs:', error);
             set({
                 error: `Failed to load UTXOs: ${error.message}`,
                 utxos: {},
@@ -194,6 +189,7 @@ const useUTXOStore = create((set, get) => ({
             const charms = await getCharms(blockchain, network) || [];
             const balanceData = utxoService.calculateBalances(finalUtxos, charms);
 
+
             // Save balance to localStorage
             saveBalance(blockchain, network, balanceData);
 
@@ -230,6 +226,49 @@ const useUTXOStore = create((set, get) => ({
             const balanceData = utxoService.calculateBalances(updatedUTXOs, charms);
 
             // Save balance to localStorage
+            saveBalance(blockchain, network, balanceData);
+
+            set({
+                utxos: updatedUTXOs,
+                totalBalance: balanceData.spendable,
+                pendingBalance: balanceData.pending
+            });
+
+            return updatedUTXOs;
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    // Refresh specific addresses only (optimized for post-transfer updates)
+    refreshSpecificAddresses: async (addresses, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
+        try {
+            if (!addresses || addresses.length === 0) {
+                return;
+            }
+
+            // Fetch UTXOs for specific addresses
+            const newUtxos = await utxoService.getMultipleAddressesUTXOs(addresses, blockchain, network);
+            
+            // Merge with existing UTXOs
+            const state = get();
+            const updatedUTXOs = { ...state.utxos };
+            
+            // Update only the specified addresses
+            addresses.forEach(address => {
+                if (newUtxos[address] && newUtxos[address].length > 0) {
+                    updatedUTXOs[address] = newUtxos[address];
+                } else {
+                    delete updatedUTXOs[address];
+                }
+            });
+
+            // Save to storage
+            await saveUTXOs(updatedUTXOs, blockchain, network);
+
+            // Recalculate balances
+            const charms = await getCharms(blockchain, network) || [];
+            const balanceData = utxoService.calculateBalances(updatedUTXOs, charms);
             saveBalance(blockchain, network, balanceData);
 
             set({

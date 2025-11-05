@@ -1,6 +1,7 @@
 import * as bitcoin from 'bitcoinjs-lib';
 import { getAddresses } from '@/services/storage';
 import { utxoService } from '@/services/utxo';
+import { DERIVATION_PATHS } from '../constants';
 
 // Decode Bitcoin script to determine type
 export function decodeScript(script) {
@@ -71,10 +72,13 @@ export function toXOnly(pubkey) {
 }
 
 // Identify wallet address associated with a UTXO
-export async function findAddressForUTXO(txid, vout) {
+export async function findAddressForUTXO(txid, vout, network = 'testnet') {
     try {
-        // Search for UTXOs by transaction ID
-        const matchingUtxos = await utxoService.findUtxosByTxid(txid);
+        // Map network to UTXO service format
+        const utxoNetwork = network === 'mainnet' ? 'mainnet' : 'testnet';
+        
+        // Search for UTXOs by transaction ID with correct network
+        const matchingUtxos = await utxoService.findUtxosByTxid(txid, 'bitcoin', utxoNetwork);
 
         // Find matching output index
         const matchingUtxo = matchingUtxos.find(utxo => utxo.vout === vout);
@@ -107,13 +111,27 @@ export async function findAddressForUTXO(txid, vout) {
 }
 
 // Generate BIP32 derivation path for address
-export function getDerivationPath(addressInfo) {
+export function getDerivationPath(addressInfo, network, blockchain = 'bitcoin') {
     // BIP86 purpose for Taproot
-    const purpose = "86'";
-    // Coin type (mainnet)
-    const coinType = "0'";
+    const purpose = DERIVATION_PATHS.BIP86_PURPOSE;
+    
+    // Determine coin type based on blockchain and network
+    let coinType;
+    if (blockchain === 'bitcoin') {
+        coinType = network === 'mainnet' 
+            ? DERIVATION_PATHS.COIN_TYPES.BITCOIN_MAINNET 
+            : DERIVATION_PATHS.COIN_TYPES.BITCOIN_TESTNET;
+    } else if (blockchain === 'cardano') {
+        coinType = network === 'mainnet'
+            ? DERIVATION_PATHS.COIN_TYPES.CARDANO_MAINNET
+            : DERIVATION_PATHS.COIN_TYPES.CARDANO_TESTNET;
+    } else {
+        // Default to Bitcoin testnet
+        coinType = DERIVATION_PATHS.COIN_TYPES.BITCOIN_TESTNET;
+    }
+    
     // Account index
-    const account = "0'";
+    const account = DERIVATION_PATHS.DEFAULT_ACCOUNT;
     // Change or receiving chain
     const change = addressInfo.isChange ? "1" : "0";
     // Address index in chain
@@ -123,10 +141,13 @@ export function getDerivationPath(addressInfo) {
 }
 
 // Validate private key matches expected address
-export function verifyPrivateKeyForAddress(privateKey, address, ECPair) {
+export function verifyPrivateKeyForAddress(privateKey, address, ECPair, network) {
     try {
+        // Determine Bitcoin network
+        const bitcoinNetwork = network === 'mainnet' ? bitcoin.networks.bitcoin : bitcoin.networks.testnet;
+        
         // Generate key pair from private key
-        const ecPair = ECPair.fromPrivateKey(privateKey, { network: bitcoin.networks.testnet });
+        const ecPair = ECPair.fromPrivateKey(privateKey, { network: bitcoinNetwork });
 
         // Extract public key
         const publicKey = ecPair.publicKey;
@@ -137,7 +158,7 @@ export function verifyPrivateKeyForAddress(privateKey, address, ECPair) {
         // Create P2TR payment
         const p2tr = bitcoin.payments.p2tr({
             internalPubkey: xOnlyPubkey,
-            network: bitcoin.networks.testnet
+            network: bitcoinNetwork
         });
 
         // Generate address from payment

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useNetwork } from '@/contexts/NetworkContext';
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
 import { signCommitTransaction } from '@/services/charms/sign/signCommitTx';
 import { signSpellTransaction } from '@/services/charms/sign/signSpellTx';
@@ -28,6 +29,7 @@ export default function SignatureStep({
     signedCommitTx,
     signedSpellTx
 }) {
+    const { activeNetwork } = useNetwork();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [showSignedCommitDetails, setShowSignedCommitDetails] = useState(false);
@@ -57,6 +59,7 @@ export default function SignatureStep({
             addLogMessage('Signing commit transaction...');
             const signedCommit = await signCommitTransaction(
                 transactionResult.transactions.commit_tx,
+                activeNetwork,
                 addLogMessage
             );
 
@@ -77,6 +80,7 @@ export default function SignatureStep({
                 transactionResult.transactions.spell_tx,
                 transactionResult.transactions.commit_tx,
                 seedPhrase,
+                activeNetwork,
                 addLogMessage
             );
 

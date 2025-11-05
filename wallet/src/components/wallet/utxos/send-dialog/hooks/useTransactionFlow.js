@@ -103,11 +103,6 @@ export function useTransactionFlow(formState, onClose) {
                 const exactFee = selector.calculateMixedFee(allUtxos, 1, currentFeeRate);
                 const adjustedAmount = totalAvailable - exactFee;
                 
-                console.log('[TX-FLOW] Max transaction detected');
-                console.log('[TX-FLOW] Total available:', totalAvailable, 'sats');
-                console.log('[TX-FLOW] Calculated fee:', exactFee, 'sats at', currentFeeRate, 'sat/vB');
-                console.log('[TX-FLOW] Adjusted amount:', adjustedAmount, 'sats');
-                
                 selectionResult = {
                     selectedUtxos: allUtxos,
                     totalSelected: totalAvailable,
@@ -128,12 +123,6 @@ export function useTransactionFlow(formState, onClose) {
                     'bitcoin',
                     activeNetwork
                 );
-                
-                console.log('[TX-FLOW] Regular transaction');
-                console.log('[TX-FLOW] Selected UTXOs:', selectionResult.selectedUtxos?.length);
-                console.log('[TX-FLOW] Total selected:', selectionResult.totalSelected, 'sats');
-                console.log('[TX-FLOW] Estimated fee:', selectionResult.estimatedFee, 'sats at', currentFeeRate, 'sat/vB');
-                console.log('[TX-FLOW] Change:', selectionResult.change, 'sats');
                 
                 // Add fee rate to result
                 selectionResult.feeRate = currentFeeRate;

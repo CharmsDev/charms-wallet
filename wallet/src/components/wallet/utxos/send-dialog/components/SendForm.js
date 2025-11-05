@@ -33,26 +33,19 @@ export default function SendForm({ formState, onSend, onCancel }) {
         setIsCalculatingMax(true);
         
         try {
-            console.log('[MAXAMOUNT] === START ===');
-            console.log('[MAXAMOUNT] UTXOs in store:', Object.keys(utxos).length, 'addresses');
-            console.log('[MAXAMOUNT] Charms to exclude:', charms.length);
-            
             // Get current fee estimates from network
             const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
             const feeEstimates = await bitcoinApiRouter.getFeeEstimates(activeNetwork);
             const feeRate = feeEstimates.fees.halfHour; // Use 30-min confirmation fee
             setCurrentFeeRate(feeRate);
-            console.log('[MAXAMOUNT] Fee rate:', feeRate, 'sat/vB');
             
             if (!feeEstimates.success) {
             }
             
             // Get spendable UTXOs using the same logic as the selector
             const spendableUtxos = utxoCalculations.getSpendableUtxos(utxos, charms);
-            console.log('[MAXAMOUNT] Spendable addresses after filter:', Object.keys(spendableUtxos).length);
             
             if (Object.keys(spendableUtxos).length === 0) {
-                console.log('[MAXAMOUNT] ERROR: No spendable UTXOs');
                 setAmount('0');
                 return;
             }
@@ -63,8 +56,6 @@ export default function SendForm({ formState, onSend, onCancel }) {
             const allUtxos = Object.entries(spendableUtxos).flatMap(([address, addressUtxos]) => 
                 addressUtxos.map(utxo => ({ ...utxo, address }))
             );
-            console.log('[MAXAMOUNT] Flattened UTXOs:', allUtxos.length);
-            allUtxos.forEach(u => console.log(`[MAXAMOUNT]   ${u.value} sats`));
             
             // Sort UTXOs by value (largest first) for optimal selection
             const sortedUtxos = [...allUtxos].sort((a, b) => b.value - a.value);
@@ -72,20 +63,16 @@ export default function SendForm({ formState, onSend, onCancel }) {
             // For Max: Use ALL available UTXOs and calculate exact fee
             const allSelectedUtxos = sortedUtxos;
             const totalValue = allSelectedUtxos.reduce((sum, utxo) => sum + utxo.value, 0);
-            console.log('[MAXAMOUNT] Total value:', totalValue, 'sats');
             
             // Calculate fee for transaction with 1 output (no change for Max)
             const exactFee = selector.calculateMixedFee(allSelectedUtxos, 1, feeRate);
-            console.log('[MAXAMOUNT] Calculated fee:', exactFee, 'sats at', feeRate, 'sat/vB');
             
             // Max amount = total value - exact fee (no change)
             const maxAmount = totalValue - exactFee;
-            console.log('[MAXAMOUNT] === RESULT === Max:', maxAmount, 'sats');
             
             setAmount(maxAmount.toString());
             
         } catch (error) {
-            console.error('[MAXAMOUNT] ERROR:', error);
             setAmount('0');
         } finally {
             setIsCalculatingMax(false);

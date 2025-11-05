@@ -19,6 +19,10 @@ export default function CharmCard({ charm }) {
     const isNftCharm = isNFT(charm);
     const [showTransferDialog, setShowTransferDialog] = useState(false);
     const [imageError, setImageError] = useState(false);
+    
+    const handleTransferClick = () => {
+        setShowTransferDialog(true);
+    };
 
 
     // Extract data from CharmObj - follow the standard CharmObj structure
@@ -127,10 +131,9 @@ export default function CharmCard({ charm }) {
 
                 <div className="mt-auto pt-4 border-t border-dark-700">
                     <button
-                        onClick={undefined}
-                        disabled={true}
-                        className="w-full btn btn-disabled opacity-50 cursor-not-allowed bg-gray-600"
-                        title="Transfer (temporarily disabled)"
+                        onClick={handleTransferClick}
+                        className="w-full btn btn-primary"
+                        title="Transfer charm"
                     >
                         Transfer
                     </button>

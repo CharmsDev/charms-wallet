@@ -10,7 +10,6 @@ export default function CharmDetailsStep({
     destinationAddress,
     setDestinationAddress,
     isNftCharm,
-    isFormValid,
     setSpellTemplate,
     setFinalSpell
 }) {
@@ -19,11 +18,16 @@ export default function CharmDetailsStep({
         setDestinationAddress(e.target.value);
     };
 
-    // Handle amount input
+    // Handle amount input (in display units, not sats)
     const handleAmountChange = (e) => {
-        const value = parseFloat(e.target.value);
-        if (!isNaN(value) && value > 0 && value <= charm.amount.remaining) {
-            setTransferAmount(value);
+        const displayValue = parseFloat(e.target.value);
+        const decimals = charm.decimals || 8;
+        const maxDisplayAmount = parseFloat(charm.displayAmount) || 0;
+        
+        if (!isNaN(displayValue) && displayValue > 0 && displayValue <= maxDisplayAmount) {
+            // Convert display units to sats for internal use
+            const satsValue = Math.floor(displayValue * Math.pow(10, decimals));
+            setTransferAmount(satsValue);
         }
     };
 
@@ -60,29 +64,30 @@ export default function CharmDetailsStep({
         <div className="space-y-6">
             {/* Charm Information */}
             <div className="glass-effect p-4 rounded-xl">
-                <h4 className="font-bold text-white mb-2">Charm Details</h4>
+                <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-bold text-white">Charm Details</h4>
+                    {isNftCharm ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-900/30 text-primary-400">
+                            NFT
+                        </span>
+                    ) : (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-bitcoin-900/30 text-bitcoin-400">
+                            Token
+                        </span>
+                    )}
+                </div>
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                        <p className="text-dark-400">Type:</p>
-                        <p className="font-medium text-white">
-                            {isNftCharm ? (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-900/30 text-primary-400">
-                                    NFT
-                                </span>
-                            ) : (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-bitcoin-900/30 text-bitcoin-400">
-                                    Token
-                                </span>
-                            )}
+                    <div className="col-span-2">
+                        <p className="text-dark-400">AppId:</p>
+                        <p className="font-medium font-mono text-white text-xs break-all">
+                            {charm.appId}
                         </p>
                     </div>
                     <div>
-                        <p className="text-dark-400">ID:</p>
-                        <p className="font-medium font-mono text-white">{charm.id}</p>
-                    </div>
-                    <div>
                         <p className="text-dark-400">Available Amount:</p>
-                        <p className="font-medium text-bitcoin-400">{charm.amount.remaining} {charm.amount.ticker}</p>
+                        <p className="font-medium text-bitcoin-400">
+                            {charm.displayAmount || charm.amount} {charm.metadata?.ticker || charm.ticker}
+                        </p>
                     </div>
                     <div>
                         <p className="text-dark-400">TXID:</p>
@@ -120,16 +125,16 @@ export default function CharmDetailsStep({
                         <input
                             type="number"
                             id="transfer-amount"
-                            value={isNftCharm ? 1 : transferAmount}
+                            value={isNftCharm ? 1 : (transferAmount / Math.pow(10, charm.decimals || 8))}
                             onChange={handleAmountChange}
                             disabled={isNftCharm}
                             min="0.00000001"
-                            max={charm.amount.remaining}
+                            max={parseFloat(charm.displayAmount) || 0}
                             step="0.00000001"
                             className={`w-full px-3 py-2 bg-dark-700 border border-dark-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 ${isNftCharm ? 'opacity-50' : ''
                                 }`}
                         />
-                        <span className="ml-2 text-bitcoin-400">{charm.amount.ticker}</span>
+                        <span className="ml-2 text-bitcoin-400">{charm.metadata?.ticker || charm.ticker}</span>
                     </div>
                     {isNftCharm && (
                         <p className="mt-1 text-xs text-dark-400">
@@ -138,13 +143,6 @@ export default function CharmDetailsStep({
                     )}
                 </div>
             </div>
-
-            {/* Form validation message */}
-            {!isFormValid && (
-                <div className="text-sm text-red-400">
-                    Please enter a valid destination address and amount to continue.
-                </div>
-            )}
         </div>
     );
 }

@@ -192,7 +192,6 @@ export default function UTXOList() {
                 );
             }
         } catch (error) {
-            console.error('[UTXOList] Error handling transaction completion:', error);
             refreshUTXOs(activeBlockchain, activeNetwork, 24, 0); // Start with first 24 addresses
         }
     };

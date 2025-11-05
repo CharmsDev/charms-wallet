@@ -221,7 +221,7 @@ export const clearAllWalletData = async (): Promise<void> => {
     await clearBlockchainWalletData(BLOCKCHAINS.CARDANO, NETWORKS.CARDANO.MAINNET);
     await clearBlockchainWalletData(BLOCKCHAINS.CARDANO, NETWORKS.CARDANO.TESTNET);
     
-    // Also clear any legacy keys that might exist
+    // Clear all wallet-related keys from localStorage
     const allKeys = Object.keys(localStorage);
     const walletKeys = allKeys.filter(key => 
         key.includes('wallet') || 
@@ -229,7 +229,10 @@ export const clearAllWalletData = async (): Promise<void> => {
         key.includes('address') || 
         key.includes('transaction') ||
         key.includes('bitcoin') ||
-        key.includes('pending')
+        key.includes('cardano') ||
+        key.includes('pending') ||
+        key.includes('balance') ||
+        key.includes('charms')
     );
     
     walletKeys.forEach(key => localStorage.removeItem(key));

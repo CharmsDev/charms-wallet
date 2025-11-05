@@ -1,75 +1,14 @@
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
 import config from '@/config';
-
-function formatSpellWithCorrectKeyOrder(spell) {
-    // Set default
-    const version = spell.version || 2;
-    const apps = spell.apps || {};
-    const ins = spell.ins || [];
-    const outs = spell.outs || [];
-
-    // Format inputs with proper key ordering
-    const formattedIns = ins.map(input => {
-        const utxo_id = input.utxo_id || '';
-        const charms = input.charms || {};
-
-        // Format charm properties with proper ordering
-        const formattedCharms = {};
-        Object.keys(charms).forEach(charmKey => {
-            const charm = charms[charmKey];
-            formattedCharms[charmKey] = {
-                "ticker": charm.ticker || '',
-                "remaining": charm.remaining || 0
-            };
-        });
-
-        // Return properly ordered input object
-        return {
-            "utxo_id": utxo_id,
-            "charms": formattedCharms
-        };
-    });
-
-    // Format outputs with proper key ordering
-    const formattedOuts = outs.map(output => {
-        const address = output.address || '';
-        const charms = output.charms || {};
-        const sats = output.sats || 0;
-
-        // Format charm properties with proper ordering
-        const formattedCharms = {};
-        Object.keys(charms).forEach(charmKey => {
-            const charm = charms[charmKey];
-            formattedCharms[charmKey] = {
-                "ticker": charm.ticker || '',
-                "remaining": charm.remaining || 0
-            };
-        });
-
-        // Return properly ordered output object
-        return {
-            "address": address,
-            "charms": formattedCharms,
-            "sats": sats
-        };
-    });
-
-    // Assemble final spell object
-    const formattedSpell = {
-        "version": version,
-        "apps": apps,
-        "ins": formattedIns,
-        "outs": formattedOuts
-    };
-
-    // Convert to JSON string
-    return JSON.stringify(formattedSpell);
-}
+import { charmsSpellService } from './spell-composer';
+import { bitcoinApiRouter } from '@/services/shared/bitcoin-api-router';
+import { DEFAULT_FEE_RATE } from './constants';
 
 // Generate charm transfer transactions
 export async function createTransferCharmTxs(
     spellJson,
-    fundingUtxo // UTXO object
+    fundingUtxo, // UTXO object
+    network // Network parameter
 ) {
     // Validate funding UTXO
     if (!fundingUtxo || !fundingUtxo.txid || typeof fundingUtxo.vout === 'undefined' || typeof fundingUtxo.value === 'undefined' || !fundingUtxo.address) {
@@ -111,25 +50,16 @@ export async function createTransferCharmTxs(
         throw new Error("No charm input found in the spell. A charm input is required for transfer.");
     }
 
-    // Fetch raw transaction data (prev tx)
-    const rawTxUrl = `${config.api.wallet}/bitcoin-cli/transaction/raw/${txid}`;
-
+    // Fetch raw transaction data (prev tx) using bitcoin-api-router
     let prev_txs = [];
     try {
-        // Request raw transaction
-        const rawTxResponse = await fetch(rawTxUrl);
-
-        if (!rawTxResponse.ok) {
-            throw new Error(`Failed to fetch raw transaction: ${rawTxResponse.status} ${rawTxResponse.statusText}`);
-        }
-
-        const rawTxData = await rawTxResponse.json();
-
-        if (rawTxData.status === 'success' && rawTxData.transaction) {
-            // Store transaction hex
-            prev_txs = [rawTxData.transaction.hex];
+        // Use bitcoin-api-router to get transaction hex
+        const txHex = await bitcoinApiRouter.getTransactionHex(txid, network);
+        
+        if (txHex) {
+            prev_txs = [txHex];
         } else {
-            throw new Error(`Invalid response format from raw transaction API`);
+            throw new Error(`No transaction hex returned for ${txid}`);
         }
     } catch (error) {
         throw new Error(`Failed to fetch previous transactions: ${error.message}`);
@@ -157,11 +87,11 @@ export async function createTransferCharmTxs(
             funding_utxo: fundingUtxoId,
             funding_utxo_value: fundingUtxoAmount,
             change_address: changeAddress,
-            fee_rate: 2
+            fee_rate: DEFAULT_FEE_RATE
         };
 
-        // Format spell 
-        const formattedSpell = formatSpellWithCorrectKeyOrder(requestData.spell);
+        // Format spell using spell-composer service
+        const formattedSpell = charmsSpellService.serializeSpell(requestData.spell);
 
         // Create payload
         const payloadString = `{"spell":${formattedSpell},"binaries":${JSON.stringify(requestData.binaries)},"prev_txs":${JSON.stringify(requestData.prev_txs)},"funding_utxo":"${requestData.funding_utxo}","funding_utxo_value":${requestData.funding_utxo_value},"change_address":"${requestData.change_address}","fee_rate":${requestData.fee_rate}}`;
@@ -169,8 +99,11 @@ export async function createTransferCharmTxs(
         // log time
         const startTime = new Date();
 
+        // Get prover URL for the current network (will throw if not configured)
+        const proverUrl = config.api.getProverUrl(network);
+
         // Send request to prover API
-        response = await fetch(`${config.api.prover}/spells/prove`, {
+        response = await fetch(`${proverUrl}/spells/prove`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

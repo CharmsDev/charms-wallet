@@ -14,7 +14,7 @@ import BroadcastStep from './transfer-steps/BroadcastStep';
 
 export default function TransferCharmDialog({ charm, show, onClose }) {
     const [currentStep, setCurrentStep] = useState(0);
-    const [transferAmount, setTransferAmount] = useState(charm.amount.remaining);
+    const [transferAmount, setTransferAmount] = useState(charm?.amount || 0);
     const [destinationAddress, setDestinationAddress] = useState('');
     const [logMessages, setLogMessages] = useState([]);
     const [spellTemplate, setSpellTemplate] = useState('');
@@ -24,6 +24,7 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
     const [signedCommitTx, setSignedCommitTx] = useState(null);
     const [signedSpellTx, setSignedSpellTx] = useState(null);
     const [transactionResult, setTransactionResult] = useState(null);
+    const [broadcastComplete, setBroadcastComplete] = useState(false);
 
     // Store hooks
     const { seedPhrase } = useWallet();
@@ -32,17 +33,18 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
 
     // NFT detection
     const isNftCharm = isNFT(charm);
-
+    
     // Ensure NFTs always transfer the full amount
     useEffect(() => {
         if (isNftCharm) {
-            setTransferAmount(charm.amount.remaining);
+            setTransferAmount(charm.amount || 0);
         }
-    }, [isNftCharm, charm.amount.remaining]);
+    }, [isNftCharm, charm.amount]);
 
     // Form validation logic
     // NFTs only require destination address as they transfer as whole units
     const isFormValid = !!destinationAddress?.trim() && (isNftCharm || transferAmount > 0);
+    
 
     // Log message handler
     const addLogMessage = (message) => {
@@ -67,7 +69,7 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
     const handleClose = () => {
         // Reset dialog state
         setCurrentStep(0);
-        setTransferAmount(charm.amount.remaining);
+        setTransferAmount(charm.amount || 0);
         setDestinationAddress('');
         setLogMessages([]);
         setSpellTemplate('');
@@ -149,6 +151,9 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
                     signedSpellTx={signedSpellTx}
                     addLogMessage={addLogMessage}
                     charm={charm}
+                    commitTxHex={commitTxHex}
+                    spellTxHex={spellTxHex}
+                    onBroadcastSuccess={() => setBroadcastComplete(true)}
                 />
             )
         }
@@ -202,12 +207,12 @@ export default function TransferCharmDialog({ charm, show, onClose }) {
                         </button>
 
                         <button
-                            onClick={handleNext}
-                            disabled={currentStep === steps.length - 1 ||
+                            onClick={currentStep === steps.length - 1 ? handleClose : handleNext}
+                            disabled={(currentStep === steps.length - 1 && !broadcastComplete) ||
                                 (currentStep === 0 && !isFormValid) ||
                                 (currentStep === 2 && !commitTxHex) ||
                                 (currentStep === 3 && !signedCommitTx)}
-                            className={`btn ${currentStep === steps.length - 1 ||
+                            className={`btn ${(currentStep === steps.length - 1 && !broadcastComplete) ||
                                 (currentStep === 0 && !isFormValid) ||
                                 (currentStep === 2 && !commitTxHex) ||
                                 (currentStep === 3 && !signedCommitTx)

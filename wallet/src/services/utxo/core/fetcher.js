@@ -135,9 +135,11 @@ export class UTXOFetcher {
             }
 
             const addressEntries = await getAddresses(blockchain, network);
-            const allAddresses = addressEntries
+            // Sort addresses by index for sequential scanning
+            const sortedEntries = addressEntries
                 .filter(entry => !entry.blockchain || entry.blockchain === blockchain)
-                .map(entry => entry.address);
+                .sort((a, b) => a.index - b.index);
+            const allAddresses = sortedEntries.map(entry => entry.address);
             
             const totalAddressCount = allAddresses.length;
             let filteredAddresses = allAddresses;
@@ -215,7 +217,7 @@ export class UTXOFetcher {
                 setTimeout(async () => {
                     try {
                         const transactionRecorder = new TransactionRecorder(blockchain, network);
-                        await transactionRecorder.processUTXOsForReceivedTransactions(utxoMap, addressEntries);
+                        await transactionRecorder.processUTXOsForReceivedTransactions(utxoMap, sortedEntries);
                     } catch (error) {
                         // Don't fail the entire UTXO fetch if transaction processing fails
                         console.warn('Transaction processing failed:', error.message);

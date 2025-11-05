@@ -64,16 +64,15 @@ export function CharmsProvider({ children }) {
                 // Enhance cached charms with reference NFT data
                 const enhancedCharms = await charmsExplorerAPI.processCharmsWithReferenceData(cachedCharms);
                 setCharms(enhancedCharms);
-                // Persist corrected/enhanced charms so subsequent reloads (e.g., dashboard) see fixed amounts
+                // Persist enhanced charms to cache
                 try {
                     await saveCharms(enhancedCharms, activeBlockchain, activeNetwork);
                 } catch (e) {
-                    console.warn('[CHARMS] Failed to save enhanced cached charms', e);
+                    // Silent fail
                 }
             }
             setInitialized(true);
         } catch (error) {
-            console.warn('[CHARMS] Failed to load from cache:', error);
             setInitialized(true);
         }
     };
@@ -95,9 +94,7 @@ export function CharmsProvider({ children }) {
             const newCharms = [...prevCharms, ...newCharmsToAdd];
             
             // Save to cache progressively
-            saveCharms(newCharms, activeBlockchain, activeNetwork).catch(e => 
-                console.warn('[CHARMS] Failed to save progressive charms', e)
-            );
+            saveCharms(newCharms, activeBlockchain, activeNetwork).catch(() => {});
             return newCharms;
         });
     };
@@ -112,7 +109,18 @@ export function CharmsProvider({ children }) {
         const sig = `${activeBlockchain}-${activeNetwork}:${txIds.join(',')}`;
         const now = Date.now();
 
-        // If not forcing refresh and we recently fetched the same signature, skip (30s)
+        // Check localStorage for last scan timestamp
+        const CACHE_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds
+        const cacheKey = `charms_last_scan_${activeBlockchain}_${activeNetwork}`;
+        const lastScanTime = localStorage.getItem(cacheKey);
+        const timeSinceLastScan = lastScanTime ? now - parseInt(lastScanTime) : Infinity;
+
+        // If not forcing refresh and we scanned recently (within 1 hour), skip
+        if (!forceRefresh && timeSinceLastScan < CACHE_DURATION) {
+            return;
+        }
+
+        // If not forcing refresh and we recently fetched the same signature, skip (30s - for rapid navigation)
         if (!forceRefresh && lastFetchRef.current.sig === sig && (now - lastFetchRef.current.at) < 30000) {
             return fetchPromiseRef.current || undefined;
         }
@@ -144,13 +152,17 @@ export function CharmsProvider({ children }) {
                 );
                 
             } catch (error) {
-                console.error('[CHARMS] Failed to load charms:', error);
                 setError('Failed to load charms');
             } finally {
                 setIsLoading(false);
                 setLoadingProgress({ current: 0, total: 0 });
-                lastFetchRef.current = { sig, at: Date.now() };
+                const completionTime = Date.now();
+                lastFetchRef.current = { sig, at: completionTime };
                 fetchPromiseRef.current = null;
+                
+                // Update last scan timestamp in localStorage
+                const cacheKey = `charms_last_scan_${activeBlockchain}_${activeNetwork}`;
+                localStorage.setItem(cacheKey, completionTime.toString());
             }
         };
 
@@ -163,7 +175,35 @@ export function CharmsProvider({ children }) {
             // Force refresh to bypass cache and re-enhance amounts
             await loadCharms(true);
             } catch (e) {
-            console.warn('[CHARMS] Refresh failed', e);
+            // Silent fail
+        }
+    };
+
+    /**
+     * Update charms and UTXOs after a transfer
+     * Removes transferred charm and spent UTXOs from cache
+     * @param {Object} transferredCharm - The charm that was transferred
+     * @param {Array} spentUtxoIds - Array of spent UTXO IDs in format "txid:vout"
+     */
+    const updateAfterTransfer = async (transferredCharm, spentUtxoIds = []) => {
+        try {
+            // Remove transferred charm from state and cache
+            setCharms(prevCharms => {
+                const updatedCharms = prevCharms.filter(c => 
+                    !(c.txid === transferredCharm.txid && c.outputIndex === transferredCharm.outputIndex)
+                );
+                
+                // Save updated charms to cache
+                saveCharms(updatedCharms, activeBlockchain, activeNetwork).catch(() => {});
+                
+                return updatedCharms;
+            });
+
+            // Note: UTXO removal is handled by utxoStore.updateAfterTransaction
+            // which should be called from the broadcast component
+            
+        } catch (error) {
+            // Silent fail
         }
     };
 
@@ -183,6 +223,7 @@ export function CharmsProvider({ children }) {
         loadingProgress,
         loadCharms,
         refreshCharms,
+        updateAfterTransfer,
         isNFT,
         getCharmDisplayName
     };

@@ -44,7 +44,6 @@ class CharmsExplorerAPI {
             const response = await fetch(`${this.baseUrl}/reference-nft/${appId}`);
             
             if (!response.ok) {
-                console.warn(`Failed to fetch reference NFT for App ID: ${appId}`);
                 return charmData;
             }
 
@@ -65,7 +64,6 @@ class CharmsExplorerAPI {
             };
 
         } catch (error) {
-            console.error('Error fetching reference NFT data:', error);
             return charmData; // Return original data on error
         }
     }
