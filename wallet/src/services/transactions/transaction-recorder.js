@@ -115,10 +115,8 @@ export class TransactionRecorder {
                     if (this.timestampCache.has(blockHeight)) {
                         blockTime = this.timestampCache.get(blockHeight);
                     } else {
-                        console.log(`[TX Recorder] Fetching block timestamp for height ${blockHeight}...`);
                         blockTime = await mempoolService.getBlockTimestamp(blockHeight, this.network);
                         if (blockTime) {
-                            console.log(`[TX Recorder] Got timestamp ${blockTime} for block ${blockHeight}`);
                             // Cache the result
                             this.timestampCache.set(blockHeight, blockTime);
                         }
@@ -154,7 +152,7 @@ export class TransactionRecorder {
                         fee = txDetails.fee || null;
                     }
                 } catch (error) {
-                    console.warn(`[TX Recorder] Failed to fetch tx details for ${txid}:`, error.message);
+                    // Silent fail - tx details are optional
                 }
 
                 // Create transaction object
