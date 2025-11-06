@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { utxoService } from '@/services/utxo';
-import { getCharms, getBalance, saveBalance, saveUTXOs } from '@/services/storage';
+import { getCharms, getBalance, saveUTXOs } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from './blockchainStore';
 
 const useUTXOStore = create((set, get) => ({
@@ -70,14 +70,15 @@ const useUTXOStore = create((set, get) => ({
                 await saveUTXOs(deduped, blockchain, network);
             }
             
-            // Load balance from cache if available
+            // Load balance from cache if available (unified structure)
             const storedBalance = getBalance(blockchain, network);
             
             if (storedBalance) {
+                // Use new unified structure
                 set({
                     utxos: deduped,
-                    totalBalance: storedBalance.spendable,
-                    pendingBalance: storedBalance.pending,
+                    totalBalance: storedBalance.bitcoin?.spendable || 0,
+                    pendingBalance: storedBalance.bitcoin?.pending || 0,
                     isLoading: false,
                     initialized: true
                 });
@@ -86,8 +87,17 @@ const useUTXOStore = create((set, get) => ({
                 const charms = await getCharms(blockchain, network) || [];
                 const balanceData = utxoService.calculateBalances(deduped, charms);
                 
-                // Save calculated balance to localStorage
-                saveBalance(blockchain, network, balanceData);
+                // Save calculated balance to localStorage (will be converted to unified structure)
+                saveBalance(blockchain, network, {
+                    spendable: balanceData.spendable,
+                    pending: balanceData.pending,
+                    nonSpendable: balanceData.nonSpendable,
+                    utxoCount: Object.values(deduped).reduce((sum, list) => sum + list.length, 0),
+                    charmCount: charms.length,
+                    ordinalCount: 0,
+                    runeCount: 0,
+                    tokens: []
+                });
                 
                 set({
                     utxos: deduped,
@@ -134,19 +144,58 @@ const useUTXOStore = create((set, get) => ({
                 const currentState = get();
                 const updatedUTXOs = { ...currentState.utxos };
 
-                if (progressData.hasUtxos && progressData.utxos.length > 0) {
-                    // Deduplicate by txid:vout to prevent duplicates across refresh cycles
-                    const seen = new Set();
-                    const deduped = [];
-                    for (const utxo of progressData.utxos) {
+                // CRITICAL: Set difference logic
+                // Compare QuickNode UTXOs vs localStorage UTXOs for this address
+                const fromQuickNode = progressData.utxos || [];
+                const fromLocalStorage = updatedUTXOs[progressData.address] || [];
+                
+                console.log(`\n📊 [UTXOStore] ===== PROCESSING ADDRESS: ${progressData.address.slice(0, 15)}... =====`);
+                console.log(`📦 [UTXOStore] QuickNode UTXOs (${fromQuickNode.length}):`, 
+                    fromQuickNode.map(u => `${u.txid.slice(0, 8)}:${u.vout}`));
+                console.log(`💾 [UTXOStore] localStorage UTXOs (${fromLocalStorage.length}):`, 
+                    fromLocalStorage.map(u => `${u.txid.slice(0, 8)}:${u.vout}`));
+                
+                if (fromQuickNode.length > 0) {
+                    // Create a map of QuickNode UTXOs by txid:vout
+                    const quickNodeMap = new Map();
+                    fromQuickNode.forEach(utxo => {
                         const key = `${utxo.txid}:${utxo.vout}`;
-                        if (!seen.has(key)) {
-                            seen.add(key);
-                            deduped.push(utxo);
+                        quickNodeMap.set(key, utxo);
+                    });
+                    
+                    // Keep UTXOs that exist in QuickNode (update or keep existing)
+                    const finalUtxos = [];
+                    const processedKeys = new Set();
+                    
+                    // First: Update existing UTXOs or keep them if they're in QuickNode
+                    fromLocalStorage.forEach(localUtxo => {
+                        const key = `${localUtxo.txid}:${localUtxo.vout}`;
+                        if (quickNodeMap.has(key)) {
+                            // UTXO still exists - use QuickNode data (fresher)
+                            finalUtxos.push(quickNodeMap.get(key));
+                            processedKeys.add(key);
                         }
-                    }
-                    updatedUTXOs[progressData.address] = deduped;
+                        // If not in QuickNode, it's spent - don't add it
+                    });
+                    
+                    // Second: Add new UTXOs from QuickNode that weren't in localStorage
+                    fromQuickNode.forEach(qnUtxo => {
+                        const key = `${qnUtxo.txid}:${qnUtxo.vout}`;
+                        if (!processedKeys.has(key)) {
+                            finalUtxos.push(qnUtxo);
+                        }
+                    });
+                    
+                    updatedUTXOs[progressData.address] = finalUtxos;
+                    
+                    console.log(`✅ [UTXOStore] Final UTXOs (${finalUtxos.length}):`, 
+                        finalUtxos.map(u => `${u.txid.slice(0, 8)}:${u.vout}`));
+                    console.log(`📊 [UTXOStore] Summary - QN: ${fromQuickNode.length}, Local: ${fromLocalStorage.length}, Final: ${finalUtxos.length}`);
                 } else {
+                    // QuickNode returned empty - all UTXOs for this address are spent
+                    if (fromLocalStorage.length > 0) {
+                        console.log(`[UTXOStore] Address ${progressData.address.slice(0, 10)}... - Removing ${fromLocalStorage.length} spent UTXOs`);
+                    }
                     delete updatedUTXOs[progressData.address];
                 }
 
@@ -189,9 +238,8 @@ const useUTXOStore = create((set, get) => ({
             const charms = await getCharms(blockchain, network) || [];
             const balanceData = utxoService.calculateBalances(finalUtxos, charms);
 
-
-            // Save balance to localStorage
-            saveBalance(blockchain, network, balanceData);
+            // Note: Balance is saved by wallet-sync-service.js (unified structure)
+            // This store only updates memory state
 
             set({
                 utxos: finalUtxos,
@@ -225,8 +273,8 @@ const useUTXOStore = create((set, get) => ({
             const charms = await getCharms(blockchain, network) || [];
             const balanceData = utxoService.calculateBalances(updatedUTXOs, charms);
 
-            // Save balance to localStorage
-            saveBalance(blockchain, network, balanceData);
+            // Note: Balance is saved by wallet-sync-service.js after transaction (unified structure)
+            // This store only updates memory state
 
             set({
                 utxos: updatedUTXOs,
@@ -247,8 +295,19 @@ const useUTXOStore = create((set, get) => ({
                 return;
             }
 
+            // Validate that addresses belong to this wallet
+            const { getAddresses } = await import('@/services/storage');
+            const walletAddresses = await getAddresses(blockchain, network);
+            const validAddressSet = new Set(walletAddresses.map(addr => addr.address));
+            
+            const validAddresses = addresses.filter(addr => validAddressSet.has(addr));
+
+            if (validAddresses.length === 0) {
+                return;
+            }
+
             // Fetch UTXOs for specific addresses
-            const newUtxos = await utxoService.getMultipleAddressesUTXOs(addresses, blockchain, network);
+            const newUtxos = await utxoService.getMultipleAddressesUTXOs(validAddresses, blockchain, network);
             
             // Merge with existing UTXOs
             const state = get();
@@ -269,7 +328,9 @@ const useUTXOStore = create((set, get) => ({
             // Recalculate balances
             const charms = await getCharms(blockchain, network) || [];
             const balanceData = utxoService.calculateBalances(updatedUTXOs, charms);
-            saveBalance(blockchain, network, balanceData);
+            
+            // Note: Balance is saved by wallet-sync-service.js (unified structure)
+            // This store only updates memory state
 
             set({
                 utxos: updatedUTXOs,

@@ -157,8 +157,6 @@ export class UTXOCalculations {
         };
     }
 
-    // (Deprecated) calculateSpendableBalance and calculatePendingBalance removed in favor of calculateBalances()
-
     // Get list of spendable UTXOs using the centralized spendability check
     getSpendableUtxos(utxoMap, charms = [], lockedUtxos = null, transactionDataMap = null) {
         const spendableUtxos = {};

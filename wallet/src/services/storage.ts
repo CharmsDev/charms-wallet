@@ -120,13 +120,6 @@ export const addAddress = async (address: AddressEntry, blockchain?: string, net
     return addresses;
 };
 
-export const addMultipleAddresses = async (newAddresses: AddressEntry[], blockchain?: string, network?: string): Promise<AddressEntry[]> => {
-    const addresses = await getAddresses(blockchain, network);
-    addresses.push(...newAddresses);
-    await saveAddresses(addresses, blockchain, network);
-    return addresses;
-};
-
 export const clearAddresses = async (blockchain?: string, network?: string): Promise<void> => {
     const storageKey = getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
     localStorage.removeItem(storageKey);
@@ -141,11 +134,7 @@ export const saveUTXOs = async (utxoMap: UTXOMap, blockchain?: string, network?:
 export const getUTXOs = async (blockchain?: string, network?: string): Promise<UTXOMap> => {
     const storageKey = getStorageKey(STORAGE_KEYS.UTXOS, blockchain, network);
     const stored = localStorage.getItem(storageKey);
-    const result = stored ? JSON.parse(stored) : {};
-    
-    
-    
-    return result;
+    return stored ? JSON.parse(stored) : {};
 };
 
 export const clearUTXOs = async (blockchain?: string, network?: string): Promise<void> => {
@@ -270,14 +259,33 @@ export const getCharms = async (blockchain: string = BLOCKCHAINS.BITCOIN, networ
 };
 
 // Balance storage - centralized balance storage with extended stats
-export interface BalanceData {
-    spendable: number;
-    pending: number;
-    nonSpendable: number;
+// Single localStorage key: "balance" contains all balances for all networks
+export interface TokenBalance {
+    appId: string;
+    ticker: string;
+    name: string;
+    amount: number;
     utxoCount: number;
-    charmCount: number;
-    ordinalCount: number;
-    runeCount: number;
+}
+
+export interface BalanceData {
+    // Bitcoin balances (in satoshis)
+    bitcoin: {
+        spendable: number;
+        pending: number;
+        nonSpendable: number;
+        total: number;
+    };
+    // Counts
+    counts: {
+        utxos: number;
+        charms: number;
+        ordinals: number;
+        runes: number;
+    };
+    // Token balances (BRO, etc.)
+    tokens: TokenBalance[];
+    // Metadata
     timestamp: number;
 }
 
@@ -292,6 +300,7 @@ export const saveBalance = (
         charmCount: number;
         ordinalCount: number;
         runeCount: number;
+        tokens?: TokenBalance[];
     }
 ): void => {
     try {
@@ -302,12 +311,30 @@ export const saveBalance = (
             balances[blockchain] = {};
         }
         
+        // Unified structure
         balances[blockchain][network] = {
-            ...data,
+            bitcoin: {
+                spendable: data.spendable,
+                pending: data.pending,
+                nonSpendable: data.nonSpendable,
+                total: data.spendable + data.pending + data.nonSpendable
+            },
+            counts: {
+                utxos: data.utxoCount,
+                charms: data.charmCount,
+                ordinals: data.ordinalCount,
+                runes: data.runeCount
+            },
+            tokens: data.tokens || [],
             timestamp: Date.now()
         };
         
         localStorage.setItem(STORAGE_KEYS.BALANCE, JSON.stringify(balances));
+        console.log(`💾 [Storage.saveBalance] Saved unified balance to localStorage key: "${STORAGE_KEYS.BALANCE}"`);
+        console.log(`   └─ Path: ${blockchain} → ${network}`);
+        console.log(`   └─ Bitcoin: ${data.spendable} sats (spendable)`);
+        console.log(`   └─ Tokens: ${data.tokens?.length || 0} types`);
+        console.log(`   └─ Full localStorage value:`, JSON.stringify(balances, null, 2));
     } catch (error) {
         console.error('Failed to save balance:', error);
     }
@@ -316,10 +343,25 @@ export const saveBalance = (
 export const getBalance = (blockchain: string, network: string): BalanceData | null => {
     try {
         const stored = localStorage.getItem(STORAGE_KEYS.BALANCE);
-        if (!stored) return null;
+        console.log(`📖 [Storage.getBalance] Reading from localStorage key: "${STORAGE_KEYS.BALANCE}"`);
+        console.log(`   └─ Requested: ${blockchain} → ${network}`);
+        
+        if (!stored) {
+            console.log(`   └─ No data found in localStorage`);
+            return null;
+        }
         
         const balances = JSON.parse(stored);
-        return balances[blockchain]?.[network] || null;
+        const result = balances[blockchain]?.[network] || null;
+        
+        console.log(`   └─ Found data:`, result ? 'YES' : 'NO');
+        if (result) {
+            console.log(`   └─ Bitcoin: ${result.bitcoin?.spendable || 0} sats`);
+            console.log(`   └─ Tokens: ${result.tokens?.length || 0} types`);
+            console.log(`   └─ Full data:`, JSON.stringify(result, null, 2));
+        }
+        
+        return result;
     } catch (error) {
         console.error('Failed to get balance:', error);
         return null;

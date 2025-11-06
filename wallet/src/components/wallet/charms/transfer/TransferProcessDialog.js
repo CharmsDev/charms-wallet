@@ -35,35 +35,51 @@ export default function TransferProcessDialog({
     const { activeNetwork, activeBlockchain } = useBlockchain();
     const { addresses: walletAddresses } = useAddresses();
 
-    const { selectedCharmUtxos, fundingUtxo, spellJson, changeAddress } = confirmData;
+    const { selectedCharmUtxos, fundingUtxo, spellJson, changeAddress, inputSigningMap } = confirmData;
+    
+    console.log('🔐 [TransferProcess] Received inputSigningMap:', inputSigningMap);
 
     const executeTransfer = async () => {
         try {
             // PHASE 1: PROVING
             setCurrentPhase('proving');
             
+            console.log('🔐 [TransferProcess] Starting PROVING phase...');
+            console.log('🔐 [TransferProcess] Funding UTXO:', fundingUtxo);
+            
             const proverResult = await proverService.proveTransfer(
                 spellJson,
                 fundingUtxo,
                 activeNetwork,
-                1 // fee rate
+                10 // fee rate (sats/vB) - increased from 1 to ensure sufficient fees
             );
 
+            console.log('🔐 [TransferProcess] PROVING complete');
             const { commit_tx, spell_tx } = proverResult.transactions;
+            console.log('🔐 [TransferProcess] Got commit_tx and spell_tx from prover');
 
             // PHASE 2: SIGNING
             setCurrentPhase('signing');
+            
+            console.log('🔐 [TransferProcess] Calling signCommitTransaction with inputSigningMap');
+            
             const signedCommit = await signCommitTransaction(
                 commit_tx,
-                activeNetwork
+                activeNetwork,
+                inputSigningMap  // Pass the signing map
             );
 
+            console.log('🔐 [TransferProcess] Calling signSpellTransaction with inputSigningMap:', inputSigningMap);
+            
             const signedSpell = await signSpellTransaction(
                 spell_tx,
                 commit_tx,
                 seedPhrase,
-                activeNetwork
+                activeNetwork,
+                inputSigningMap  // Pass the signing map
             );
+            
+            console.log('🔐 [TransferProcess] signSpellTransaction completed');
 
             // PHASE 3: BROADCASTING
             setCurrentPhase('broadcasting');
@@ -81,10 +97,39 @@ export default function TransferProcessDialog({
             setCommitTxId(broadcastResult.commitData.txid);
             setSpellTxId(broadcastResult.spellData.txid);
 
-            // Remove spent charm UTXOs from store
+            console.log('🧹 [Transfer] Removing spent UTXOs from stores...');
+            
+            // Remove spent charm UTXOs from BOTH stores (charms + utxos)
+            const { useUTXOStore } = await import('@/stores/utxoStore');
+            const updateAfterTransaction = useUTXOStore.getState().updateAfterTransaction;
+            
+            // Prepare spent UTXOs for removal
+            const spentUtxosForRemoval = selectedCharmUtxos.map(utxo => ({
+                txid: utxo.txid,
+                vout: utxo.outputIndex || utxo.vout,
+                address: utxo.address
+            }));
+            
+            // Also include funding UTXO if it was spent
+            if (fundingUtxo) {
+                spentUtxosForRemoval.push({
+                    txid: fundingUtxo.txid,
+                    vout: fundingUtxo.vout,
+                    address: fundingUtxo.address
+                });
+            }
+            
+            console.log('🧹 [Transfer] Spent UTXOs to remove:', spentUtxosForRemoval);
+            
+            // Remove from UTXO store (this will also update balances)
+            await updateAfterTransaction(spentUtxosForRemoval, {}, 'bitcoin', activeNetwork);
+            
+            // Remove from Charms store
             for (const spentUtxo of selectedCharmUtxos) {
                 await updateAfterTransfer(spentUtxo);
             }
+            
+            console.log('🧹 [Transfer] Spent UTXOs removed successfully');
 
             // UNIFIED POST-TRANSFER SYNC
             // Sync UTXOs and Charms for all involved addresses

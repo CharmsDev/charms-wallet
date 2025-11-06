@@ -17,7 +17,9 @@ const ECPair = ECPairFactory(ecc);
 const bip32 = BIP32Factory(ecc);
 
 // Signs a Bitcoin Taproot (P2TR) transaction with derived keys
-export async function signCommitTransaction(unsignedTxHex, network, logCallback) {
+export async function signCommitTransaction(unsignedTxHex, network, inputSigningMap = null, logCallback) {
+    console.log('🔐 [signCommitTx] ===== FUNCTION CALLED =====');
+    console.log('🔐 [signCommitTx] inputSigningMap:', inputSigningMap);
 
     // Initialize transaction
     if (!unsignedTxHex) {
@@ -36,9 +38,20 @@ export async function signCommitTransaction(unsignedTxHex, network, logCallback)
     try {
         // Identify UTXO address
         const { utxoTxId: inputTxid, utxoVout: inputVout, utxoSequence } = txDetails;
+        
+        console.log(`🔐 [signCommitTx] Processing funding UTXO: ${inputTxid}:${inputVout}`);
 
-        // Find address for the input UTXO (pass network parameter)
-        const addressInfo = await findAddressForUTXO(inputTxid, inputVout, network);
+        // Use inputSigningMap if provided, otherwise fallback to findAddressForUTXO
+        const utxoKey = `${inputTxid}:${inputVout}`;
+        let addressInfo = null;
+        
+        if (inputSigningMap && inputSigningMap[utxoKey]) {
+            addressInfo = inputSigningMap[utxoKey];
+            console.log(`🔐 [signCommitTx] ✅ Using inputSigningMap for ${utxoKey} -> ${addressInfo.address}`);
+        } else {
+            console.log(`🔐 [signCommitTx] ⚠️ inputSigningMap not found for ${utxoKey}, using findAddressForUTXO`);
+            addressInfo = await findAddressForUTXO(inputTxid, inputVout, network);
+        }
         
         if (!addressInfo)
             throw new Error(`Could not find address for UTXO: ${inputTxid}:${inputVout}`);

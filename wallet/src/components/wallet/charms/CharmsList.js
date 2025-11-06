@@ -143,16 +143,16 @@ export default function CharmsList() {
                 ) : (
                     <div>
                         {/* Show loading progress when charms are being loaded */}
-                        {isLoading && loadingProgress && (
+                        {isLoading && syncProgress.total > 0 && (
                             <div className="mb-4 p-3 bg-dark-800/50 rounded-lg border border-primary-500/20">
                                 <div className="flex items-center justify-between text-sm text-dark-300 mb-2">
                                     <span>🔄 {charms.length === 0 ? 'Scanning transactions for charms...' : 'Scanning more transactions...'}</span>
-                                    <span>{loadingProgress.current}/{loadingProgress.total}</span>
+                                    <span>{syncProgress.current}/{syncProgress.total}</span>
                                 </div>
                                 <div className="bg-dark-700 rounded-full h-1.5">
                                     <div 
                                         className="bg-primary-500 h-1.5 rounded-full transition-all duration-300"
-                                        style={{ width: `${(loadingProgress.current / loadingProgress.total) * 100}%` }}
+                                        style={{ width: `${(syncProgress.current / syncProgress.total) * 100}%` }}
                                     ></div>
                                 </div>
                             </div>

@@ -6,6 +6,7 @@ import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useWallet } from '@/stores/walletStore';
 import { useCharms } from '@/stores/charmsStore';
+import { useWalletSync } from '@/hooks/useWalletSync';
 import config from '@/config';
 import { utxoService } from '@/services/utxo';
 import { utxoCalculations } from '@/services/utxo/utils/calculations';
@@ -35,12 +36,13 @@ export default function UTXOList() {
         totalBalance,
         refreshProgress,
         loadUTXOs,
-        refreshUTXOs,
         updateAfterTransaction,
         formatValue,
         initialized,
         cancelUTXORefresh
     } = useUTXOs();
+    
+    const { syncUTXOs, isSyncing } = useWalletSync();
     
     // Progressive refresh state
     const [refreshOffset, setRefreshOffset] = useState(0);
@@ -76,13 +78,13 @@ export default function UTXOList() {
         loadUTXOs(activeBlockchain, activeNetwork);
     }, [activeBlockchain, activeNetwork, loadUTXOs]);
 
-    // Auto-refresh UTXOs on component mount for regtest/cardano
+    // Auto-refresh on mount for regtest (development) or Cardano
     useEffect(() => {
         // Only auto-refresh if we have addresses and UTXOs are already loaded
         if (addresses.length > 0 && initialized && (config.bitcoin.isRegtest() || isCardano())) {
-            refreshUTXOs(activeBlockchain, activeNetwork, 24, 0); // Start with first 24 addresses
+            syncUTXOs(); // Scan all addresses
         }
-    }, [addresses, initialized, activeBlockchain, activeNetwork, refreshUTXOs, isCardano]);
+    }, [addresses, initialized, activeBlockchain, activeNetwork, syncUTXOs, isCardano]);
 
     // Compute flattened and sorted UTXOs using useMemo for performance
     const flattenedUtxos = useMemo(() => {
@@ -119,11 +121,7 @@ export default function UTXOList() {
     // Derive confirmed UTXOs from the flattened list
     const confirmedUtxos = useMemo(() => {
         return flattenedUtxos.filter(utxo => {
-            // Handle UTXOs that might not have status property (legacy data)
-            if (!utxo.status) {
-                // Assume confirmed if no status (legacy UTXOs)
-                return true;
-            }
+            if (!utxo.status) return true;
             return utxo.status.confirmed;
         });
     }, [flattenedUtxos]);
@@ -138,43 +136,8 @@ export default function UTXOList() {
     };
 
     const handleRefresh = async () => {
-        if (isProgressiveRefresh) {
-            // Continue progressive refresh
-            const newOffset = refreshOffset + 24;
-            await refreshUTXOs(activeBlockchain, activeNetwork, 24, refreshOffset);
-            
-            // Update offset after refresh completes
-            setRefreshOffset(newOffset);
-            
-            // Check if we've scanned all addresses
-            if (newOffset >= totalAddressesToScan) {
-                setIsProgressiveRefresh(false);
-                setRefreshOffset(0);
-            }
-        } else {
-            // Start progressive refresh
-            // Get total addresses count first
-            const { getAddresses } = await import('@/services/storage');
-            const addressEntries = await getAddresses(activeBlockchain, activeNetwork);
-            const totalAddresses = addressEntries
-                .filter(entry => !entry.blockchain || entry.blockchain === activeBlockchain)
-                .length;
-            
-            setTotalAddressesToScan(totalAddresses);
-            setIsProgressiveRefresh(true);
-            
-            // Start with first 24 addresses
-            await refreshUTXOs(activeBlockchain, activeNetwork, 24, 0);
-            
-            // Update offset after first batch completes
-            setRefreshOffset(24);
-            
-            // If we have 24 or fewer addresses total, finish immediately
-            if (totalAddresses <= 24) {
-                setIsProgressiveRefresh(false);
-                setRefreshOffset(0);
-            }
-        }
+        // Use unified sync service (UTXO-only, no charms) - scans all addresses
+        await syncUTXOs();
     };
 
     const handleOpenSendDialog = () => {
@@ -192,7 +155,8 @@ export default function UTXOList() {
                 );
             }
         } catch (error) {
-            refreshUTXOs(activeBlockchain, activeNetwork, 24, 0); // Start with first 24 addresses
+            // Refresh UTXOs on error
+            await syncUTXOs();
         }
     };
 

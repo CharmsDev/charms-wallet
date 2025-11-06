@@ -86,36 +86,68 @@ export default function TransferConfirmDialog({
 
             setSelectedCharmUtxos(charmUtxosToUse);
 
-            // Step 2: Find funding UTXO (Bitcoin)
+            // Step 2: Estimate fees BEFORE selecting funding UTXO
+            // Fee rate in sat/vB
+            const FEE_RATE = 10;
+            
+            // Estimate transaction size:
+            // - Base tx overhead: ~10 bytes
+            // - Each input: ~180 bytes (P2TR with witness)
+            // - Each output: ~43 bytes (P2TR)
+            // Commit tx: 1 funding input + 1 output = ~233 bytes
+            // Spell tx: N charm inputs + 1 funding input + outputs = ~(180*N + 180 + 43*outputs)
+            const numCharmInputs = charmUtxosToUse.length;
+            const estimatedCommitSize = 233; // bytes
+            const estimatedSpellSize = 180 * numCharmInputs + 180 + 43 * 3; // 3 outputs typical
+            const totalEstimatedSize = estimatedCommitSize + estimatedSpellSize;
+            const estimatedFees = Math.ceil(totalEstimatedSize * FEE_RATE);
+            
+            // Add 20% safety margin
+            const requiredFundingSats = Math.ceil(estimatedFees * 1.2);
+            
+            console.log('💰 [TransferConfirm] Fee estimation:');
+            console.log(`   └─ Fee rate: ${FEE_RATE} sat/vB`);
+            console.log(`   └─ Charm inputs: ${numCharmInputs}`);
+            console.log(`   └─ Estimated commit tx size: ${estimatedCommitSize} bytes`);
+            console.log(`   └─ Estimated spell tx size: ${estimatedSpellSize} bytes`);
+            console.log(`   └─ Total estimated size: ${totalEstimatedSize} bytes`);
+            console.log(`   └─ Estimated fees: ${estimatedFees} sats`);
+            console.log(`   └─ Required funding (with 20% margin): ${requiredFundingSats} sats`);
+
+            // Step 3: Find funding UTXO (Bitcoin) - always select the biggest one with sufficient funds
             let selectedFundingUtxo = null;
             let maxValue = 0;
 
-            // TEMPORARY: Exclude problematic UTXO
-            const excludedUtxo = '3445c9c0a2e9145a09dcbcd7dda4b9c206990301236c854da5cab7305d4a32c0:2';
+            console.log('🔐 [TransferConfirm] Searching for funding UTXO...');
+            console.log('🔐 [TransferConfirm] Available UTXO addresses:', Object.keys(utxos));
 
             for (const [address, addressUtxos] of Object.entries(utxos)) {
                 for (const utxo of addressUtxos) {
-                    const utxoId = `${utxo.txid}:${utxo.vout}`;
-                    
-                    // Skip excluded UTXO
-                    if (utxoId === excludedUtxo) {
-                        continue;
-                    }
-                    
-                    if (utxo.value > maxValue && utxo.value >= MIN_FUNDING_UTXO_SATS) {
+                    // Always select the biggest UTXO that meets the minimum requirement
+                    if (utxo.value > maxValue && utxo.value >= requiredFundingSats) {
                         maxValue = utxo.value;
                         selectedFundingUtxo = {
                             txid: utxo.txid,
                             vout: utxo.vout,
                             value: utxo.value,
-                            address
+                            address  // This comes from the utxos object key
                         };
+                        console.log(`🔐 [TransferConfirm] Candidate funding UTXO: ${utxo.txid}:${utxo.vout} from address: ${address}, value: ${utxo.value} sats`);
                     }
                 }
             }
+            
+            if (selectedFundingUtxo) {
+                console.log(`✅ [TransferConfirm] Selected LARGEST funding UTXO: ${selectedFundingUtxo.txid}:${selectedFundingUtxo.vout}, value: ${selectedFundingUtxo.value} sats`);
+            }
 
             if (!selectedFundingUtxo) {
-                throw new Error(`No suitable funding UTXO found. Need at least ${MIN_FUNDING_UTXO_SATS} sats.`);
+                throw new Error(
+                    `No suitable funding UTXO found.\n\n` +
+                    `Required: ${requiredFundingSats} sats (estimated fees: ${estimatedFees} sats + 20% margin)\n` +
+                    `Fee rate: ${FEE_RATE} sat/vB\n\n` +
+                    `Please ensure you have a Bitcoin UTXO with at least ${requiredFundingSats} sats to cover transaction fees.`
+                );
             }
 
             setFundingUtxo(selectedFundingUtxo);
@@ -155,11 +187,56 @@ export default function TransferConfirmDialog({
             return;
         }
 
+        // Create input signing map: txid:vout -> addressInfo
+        const inputSigningMap = {};
+        
+        console.log('🔐 [TransferConfirm] Creating inputSigningMap...');
+        
+        // Add charm UTXOs to map
+        for (const utxo of selectedCharmUtxos) {
+            const key = `${utxo.txid}:${utxo.outputIndex}`;
+            const addressEntry = addresses.find(addr => addr.address === utxo.address);
+            inputSigningMap[key] = {
+                address: utxo.address,
+                index: addressEntry?.index || 0,
+                isChange: addressEntry?.isChange || false
+            };
+            console.log(`🔐 [TransferConfirm] Added charm UTXO: ${key} -> ${utxo.address}`);
+        }
+        
+        // Add funding UTXO to map
+        if (fundingUtxo) {
+            const key = `${fundingUtxo.txid}:${fundingUtxo.vout}`;
+            const addressEntry = addresses.find(addr => addr.address === fundingUtxo.address);
+            
+            console.log(`🔐 [TransferConfirm] Funding UTXO address: ${fundingUtxo.address}`);
+            console.log(`🔐 [TransferConfirm] Address found in wallet:`, addressEntry);
+            
+            if (!addressEntry) {
+                console.error(`🔐 [TransferConfirm] ⚠️ WARNING: Funding UTXO address NOT FOUND in wallet addresses!`);
+                console.log(`🔐 [TransferConfirm] Available addresses:`, addresses.map(a => a.address));
+            }
+            
+            inputSigningMap[key] = {
+                address: fundingUtxo.address,
+                index: addressEntry?.index || 0,
+                isChange: addressEntry?.isChange || false
+            };
+            console.log(`🔐 [TransferConfirm] Added funding UTXO: ${key} -> ${fundingUtxo.address} (index: ${addressEntry?.index || 0})`);
+        }
+        
+        console.log('🔐 [TransferConfirm] inputSigningMap complete:', inputSigningMap);
+        console.log('🔐 [TransferConfirm] inputSigningMap details:');
+        Object.entries(inputSigningMap).forEach(([key, value]) => {
+            console.log(`  ${key} -> address: ${value.address}, index: ${value.index}, isChange: ${value.isChange}`);
+        });
+
         onConfirm({
             selectedCharmUtxos,
             fundingUtxo,
             spellJson,
-            changeAddress
+            changeAddress,
+            inputSigningMap  // NEW: Map of inputs to sign
         });
     };
 

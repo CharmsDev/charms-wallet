@@ -60,10 +60,9 @@ export class CharmUtxoSelector {
     }
 
     /**
-     * Get amount from a charm UTXO (handles different formats)
+     * Get amount from a charm UTXO
      * @param {Object} utxo - Charm UTXO object
      * @returns {number} Amount in smallest units
-     * @deprecated Use getCharmUtxoAmount from charm-utils instead
      */
     getUtxoAmount(utxo) {
         return getCharmUtxoAmount(utxo);

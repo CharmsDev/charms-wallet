@@ -17,6 +17,7 @@ import SendBitcoinDialog from '../utxos/SendBitcoinDialog';
 import ReceiveBitcoinDialog from './components/ReceiveBitcoinDialog';
 import SettingsDialog from './components/SettingsDialog';
 import BroMintingBanner from './components/BroMintingBanner';
+import { useWalletSync } from '@/hooks/useWalletSync';
 
 export default function UserDashboard({ seedPhrase, walletInfo, derivationLoading, createSuccess }) {
     const [showSendDialog, setShowSendDialog] = useState(false);
@@ -24,13 +25,20 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     const [showSettingsDialog, setShowSettingsDialog] = useState(false);
     const [btcPrice, setBtcPrice] = useState(null);
     const [priceLoading, setPriceLoading] = useState(true);
-    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const { hasWallet } = useWallet();
-    const { utxos, totalBalance, pendingBalance, isLoading: utxosLoading, loadUTXOs, refreshUTXOs, refreshProgress } = useUTXOs();
-    const { charms, isLoading: charmsLoading, loadCharms, refreshCharms } = useCharms();
+    const { utxos, totalBalance, pendingBalance, isLoading: utxosLoading, loadUTXOs } = useUTXOs();
+    const { charms, isLoading: charmsLoading } = useCharms();
     const { addresses, isLoading: addressesLoading, loadAddresses } = useAddresses();
     const { activeBlockchain, activeNetwork } = useBlockchain();
+    const { syncFullWallet, isSyncing: isRefreshing, syncProgress } = useWalletSync();
+    
+    // Convert syncProgress to refreshProgress format for BalanceDisplay
+    const refreshProgress = {
+        processed: syncProgress.current,
+        total: syncProgress.total,
+        isRefreshing: isRefreshing && syncProgress.phase === 'utxos'
+    };
 
     // Load data on component mount and network changes
     useEffect(() => {
@@ -84,9 +92,9 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     };
 
     /**
-     * OPTIMIZED DASHBOARD REFRESH SEQUENCE
+     * UNIFIED DASHBOARD REFRESH
      * 
-     * This function implements a sequential refresh strategy to ensure data consistency:
+     * Uses the new wallet sync service to ensure data consistency:
      * 
      * 1. UTXOs FIRST (24 addresses = 12 indices × 2 types)
      *    - Scans first 12 receive addresses (m/86'/0'/0'/0/0 to m/86'/0'/0'/0/11)
@@ -94,17 +102,18 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
      *    - Updates balance in real-time during scan
      *    - Deduplicates UTXOs by txid:vout
      * 
-     * 2. ADDRESSES SECOND
-     *    - Refreshes address list for current network
-     *    - Ensures UI has latest address data
-     * 
-     * 3. CHARMS LAST (with force refresh)
-     *    - Uses refreshCharms() instead of loadCharms() to bypass cache
+     * 2. CHARMS SECOND (based on updated UTXOs)
      *    - Processes ALL UTXOs detected in step 1 for charm detection
+     *    - Filters out spent charms automatically
      *    - Recalculates BRO token balance with latest data
      *    - Updates charm cache for faster subsequent loads
      * 
+     * 3. ADDRESSES LAST
+     *    - Refreshes address list for current network
+     *    - Ensures UI has latest address data
+     * 
      * BENEFITS:
+     * - Single source of truth (wallet-sync-service)
      * - Guarantees charms use the most recent UTXO data
      * - Prevents race conditions between UTXO and charm updates
      * - Ensures BRO balance reflects all detected tokens
@@ -112,16 +121,15 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
      */
     const handleRefresh = async () => {
         if (isRefreshing) return;
-        setIsRefreshing(true);
+        
         try {
-            // Sequential refresh to ensure charms use updated UTXOs
-            await refreshUTXOs(activeBlockchain, activeNetwork, 24); // 12 indices = 24 addresses (receive + change)
+            // Use unified sync service - scans all addresses
+            await syncFullWallet();
+            
+            // Refresh addresses (non-critical)
             await loadAddresses(activeBlockchain, activeNetwork);
-            await refreshCharms(); // Force refresh to bypass cache and use updated UTXOs
         } catch (error) {
             console.error("Failed to refresh wallet data:", error);
-        } finally {
-            setIsRefreshing(false);
         }
     };
 

@@ -27,7 +27,7 @@ class CharmsService {
      * @param network - Bitcoin network (mainnet or testnet4)
      * @returns Array of validated CharmObj instances
      */
-    async getCharmsByUTXOs(utxos: UTXOMap, network: 'mainnet' | 'testnet4' = 'testnet4'): Promise<CharmObj[]> {
+    async getCharmsByUTXOs(utxos: UTXOMap, network: 'mainnet' | 'testnet4'): Promise<CharmObj[]> {
         try {
             // Get all unique transaction IDs
             const txIds = Array.from(new Set(
@@ -77,7 +77,7 @@ class CharmsService {
      */
     async getCharmsByUTXOsProgressive(
         utxos: UTXOMap, 
-        network: 'mainnet' | 'testnet4' = 'testnet4',
+        network: 'mainnet' | 'testnet4',
         onCharmFound: (charm: CharmObj) => Promise<void>,
         onProgress: (current: number, total: number) => void
     ): Promise<void> {
@@ -90,6 +90,10 @@ class CharmsService {
             if (txIds.length === 0) {
                 return;
             }
+
+            // Only check charms for addresses with current UTXOs
+            // This ensures we only save charms that still exist (not spent)
+            const walletAddresses = new Set(Object.keys(utxos));
 
             // Process each unique transaction progressively
             for (let i = 0; i < txIds.length; i++) {
@@ -107,16 +111,48 @@ class CharmsService {
                     const result = await extractAndVerifySpell(txHex, network);
                     
                     if (result.success && result.charms.length > 0) {
-                        // Process each charm individually for progressive display
                         for (const charm of result.charms) {
-                            // Ensure required fields are set
                             charm.txid = txId;
                             
                             if (charm.outputIndex === undefined || charm.outputIndex === null) {
                                 continue;
                             }
                             
-                            await onCharmFound(charm);
+                            console.log('🔍 [SCAN] RAW charm from charms-js:', {
+                                txid: charm.txid,
+                                outputIndex: charm.outputIndex,
+                                address: charm.address
+                            });
+                            
+                            // Use address from charms.js (it's the correct UTXO address)
+                            if (charm.address && walletAddresses.has(charm.address)) {
+                                // CRITICAL: Verify UTXO exists (not spent)
+                                const utxosForAddress = utxos[charm.address] || [];
+                                const utxoExists = utxosForAddress.some(u => 
+                                    u.txid === charm.txid && u.vout === charm.outputIndex
+                                );
+                                
+                                if (utxoExists) {
+                                    console.log('🔍 [SCAN] Saving charm:', {
+                                        txid: charm.txid,
+                                        outputIndex: charm.outputIndex,
+                                        address: charm.address
+                                    });
+                                    await onCharmFound(charm);
+                                    console.log('🔍 [SCAN] Charm saved successfully');
+                                } else {
+                                    console.log('🔍 [SCAN] Charm skipped (UTXO spent):', {
+                                        txid: charm.txid,
+                                        outputIndex: charm.outputIndex,
+                                        address: charm.address
+                                    });
+                                }
+                            } else {
+                                console.log('🔍 [SCAN] Charm skipped (not owned):', {
+                                    address: charm.address,
+                                    inWallet: walletAddresses.has(charm.address)
+                                });
+                            }
                         }
                     }
                     

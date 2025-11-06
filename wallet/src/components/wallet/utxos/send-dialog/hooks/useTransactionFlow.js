@@ -64,6 +64,9 @@ export function useTransactionFlow(formState, onClose) {
                 addressUtxos.map(utxo => ({ ...utxo, address }))
             );
             
+            console.log('💰 [SendBitcoin] Total UTXOs:', Object.values(utxos).flat().length);
+            console.log('💰 [SendBitcoin] Spendable UTXOs (after filtering):', allUtxos.length);
+            console.log('💰 [SendBitcoin] Protected charms:', charms.length);
             
             if (allUtxos.length === 0) {
                 const error = 'No spendable UTXOs available. All UTXOs are either charms or reserved (1000 sats).';

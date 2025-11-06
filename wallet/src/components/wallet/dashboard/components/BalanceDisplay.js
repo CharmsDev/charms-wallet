@@ -9,7 +9,7 @@ import { useBlockchain } from '@/stores/blockchainStore';
 export default function BalanceDisplay({ balance, pendingBalance, btcPrice, priceLoading, isLoading, network, onRefresh, isRefreshing, refreshProgress }) {
     const [showUSD, setShowUSD] = useState(false);
     const [trend, setTrend] = useState(null);
-    const { charms, loadCharms, isLoading: charmsLoading, initialized } = useCharms();
+    const { charms, getTotalByAppId, isLoading: charmsLoading } = useCharms();
     const { activeBlockchain, activeNetwork } = useBlockchain();
 
     // Format balance in BTC
@@ -31,53 +31,21 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
         }).format(fiatValue);
     };
 
-    // Memoize BRO token balance calculation to prevent redundant processing
+    // UNIFIED BRO token balance calculation using store function
+    // This ensures consistency with Charms tab and other components
     const broBalance = useMemo(() => {
-        
-        // Sum BRO tokens strictly by exact App ID (or flagged by service)
         const targetId = getBroTokenAppId();
-        const broCharms = charms.filter(charm => {
-            const appId = charm.appId || charm.id || charm.amount?.appId;
-            return charm.isBroToken === true || appId === targetId;
-        });
-        
-        const totalBalance = broCharms.reduce((total, charm) => {
-            let charmBalance = 0;
-            
-            // Use displayAmount directly - it's already properly converted
-            if (charm.displayAmount) {
-                charmBalance = parseFloat(charm.displayAmount);
-            } else if (charm.amount?.remaining) {
-                const remainingValue = parseFloat(charm.amount.remaining);
-                if (remainingValue > 1000) {
-                    // Large raw number needs conversion
-                    charmBalance = remainingValue / Math.pow(10, 8);
-                } else {
-                    // Already converted
-                    charmBalance = remainingValue;
-                }
-            }
-            
-            return total + charmBalance;
-        }, 0);
-        
-        return totalBalance;
-    }, [charms]); // Only recalculate when charms array changes
+        const balance = getTotalByAppId(targetId);
+        console.log(`🎯 [BalanceDisplay] BRO Balance Calculation:`);
+        console.log(`   └─ Target AppId: ${targetId}`);
+        console.log(`   └─ Total Charms in Store: ${charms.length}`);
+        console.log(`   └─ Calculated Balance: ${balance}`);
+        console.log(`   └─ Charms:`, charms.map(c => `${c.txid?.slice(0,8)}:${c.outputIndex} (${c.amount || 'N/A'})`));
+        return balance;
+    }, [charms, getTotalByAppId]); // Recalculate when charms change
 
-    // Load charms when wallet is initialized or network changes
-    useEffect(() => {
-        if (activeBlockchain && activeNetwork && initialized && !charmsLoading) {
-            if (charms.length === 0) {
-                loadCharms();
-            }
-        }
-    }, [activeBlockchain, activeNetwork, initialized, charmsLoading, charms.length]);
-
-    // Force balance recalculation when charms change
-    useEffect(() => {
-        if (charms.length > 0) {
-        }
-    }, [charms]);
+    // Charms are now auto-initialized by useCharms hook
+    // No manual loading needed
 
     useEffect(() => {
         if (btcPrice && !priceLoading) {

@@ -106,7 +106,7 @@ const useTransactionStore = create((set, get) => ({
         }
     },
 
-    // Add or update a transaction (legacy method for backward compatibility)
+    // Add or update a transaction
     addTransaction: async (transaction, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
             const updatedTransactions = await addTransactionToStorage(transaction, blockchain, network);

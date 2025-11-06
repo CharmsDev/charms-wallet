@@ -8,30 +8,29 @@ export default function PortfolioSummary({ utxos, charms, addresses, isLoading }
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const [balanceData, setBalanceData] = useState(null);
 
-    // Load balance data from localStorage
+    // Load balance data from localStorage (unified structure)
     useEffect(() => {
         const data = getBalance(activeBlockchain, activeNetwork);
         setBalanceData(data);
     }, [activeBlockchain, activeNetwork, utxos, charms]); // Reload when UTXOs or charms change
 
-    // Calculate portfolio statistics
+    // Calculate portfolio statistics from unified structure
     const getPortfolioStats = () => {
-        const charmsCount = charms?.length || 0;
-        
         if (balanceData) {
             return {
-                spendable: balanceData.spendable || 0,
-                pending: balanceData.pending || 0,
-                nonSpendable: balanceData.nonSpendable || 0,
-                utxoCount: balanceData.utxoCount || 0,
-                charmsCount: charmsCount,
-                ordinalCount: balanceData.ordinalCount || 0,
-                runeCount: balanceData.runeCount || 0
+                spendable: balanceData.bitcoin?.spendable || 0,
+                pending: balanceData.bitcoin?.pending || 0,
+                nonSpendable: balanceData.bitcoin?.nonSpendable || 0,
+                utxoCount: balanceData.counts?.utxos || 0,
+                charmsCount: balanceData.counts?.charms || 0,
+                ordinalCount: balanceData.counts?.ordinals || 0,
+                runeCount: balanceData.counts?.runes || 0
             };
         }
         
         // Fallback calculation if balance not cached
         const utxoCount = Object.keys(utxos || {}).length;
+        const charmsCount = charms?.length || 0;
         
         return {
             spendable: 0,
