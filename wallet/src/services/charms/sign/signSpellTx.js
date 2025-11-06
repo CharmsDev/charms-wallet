@@ -65,6 +65,7 @@ export async function signSpellTransaction(
 
             // Identify wallet-owned UTXOs (pass network parameter)
             const addressInfo = await findAddressForUTXO(rawTxid, vout, network);
+            
             if (addressInfo) {
                 const path = getDerivationPath(addressInfo, network, 'bitcoin');
                 const child = root.derivePath(path);

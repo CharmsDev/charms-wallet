@@ -29,7 +29,7 @@ export class PayloadGenerator {
                 spell = spellData;
             }
 
-            // Fetch previous transactions (charm input transaction)
+            // Fetch previous transactions (charm inputs only)
             const prev_txs = await this._fetchPrevTxs(spell, network);
 
             // Prepare funding UTXO data
@@ -70,38 +70,43 @@ export class PayloadGenerator {
      */
     async _fetchPrevTxs(spell, network) {
         const prev_txs = [];
+        const txidsSet = new Set();
 
-        // Find the input that contains a charm
-        let txid = null;
-        let charmInputFound = false;
-        
+        // Extract transaction IDs from charm inputs only
         if (spell.ins && spell.ins.length > 0) {
             for (const input of spell.ins) {
                 if (input.charms && Object.keys(input.charms).length > 0) {
-                    // Extract transaction ID
                     if (input.utxo_id) {
-                        txid = input.utxo_id.split(':')[0];
-                        charmInputFound = true;
-                        break;
+                        const txid = input.utxo_id.split(':')[0];
+                        txidsSet.add(txid);
                     }
                 }
             }
         }
 
-        if (!charmInputFound) {
+        if (txidsSet.size === 0) {
             return prev_txs;
         }
 
-        // Fetch raw transaction data
-        try {
-            const txHex = await bitcoinApiRouter.getTransactionHex(txid, network);
-            
+        // Fetch raw transaction data for ALL unique txids
+        const fetchPromises = Array.from(txidsSet).map(async (txid) => {
+            try {
+                const txHex = await bitcoinApiRouter.getTransactionHex(txid, network);
+                return txHex;
+            } catch (error) {
+                console.error(`Failed to fetch transaction ${txid}:`, error);
+                return null;
+            }
+        });
+
+        const results = await Promise.all(fetchPromises);
+        
+        // Add all successfully fetched transactions
+        results.forEach(txHex => {
             if (txHex) {
                 prev_txs.push(txHex);
             }
-        } catch (error) {
-            // Don't throw - let the prover handle missing prev_txs
-        }
+        });
 
         return prev_txs;
     }

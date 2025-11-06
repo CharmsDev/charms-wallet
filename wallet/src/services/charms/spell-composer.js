@@ -1,4 +1,5 @@
-import { SPELL_VERSION, MIN_SATS, ADDRESS_REGEX, CHARM_TYPES } from './constants';
+import { SPELL_VERSION, MIN_SATS, CHARM_TYPES } from './constants';
+import { getCharmUtxoAmount } from './utils/charm-utils';
 
 /**
  * Compose charm spells
@@ -19,8 +20,7 @@ class CharmsSpellService {
         const isNFT = type === CHARM_TYPES.NFT;
         
         if (isNFT) {
-            // TODO: NFT Transfer - Not implemented yet
-            throw new Error('NFT transfers not implemented yet.');
+            return this.composeNFTTransfer(charm, destinationAddress);
         }
         
         // Token transfer - check if full or partial
@@ -37,11 +37,37 @@ class CharmsSpellService {
     }
 
     /**
-     * NFT Transfer - NOT IMPLEMENTED
-     * TODO: Implement when needed
+     * NFT Transfer
+     * 1 input → 1 output (destination)
+     * NFTs are always transferred in full
      */
     composeNFTTransfer(charm, destinationAddress) {
-        throw new Error('NFT transfers not implemented yet');
+        if (!destinationAddress || !destinationAddress.trim()) {
+            throw new Error('Destination address is required');
+        }
+        if (!charm.address) {
+            throw new Error('Charm address is missing');
+        }
+
+        const appKey = '$01';
+        const apps = { [appKey]: charm.appId };
+        const amount = charm.amount || 1;
+
+        const spell = {
+            version: SPELL_VERSION,
+            apps,
+            ins: [{
+                utxo_id: `${charm.txid}:${charm.outputIndex}`,
+                charms: { [appKey]: amount }
+            }],
+            outs: [{
+                address: destinationAddress,
+                charms: { [appKey]: amount },
+                sats: MIN_SATS
+            }]
+        };
+
+        return this.serializeSpell(spell);
     }
 
     /**
@@ -147,6 +173,87 @@ class CharmsSpellService {
                     sats: MIN_SATS
                 }
             ]
+        };
+
+        return this.serializeSpell(spell);
+    }
+
+    /**
+     * CASE 3: Token Multi-Input Transfer
+     * Multiple inputs → 1 or 2 outputs (destination + optional change)
+     * Combines multiple UTXOs to reach transfer amount
+     * 
+     * @param {Array} charmUtxos - Array of charm UTXOs to use as inputs
+     * @param {number} transferAmount - Amount to transfer
+     * @param {string} destinationAddress - Destination address
+     * @param {string} changeAddress - Change address (usually address index 0)
+     * @returns {string} Serialized spell JSON
+     */
+    composeTokenMultiInputTransfer(charmUtxos, transferAmount, destinationAddress, changeAddress) {
+        if (!charmUtxos || charmUtxos.length === 0) {
+            throw new Error('At least one charm UTXO is required');
+        }
+        if (!destinationAddress || !destinationAddress.trim()) {
+            throw new Error('Destination address is required');
+        }
+        if (!changeAddress || !changeAddress.trim()) {
+            throw new Error('Change address is required');
+        }
+
+        // All UTXOs must have the same appId
+        const appId = charmUtxos[0].appId;
+        const allSameAppId = charmUtxos.every(utxo => utxo.appId === appId);
+        if (!allSameAppId) {
+            throw new Error('All charm UTXOs must have the same appId');
+        }
+
+        const appKey = '$01';
+        const apps = { [appKey]: appId };
+
+        // Build inputs from all UTXOs
+        const ins = charmUtxos.map(utxo => {
+            const amount = getCharmUtxoAmount(utxo);
+            return {
+                utxo_id: `${utxo.txid}:${utxo.outputIndex}`,
+                charms: { [appKey]: amount }
+            };
+        });
+
+        // Calculate total amount
+        const totalAmount = charmUtxos.reduce(
+            (sum, utxo) => sum + getCharmUtxoAmount(utxo),
+            0
+        );
+
+        if (totalAmount < transferAmount) {
+            throw new Error(`Insufficient total amount. Have ${totalAmount}, need ${transferAmount}`);
+        }
+
+        const changeAmount = totalAmount - transferAmount;
+
+        // Build outputs
+        const outs = [
+            {
+                address: destinationAddress,
+                charms: { [appKey]: transferAmount },
+                sats: MIN_SATS
+            }
+        ];
+
+        // Add change output if needed
+        if (changeAmount > 0) {
+            outs.push({
+                address: changeAddress,
+                charms: { [appKey]: changeAmount },
+                sats: MIN_SATS
+            });
+        }
+
+        const spell = {
+            version: SPELL_VERSION,
+            apps,
+            ins,
+            outs
         };
 
         return this.serializeSpell(spell);

@@ -6,8 +6,7 @@
 // Spell protocol version
 export const SPELL_VERSION = 7;
 
-// Bitcoin dust limit and minimum sats for outputs
-export const DUST_LIMIT = 330;
+// Minimum sats for outputs
 export const MIN_SATS = 330;
 
 // Bitcoin address validation patterns

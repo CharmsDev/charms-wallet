@@ -79,7 +79,20 @@ export async function findAddressForUTXO(txid, vout, network = 'testnet') {
         
         // Search for UTXOs by transaction ID with correct network
         const matchingUtxos = await utxoService.findUtxosByTxid(txid, 'bitcoin', utxoNetwork);
-
+        
+        // DEBUG: Log for specific tx
+        if (txid === '78dd7dc91fdc678c79fb362cc3baa2e35c29705d5a0e0510f79cd6ca33847ae4') {
+            console.log('🔍 [findAddressForUTXO] Looking for:');
+            console.log('  txid:', txid);
+            console.log('  vout:', vout);
+            console.log('  network:', network);
+            console.log('🔍 [findAddressForUTXO] UTXOs in store:');
+            matchingUtxos.forEach((u, i) => {
+                console.log(`  UTXO ${i}:`, 'vout=' + u.vout, 'value=' + u.value, 'address=' + u.address);
+            });
+            console.log('🔍 [findAddressForUTXO] Total UTXOs found:', matchingUtxos.length);
+        }
+        
         // Find matching output index
         const matchingUtxo = matchingUtxos.find(utxo => utxo.vout === vout);
 

@@ -1,0 +1,315 @@
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { useWallet } from '@/stores/walletStore';
+import { useCharms } from '@/stores/charmsStore';
+import { useAddresses } from '@/stores/addressesStore';
+import { useBlockchain } from '@/stores/blockchainStore';
+import { useWalletSync } from '@/hooks/useWalletSync';
+import { proverService } from '@/services/prover';
+import { signCommitTransaction } from '@/services/charms/sign/signCommitTx';
+import { signSpellTransaction } from '@/services/charms/sign/signSpellTx';
+import { broadcastTransactions, getExplorerUrl } from '@/services/charms/sign/broadcastTx';
+
+/**
+ * Step 3: Automated Process Dialog
+ * - Proving (with spinner)
+ * - Signing (with spinner)
+ * - Broadcasting (with spinner)
+ * - Success (with tx link)
+ */
+export default function TransferProcessDialog({ 
+    charm,
+    confirmData, 
+    onClose 
+}) {
+    const [currentPhase, setCurrentPhase] = useState('proving'); // proving, signing, broadcasting, success, error
+    const [error, setError] = useState(null);
+    const [spellTxId, setSpellTxId] = useState(null);
+    const [commitTxId, setCommitTxId] = useState(null);
+    const hasStartedRef = useRef(false);
+
+    const { seedPhrase } = useWallet();
+    const { updateAfterTransfer } = useCharms();
+    const { syncAfterCharmTransfer } = useWalletSync();
+    const { activeNetwork, activeBlockchain } = useBlockchain();
+    const { addresses: walletAddresses } = useAddresses();
+
+    const { selectedCharmUtxos, fundingUtxo, spellJson, changeAddress } = confirmData;
+
+    const executeTransfer = async () => {
+        try {
+            // PHASE 1: PROVING
+            setCurrentPhase('proving');
+            
+            const proverResult = await proverService.proveTransfer(
+                spellJson,
+                fundingUtxo,
+                activeNetwork,
+                1 // fee rate
+            );
+
+            const { commit_tx, spell_tx } = proverResult.transactions;
+
+            // PHASE 2: SIGNING
+            setCurrentPhase('signing');
+            const signedCommit = await signCommitTransaction(
+                commit_tx,
+                activeNetwork
+            );
+
+            const signedSpell = await signSpellTransaction(
+                spell_tx,
+                commit_tx,
+                seedPhrase,
+                activeNetwork
+            );
+
+            // PHASE 3: BROADCASTING
+            setCurrentPhase('broadcasting');
+
+            const broadcastResult = await broadcastTransactions(
+                signedCommit,
+                signedSpell,
+                activeNetwork
+            );
+
+            if (!broadcastResult.success) {
+                throw new Error(broadcastResult.error || 'Broadcast failed');
+            }
+
+            setCommitTxId(broadcastResult.commitData.txid);
+            setSpellTxId(broadcastResult.spellData.txid);
+
+            // Remove spent charm UTXOs from store
+            for (const spentUtxo of selectedCharmUtxos) {
+                await updateAfterTransfer(spentUtxo);
+            }
+
+            // UNIFIED POST-TRANSFER SYNC
+            // Sync UTXOs and Charms for all involved addresses
+            try {
+                const inputAddresses = selectedCharmUtxos
+                    .map(utxo => utxo.address)
+                    .filter(Boolean);
+                
+                await syncAfterCharmTransfer({
+                    inputAddresses,
+                    changeAddress,
+                    fundingAddress: fundingUtxo?.address
+                });
+                
+                console.log('[Transfer] Post-transfer sync completed');
+            } catch (syncError) {
+                console.error('[Transfer] Post-transfer sync failed (non-critical):', syncError);
+                // Silent fail - data will be refreshed on next page load
+            }
+
+            // PHASE 4: SUCCESS
+            setCurrentPhase('success');
+
+        } catch (err) {
+            setError(err.message);
+            setCurrentPhase('error');
+        }
+    };
+
+    useEffect(() => {
+        // Prevent double execution
+        if (hasStartedRef.current) {
+            return;
+        }
+        
+        hasStartedRef.current = true;
+        executeTransfer();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const getPhaseIcon = (phase) => {
+        if (currentPhase === phase) {
+            if (phase === 'error') {
+                return '❌';
+            }
+            if (phase === 'success') {
+                return '✅';
+            }
+            return '🔄';
+        }
+        if (phases.indexOf(currentPhase) > phases.indexOf(phase)) {
+            return '✅';
+        }
+        return '⏳';
+    };
+
+    const phases = ['proving', 'signing', 'broadcasting', 'success'];
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="card w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                {/* Header */}
+                <div className="bg-primary-600 text-white px-6 py-4 flex justify-between items-center">
+                    <h3 className="text-lg font-bold">
+                        {currentPhase === 'success' ? 'Transfer Complete!' : 'Processing Transfer...'}
+                    </h3>
+                    {(currentPhase === 'success' || currentPhase === 'error') && (
+                        <button
+                            onClick={onClose}
+                            className="text-white hover:text-gray-200"
+                        >
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    )}
+                </div>
+
+                {/* Content */}
+                <div className="p-6 overflow-y-auto flex-grow">
+                    {/* Error State */}
+                    {currentPhase === 'error' && (
+                        <div className="space-y-4">
+                            <div className="bg-red-900/30 p-6 rounded-lg border border-red-800 text-center">
+                                <div className="text-6xl mb-4">❌</div>
+                                <h4 className="text-xl font-bold text-red-400 mb-2">Transfer Failed</h4>
+                                <p className="text-red-300">{error}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Success State */}
+                    {currentPhase === 'success' && (
+                        <div className="space-y-4">
+                            <div className="bg-green-900/30 p-6 rounded-lg border border-green-800 text-center">
+                                <div className="text-6xl mb-4">✅</div>
+                                <h4 className="text-xl font-bold text-green-400 mb-2">Transfer Successful!</h4>
+                                <p className="text-green-300 mb-4">Your charm has been transferred successfully.</p>
+                                
+                                {/* Transaction Links */}
+                                <div className="space-y-3 text-left mt-6">
+                                    <div>
+                                        <p className="text-sm text-dark-400 mb-1">Commit Transaction:</p>
+                                        <a
+                                            href={getExplorerUrl(commitTxId, activeNetwork)}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="font-mono text-xs text-white hover:text-primary-400 underline break-all"
+                                        >
+                                            {commitTxId}
+                                        </a>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-dark-400 mb-1">Spell Transaction:</p>
+                                        <a
+                                            href={getExplorerUrl(spellTxId, activeNetwork)}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="font-mono text-xs text-white hover:text-primary-400 underline break-all"
+                                        >
+                                            {spellTxId}
+                                        </a>
+                                    </div>
+                                </div>
+
+                                <p className="mt-4 text-xs text-green-300">
+                                    Click on the transaction IDs to view them on mempool.space
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Processing States */}
+                    {currentPhase !== 'success' && currentPhase !== 'error' && (
+                        <div className="space-y-4">
+                            {/* Step 1: Proving */}
+                            <div className={`glass-effect p-4 rounded-xl ${currentPhase === 'proving' ? 'border-2 border-primary-500' : ''}`}>
+                                <div className="flex items-center gap-3">
+                                    <div className="text-2xl">
+                                        {currentPhase === 'proving' ? (
+                                            <div className="inline-block animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-primary-500"></div>
+                                        ) : (
+                                            getPhaseIcon('proving')
+                                        )}
+                                    </div>
+                                    <div className="flex-1">
+                                        <h4 className="font-bold text-white">Proving Transfer</h4>
+                                        <p className="text-sm text-dark-400">
+                                            {currentPhase === 'proving' 
+                                                ? 'Generating cryptographic proofs...' 
+                                                : 'Proof generation complete'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Step 2: Signing */}
+                            <div className={`glass-effect p-4 rounded-xl ${currentPhase === 'signing' ? 'border-2 border-primary-500' : ''}`}>
+                                <div className="flex items-center gap-3">
+                                    <div className="text-2xl">
+                                        {currentPhase === 'signing' ? (
+                                            <div className="inline-block animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-primary-500"></div>
+                                        ) : (
+                                            getPhaseIcon('signing')
+                                        )}
+                                    </div>
+                                    <div className="flex-1">
+                                        <h4 className="font-bold text-white">Signing Transactions</h4>
+                                        <p className="text-sm text-dark-400">
+                                            {currentPhase === 'signing' 
+                                                ? 'Signing commit and spell transactions...' 
+                                                : phases.indexOf(currentPhase) > phases.indexOf('signing')
+                                                    ? 'Transactions signed'
+                                                    : 'Waiting...'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Step 3: Broadcasting */}
+                            <div className={`glass-effect p-4 rounded-xl ${currentPhase === 'broadcasting' ? 'border-2 border-primary-500' : ''}`}>
+                                <div className="flex items-center gap-3">
+                                    <div className="text-2xl">
+                                        {currentPhase === 'broadcasting' ? (
+                                            <div className="inline-block animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-primary-500"></div>
+                                        ) : (
+                                            getPhaseIcon('broadcasting')
+                                        )}
+                                    </div>
+                                    <div className="flex-1">
+                                        <h4 className="font-bold text-white">Broadcasting</h4>
+                                        <p className="text-sm text-dark-400">
+                                            {currentPhase === 'broadcasting' 
+                                                ? 'Broadcasting to Bitcoin network...' 
+                                                : phases.indexOf(currentPhase) > phases.indexOf('broadcasting')
+                                                    ? 'Broadcast complete'
+                                                    : 'Waiting...'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Info */}
+                            <div className="bg-blue-900/20 p-4 rounded-lg border border-blue-800/50">
+                                <p className="text-sm text-blue-300">
+                                    Please wait while we process your transfer. This may take a few moments.
+                                    {currentPhase === 'proving' && ' The proving step can take up to 10 minutes.'}
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer */}
+                {(currentPhase === 'success' || currentPhase === 'error') && (
+                    <div className="bg-dark-800 px-6 py-4 flex justify-end">
+                        <button
+                            onClick={onClose}
+                            className="btn btn-primary"
+                        >
+                            Close
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
