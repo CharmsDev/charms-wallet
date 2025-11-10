@@ -330,11 +330,6 @@ export const saveBalance = (
         };
         
         localStorage.setItem(STORAGE_KEYS.BALANCE, JSON.stringify(balances));
-        console.log(`💾 [Storage.saveBalance] Saved unified balance to localStorage key: "${STORAGE_KEYS.BALANCE}"`);
-        console.log(`   └─ Path: ${blockchain} → ${network}`);
-        console.log(`   └─ Bitcoin: ${data.spendable} sats (spendable)`);
-        console.log(`   └─ Tokens: ${data.tokens?.length || 0} types`);
-        console.log(`   └─ Full localStorage value:`, JSON.stringify(balances, null, 2));
     } catch (error) {
         console.error('Failed to save balance:', error);
     }
@@ -343,23 +338,13 @@ export const saveBalance = (
 export const getBalance = (blockchain: string, network: string): BalanceData | null => {
     try {
         const stored = localStorage.getItem(STORAGE_KEYS.BALANCE);
-        console.log(`📖 [Storage.getBalance] Reading from localStorage key: "${STORAGE_KEYS.BALANCE}"`);
-        console.log(`   └─ Requested: ${blockchain} → ${network}`);
         
         if (!stored) {
-            console.log(`   └─ No data found in localStorage`);
             return null;
         }
         
         const balances = JSON.parse(stored);
         const result = balances[blockchain]?.[network] || null;
-        
-        console.log(`   └─ Found data:`, result ? 'YES' : 'NO');
-        if (result) {
-            console.log(`   └─ Bitcoin: ${result.bitcoin?.spendable || 0} sats`);
-            console.log(`   └─ Tokens: ${result.tokens?.length || 0} types`);
-            console.log(`   └─ Full data:`, JSON.stringify(result, null, 2));
-        }
         
         return result;
     } catch (error) {

@@ -35,51 +35,38 @@ export default function TransferProcessDialog({
     const { activeNetwork, activeBlockchain } = useBlockchain();
     const { addresses: walletAddresses } = useAddresses();
 
-    const { selectedCharmUtxos, fundingUtxo, spellJson, changeAddress, inputSigningMap } = confirmData;
-    
-    console.log('🔐 [TransferProcess] Received inputSigningMap:', inputSigningMap);
+    const { selectedCharmUtxos, fundingUtxo, spellJson, changeAddress, inputSigningMap, feeRate } = confirmData;
 
     const executeTransfer = async () => {
         try {
             // PHASE 1: PROVING
             setCurrentPhase('proving');
             
-            console.log('🔐 [TransferProcess] Starting PROVING phase...');
-            console.log('🔐 [TransferProcess] Funding UTXO:', fundingUtxo);
-            
             const proverResult = await proverService.proveTransfer(
                 spellJson,
                 fundingUtxo,
                 activeNetwork,
-                10 // fee rate (sats/vB) - increased from 1 to ensure sufficient fees
+                feeRate || 10 // Use dynamic fee rate, fallback to 10 if not provided
             );
 
-            console.log('🔐 [TransferProcess] PROVING complete');
             const { commit_tx, spell_tx } = proverResult.transactions;
-            console.log('🔐 [TransferProcess] Got commit_tx and spell_tx from prover');
 
             // PHASE 2: SIGNING
             setCurrentPhase('signing');
             
-            console.log('🔐 [TransferProcess] Calling signCommitTransaction with inputSigningMap');
-            
             const signedCommit = await signCommitTransaction(
                 commit_tx,
                 activeNetwork,
-                inputSigningMap  // Pass the signing map
+                inputSigningMap
             );
-
-            console.log('🔐 [TransferProcess] Calling signSpellTransaction with inputSigningMap:', inputSigningMap);
             
             const signedSpell = await signSpellTransaction(
                 spell_tx,
                 commit_tx,
                 seedPhrase,
                 activeNetwork,
-                inputSigningMap  // Pass the signing map
+                inputSigningMap
             );
-            
-            console.log('🔐 [TransferProcess] signSpellTransaction completed');
 
             // PHASE 3: BROADCASTING
             setCurrentPhase('broadcasting');
@@ -96,8 +83,38 @@ export default function TransferProcessDialog({
 
             setCommitTxId(broadcastResult.commitData.txid);
             setSpellTxId(broadcastResult.spellData.txid);
-
-            console.log('🧹 [Transfer] Removing spent UTXOs from stores...');
+            
+            // Record charm transfer transaction
+            const { useTransactionStore } = await import('@/stores/transactionStore');
+            const recordSentTransaction = useTransactionStore.getState().recordSentTransaction;
+            
+            // Parse spell JSON to get transfer details
+            const spellData = JSON.parse(spellJson);
+            const totalCharmAmount = selectedCharmUtxos.reduce((sum, utxo) => sum + (utxo.amount || 0), 0);
+            const transferAmount = spellData.outs[0]?.charms?.['$01'] || 0;
+            const destinationAddress = spellData.outs[0]?.address || '';
+            
+            // Calculate total BTC spent (fees)
+            const totalBtcSpent = (fundingUtxo?.value || 0) + (selectedCharmUtxos.length * 330);
+            
+            await recordSentTransaction({
+                id: `tx_${Date.now()}_sent_${Math.random().toString(36).substr(2, 9)}`,
+                txid: broadcastResult.spellData.txid,
+                type: 'sent',
+                amount: totalBtcSpent,
+                fee: totalBtcSpent,
+                timestamp: Date.now(),
+                status: 'pending',
+                addresses: {
+                    from: selectedCharmUtxos.map(u => u.address).filter(Boolean),
+                    to: [destinationAddress]
+                },
+                metadata: {
+                    isCharmTransfer: true,
+                    charmAmount: transferAmount,
+                    ticker: charm.ticker || charm.metadata?.ticker || 'CHARM'
+                }
+            }, 'bitcoin', activeNetwork);
             
             // Remove spent charm UTXOs from BOTH stores (charms + utxos)
             const { useUTXOStore } = await import('@/stores/utxoStore');
@@ -119,8 +136,6 @@ export default function TransferProcessDialog({
                 });
             }
             
-            console.log('🧹 [Transfer] Spent UTXOs to remove:', spentUtxosForRemoval);
-            
             // Remove from UTXO store (this will also update balances)
             await updateAfterTransaction(spentUtxosForRemoval, {}, 'bitcoin', activeNetwork);
             
@@ -128,8 +143,6 @@ export default function TransferProcessDialog({
             for (const spentUtxo of selectedCharmUtxos) {
                 await updateAfterTransfer(spentUtxo);
             }
-            
-            console.log('🧹 [Transfer] Spent UTXOs removed successfully');
 
             // UNIFIED POST-TRANSFER SYNC
             // Sync UTXOs and Charms for all involved addresses
@@ -143,8 +156,6 @@ export default function TransferProcessDialog({
                     changeAddress,
                     fundingAddress: fundingUtxo?.address
                 });
-                
-                console.log('[Transfer] Post-transfer sync completed');
             } catch (syncError) {
                 console.error('[Transfer] Post-transfer sync failed (non-critical):', syncError);
                 // Silent fail - data will be refreshed on next page load

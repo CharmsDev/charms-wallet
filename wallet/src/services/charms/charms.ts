@@ -112,46 +112,25 @@ class CharmsService {
                     
                     if (result.success && result.charms.length > 0) {
                         for (const charm of result.charms) {
-                            charm.txid = txId;
-                            
                             if (charm.outputIndex === undefined || charm.outputIndex === null) {
                                 continue;
                             }
                             
-                            console.log('🔍 [SCAN] RAW charm from charms-js:', {
-                                txid: charm.txid,
-                                outputIndex: charm.outputIndex,
-                                address: charm.address
-                            });
+                            // charms-js v3.3.1+ returns txid in big-endian format (same as wallet)
+                            // No need to reverse anymore
+                            const walletTxId = charm.txid;
                             
-                            // Use address from charms.js (it's the correct UTXO address)
+                            // Check if this charm belongs to one of our addresses and UTXO still exists
                             if (charm.address && walletAddresses.has(charm.address)) {
-                                // CRITICAL: Verify UTXO exists (not spent)
                                 const utxosForAddress = utxos[charm.address] || [];
                                 const utxoExists = utxosForAddress.some(u => 
-                                    u.txid === charm.txid && u.vout === charm.outputIndex
+                                    u.txid === walletTxId && u.vout === charm.outputIndex
                                 );
                                 
                                 if (utxoExists) {
-                                    console.log('🔍 [SCAN] Saving charm:', {
-                                        txid: charm.txid,
-                                        outputIndex: charm.outputIndex,
-                                        address: charm.address
-                                    });
+                                    charm.txid = walletTxId;
                                     await onCharmFound(charm);
-                                    console.log('🔍 [SCAN] Charm saved successfully');
-                                } else {
-                                    console.log('🔍 [SCAN] Charm skipped (UTXO spent):', {
-                                        txid: charm.txid,
-                                        outputIndex: charm.outputIndex,
-                                        address: charm.address
-                                    });
                                 }
-                            } else {
-                                console.log('🔍 [SCAN] Charm skipped (not owned):', {
-                                    address: charm.address,
-                                    inWallet: walletAddresses.has(charm.address)
-                                });
                             }
                         }
                     }

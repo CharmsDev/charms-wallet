@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { utxoService } from '@/services/utxo';
-import { getCharms, getBalance, saveUTXOs } from '@/services/storage';
+import { getCharms, getBalance, saveBalance, saveUTXOs } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from './blockchainStore';
 
 const useUTXOStore = create((set, get) => ({
@@ -149,12 +149,6 @@ const useUTXOStore = create((set, get) => ({
                 const fromQuickNode = progressData.utxos || [];
                 const fromLocalStorage = updatedUTXOs[progressData.address] || [];
                 
-                console.log(`\n📊 [UTXOStore] ===== PROCESSING ADDRESS: ${progressData.address.slice(0, 15)}... =====`);
-                console.log(`📦 [UTXOStore] QuickNode UTXOs (${fromQuickNode.length}):`, 
-                    fromQuickNode.map(u => `${u.txid.slice(0, 8)}:${u.vout}`));
-                console.log(`💾 [UTXOStore] localStorage UTXOs (${fromLocalStorage.length}):`, 
-                    fromLocalStorage.map(u => `${u.txid.slice(0, 8)}:${u.vout}`));
-                
                 if (fromQuickNode.length > 0) {
                     // Create a map of QuickNode UTXOs by txid:vout
                     const quickNodeMap = new Map();
@@ -187,15 +181,8 @@ const useUTXOStore = create((set, get) => ({
                     });
                     
                     updatedUTXOs[progressData.address] = finalUtxos;
-                    
-                    console.log(`✅ [UTXOStore] Final UTXOs (${finalUtxos.length}):`, 
-                        finalUtxos.map(u => `${u.txid.slice(0, 8)}:${u.vout}`));
-                    console.log(`📊 [UTXOStore] Summary - QN: ${fromQuickNode.length}, Local: ${fromLocalStorage.length}, Final: ${finalUtxos.length}`);
                 } else {
                     // QuickNode returned empty - all UTXOs for this address are spent
-                    if (fromLocalStorage.length > 0) {
-                        console.log(`[UTXOStore] Address ${progressData.address.slice(0, 10)}... - Removing ${fromLocalStorage.length} spent UTXOs`);
-                    }
                     delete updatedUTXOs[progressData.address];
                 }
 

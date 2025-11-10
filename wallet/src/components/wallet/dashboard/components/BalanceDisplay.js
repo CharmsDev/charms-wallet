@@ -36,11 +36,6 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
     const broBalance = useMemo(() => {
         const targetId = getBroTokenAppId();
         const balance = getTotalByAppId(targetId);
-        console.log(`🎯 [BalanceDisplay] BRO Balance Calculation:`);
-        console.log(`   └─ Target AppId: ${targetId}`);
-        console.log(`   └─ Total Charms in Store: ${charms.length}`);
-        console.log(`   └─ Calculated Balance: ${balance}`);
-        console.log(`   └─ Charms:`, charms.map(c => `${c.txid?.slice(0,8)}:${c.outputIndex} (${c.amount || 'N/A'})`));
         return balance;
     }, [charms, getTotalByAppId]); // Recalculate when charms change
 
