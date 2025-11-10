@@ -42,7 +42,7 @@ export default function SendForm({ formState, onSend, onCancel }) {
             if (!feeEstimates.success) {
             }
             
-            // Get spendable UTXOs using the same logic as the selector
+            // CRITICAL: getSpendableUtxos filters out charms, ordinals, runes - NEVER use raw utxos for max calculation
             const spendableUtxos = utxoCalculations.getSpendableUtxos(utxos, charms);
             
             if (Object.keys(spendableUtxos).length === 0) {

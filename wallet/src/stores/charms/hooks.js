@@ -33,9 +33,6 @@ export function useCharms() {
     // Auto-initialize on mount or network change
     useEffect(() => {
         if (activeBlockchain && activeNetwork) {
-            console.log(`🔄 [useCharms] Auto-initializing for ${activeBlockchain}/${activeNetwork}`);
-            console.log(`   └─ Current charms in store: ${charms.length}`);
-            console.log(`   └─ Initialized: ${initialized}`);
             initialize(activeBlockchain, activeNetwork);
         }
     }, [activeBlockchain, activeNetwork]);

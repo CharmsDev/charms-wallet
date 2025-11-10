@@ -1,6 +1,6 @@
 'use client';
 
-import { BitcoinScureSigner } from '../wallet/bitcoin-scure-signer';
+import { BitcoinScureSigner } from '../wallet/core/bitcoin-scure-signer';
 import { UtxoSelector } from '@/services/utxo';
 import BitcoinBroadcastService from './broadcast-service';
 import TransactionRecorder from '@/services/transactions/transaction-recorder';

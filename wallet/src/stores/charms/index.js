@@ -77,33 +77,22 @@ export const useCharmsStore = create((set, get) => ({
         const networkKey = `${blockchain}-${network}`;
         const state = get();
         
-        console.log(`📥 [CharmsStore.initialize] Called for ${networkKey}`);
-        console.log(`   └─ Current network: ${state.currentNetwork}`);
-        console.log(`   └─ Initialized: ${state.initialized}`);
-        console.log(`   └─ Current charms: ${state.charms.length}`);
-        
         // Network changed - clear and reinitialize
         if (state.currentNetwork && state.currentNetwork !== networkKey) {
-            console.log(`   └─ Network changed, clearing charms`);
             set({ charms: [], initialized: false, currentNetwork: networkKey });
         } else if (state.initialized && state.currentNetwork === networkKey) {
             // Already initialized for this network - skip reload
-            console.log(`   └─ Already initialized, skipping reload`);
             return;
         } else {
             // First initialization for this network
-            console.log(`   └─ First initialization for this network`);
             set({ currentNetwork: networkKey });
         }
         
         try {
             const cachedCharms = await getCharms(blockchain, network);
-            console.log(`   └─ Loaded from localStorage: ${cachedCharms?.length || 0} charms`);
             
             if (cachedCharms && cachedCharms.length > 0) {
                 const enhanced = await charmsExplorerAPI.processCharmsWithReferenceData(cachedCharms);
-                console.log(`   └─ Enhanced charms: ${enhanced.length}`);
-                console.log(`   └─ Setting in store...`);
                 set({ charms: enhanced, initialized: true });
                 
                 try {
@@ -112,11 +101,10 @@ export const useCharmsStore = create((set, get) => ({
                     // Silent fail on cache save
                 }
             } else {
-                console.log(`   └─ No cached charms, marking as initialized`);
                 set({ initialized: true });
             }
         } catch (error) {
-            console.error(`   └─ Error initializing:`, error);
+            console.error('[CharmsStore] Error initializing:', error);
             set({ error: error.message, initialized: true });
         }
     },

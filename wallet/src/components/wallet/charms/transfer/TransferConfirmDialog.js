@@ -114,11 +114,15 @@ export default function TransferConfirmDialog({
             // Add 20% safety margin
             const requiredFundingSats = Math.ceil(calculatedFees * 1.2);
 
-            // Find funding UTXO (Bitcoin) - select the largest one with sufficient funds
+            // CRITICAL: Filter out reserved UTXOs (charms, ordinals, runes) before selecting funding UTXO
+            const { utxoCalculations } = await import('@/services/utxo/utils/calculations');
+            const spendableUtxos = utxoCalculations.getSpendableUtxos(utxos, charms);
+
+            // Find funding UTXO (Bitcoin) - select the largest spendable one with sufficient funds
             let selectedFundingUtxo = null;
             let maxValue = 0;
 
-            for (const [address, addressUtxos] of Object.entries(utxos)) {
+            for (const [address, addressUtxos] of Object.entries(spendableUtxos)) {
                 for (const utxo of addressUtxos) {
                     // Always select the biggest UTXO that meets the minimum requirement
                     if (utxo.value > maxValue && utxo.value >= requiredFundingSats) {

@@ -57,16 +57,12 @@ export function useTransactionFlow(formState, onClose) {
             setShowPreparing(true);
             setPreparingStatus('Selecting UTXOs and calculating fees...');
             
-            // Use the same UTXO filtering logic as the Max button calculation
+            // CRITICAL: getSpendableUtxos filters out charms, ordinals, runes - NEVER use raw utxos for transactions
             const { utxoCalculations } = await import('@/services/utxo/utils/calculations');
             const spendableUtxos = utxoCalculations.getSpendableUtxos(utxos, charms);
             const allUtxos = Object.entries(spendableUtxos).flatMap(([address, addressUtxos]) => 
                 addressUtxos.map(utxo => ({ ...utxo, address }))
             );
-            
-            console.log('💰 [SendBitcoin] Total UTXOs:', Object.values(utxos).flat().length);
-            console.log('💰 [SendBitcoin] Spendable UTXOs (after filtering):', allUtxos.length);
-            console.log('💰 [SendBitcoin] Protected charms:', charms.length);
             
             if (allUtxos.length === 0) {
                 const error = 'No spendable UTXOs available. All UTXOs are either charms or reserved (1000 sats).';
