@@ -8,7 +8,9 @@ export const TRANSACTION_TYPES = {
     RECEIVED: 'received',           // Standard Bitcoin received
     SENT: 'sent',                   // Standard Bitcoin sent
     BRO_MINING: 'bro_mining',       // Bro token mining (333 or 777 sats + OP_RETURN at index 0)
-    BRO_MINT: 'bro_mint'            // Bro token minting (1000 or 330 sats + change)
+    BRO_MINT: 'bro_mint',           // Bro token minting (1000 or 330 sats + change)
+    CHARM_TRANSFER: 'charm_transfer', // Charm/token transfer to external address
+    CHARM_CONSOLIDATION: 'charm_consolidation' // Charm/token consolidation (self-transfer)
 };
 
 // Transaction labels for UI
@@ -16,7 +18,9 @@ export const TRANSACTION_LABELS = {
     [TRANSACTION_TYPES.RECEIVED]: 'Received Bitcoin',
     [TRANSACTION_TYPES.SENT]: 'Sent Bitcoin',
     [TRANSACTION_TYPES.BRO_MINING]: 'Bro Mining',
-    [TRANSACTION_TYPES.BRO_MINT]: 'Bro Mint'
+    [TRANSACTION_TYPES.BRO_MINT]: 'Bro Mint',
+    [TRANSACTION_TYPES.CHARM_TRANSFER]: 'Charm Transfer',
+    [TRANSACTION_TYPES.CHARM_CONSOLIDATION]: 'Charm Consolidation'
 };
 
 /**
@@ -104,6 +108,10 @@ export function getTransactionIcon(transactionType) {
             return '⛏️';
         case TRANSACTION_TYPES.BRO_MINT:
             return '🪙';
+        case TRANSACTION_TYPES.CHARM_TRANSFER:
+            return '🎁';
+        case TRANSACTION_TYPES.CHARM_CONSOLIDATION:
+            return '🔄';
         default:
             return '↙';
     }

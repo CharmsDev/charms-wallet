@@ -5,8 +5,10 @@ import { useTransactions } from '@/stores/transactionStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useUTXOStore } from '@/stores/utxoStore';
+import { useCharmsStore } from '@/stores/charms';
 import TransactionDetailsModal from './TransactionDetailsModal';
 import { getTransactionLabel, getTransactionIcon } from '@/services/transactions/transaction-classifier';
+import { scanCharmTransactions } from '@/services/wallet/sync/transaction-scanner';
 
 export default function RecentTransactions({ utxos, isLoading }) {
     const {
@@ -14,6 +16,7 @@ export default function RecentTransactions({ utxos, isLoading }) {
         isLoading: txLoading,
         loadTransactions,
         processUTXOsForReceivedTransactions,
+        recordSentTransaction,
         getPaginatedTransactions,
         pagination,
         nextPage,
@@ -23,10 +26,9 @@ export default function RecentTransactions({ utxos, isLoading }) {
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const { addresses } = useAddresses();
     const { refreshUTXOs, refreshProgress } = useUTXOStore();
+    const { charms } = useCharmsStore();
     const [selectedTransaction, setSelectedTransaction] = useState(null);
-    
-    // Use refresh progress from UTXO store
-    const isRefreshing = refreshProgress.isRefreshing;
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     // Get current page transactions
     const paginatedTransactions = getPaginatedTransactions();
@@ -59,19 +61,55 @@ export default function RecentTransactions({ utxos, isLoading }) {
         });
     };
 
+    /**
+     * Optimized transaction refresh
+     * - Refreshes UTXOs from first 10 addresses (lightweight)
+     * - Scans for new received transactions
+     * - Does NOT recalculate balances or parse charms (optimization)
+     */
     const handleRefreshTransactions = async () => {
-        if (isRefreshing || !addresses || addresses.length === 0) return;
+        if (isRefreshing || !addresses || addresses.length === 0) {
+            console.log('[RecentTx] Refresh blocked:', { isRefreshing, addressCount: addresses?.length });
+            return;
+        }
+
+        console.log('[RecentTx] Starting optimized transaction refresh...');
+        console.log('[RecentTx] Current transactions count:', transactions.length);
         
+        setIsRefreshing(true);
         try {
-            // Refresh UTXOs from blockchain (scans first 10 addresses)
+            // Refresh UTXOs first
+            console.log('[RecentTx] Refreshing UTXOs...');
             await refreshUTXOs(activeBlockchain, activeNetwork, 10);
+            console.log('[RecentTx] UTXOs refreshed');
             
-            // Process UTXOs to detect and update transactions
+            // Process UTXOs to detect and record new received transactions
             if (utxos && Object.keys(utxos).length > 0) {
+                console.log('[RecentTx] Scanning for new transactions...', Object.keys(utxos).length, 'addresses');
                 await processUTXOsForReceivedTransactions(utxos, addresses, activeBlockchain, activeNetwork);
+                console.log('[RecentTx] Transaction scan complete');
+            } else {
+                console.log('[RecentTx] No UTXOs to scan');
             }
+            
+            // Scan for charm transfer transactions (sent transactions)
+            if (charms && charms.length > 0) {
+                console.log('[RecentTx] Scanning for charm transfers...', charms.length, 'charms');
+                const walletAddresses = new Set(addresses.map(a => a.address));
+                await scanCharmTransactions(charms, activeBlockchain, activeNetwork, recordSentTransaction, walletAddresses);
+                console.log('[RecentTx] Charm transfer scan complete');
+            } else {
+                console.log('[RecentTx] No charms to scan');
+            }
+            
+            // Reload transactions from localStorage to display newly detected transactions
+            console.log('[RecentTx] Reloading transaction list...');
+            loadTransactions(activeBlockchain, activeNetwork);
+            console.log('[RecentTx] Transactions reloaded, new count:', transactions.length);
         } catch (error) {
-            console.error('Failed to refresh transactions:', error);
+            console.error('[RecentTx] Failed to refresh transactions:', error);
+        } finally {
+            setIsRefreshing(false);
         }
     };
 
@@ -102,6 +140,10 @@ export default function RecentTransactions({ utxos, isLoading }) {
                 return 'bg-orange-500/20 text-orange-400';
             case 'bro_mint':
                 return 'bg-purple-500/20 text-purple-400';
+            case 'charm_transfer':
+                return 'bg-blue-500/20 text-blue-400';
+            case 'charm_consolidation':
+                return 'bg-cyan-500/20 text-cyan-400';
             default:
                 return 'bg-dark-500/20 text-dark-400';
         }
@@ -168,9 +210,20 @@ export default function RecentTransactions({ utxos, isLoading }) {
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center gap-2 mb-1">
                                                 <p className="font-medium text-white">{getTransactionDescription(tx)}</p>
+                                                {tx.metadata?.ticker && (
+                                                    <>
+                                                        <span className="text-dark-500">•</span>
+                                                        <span className="text-sm font-semibold text-primary-400">{tx.metadata.ticker}</span>
+                                                    </>
+                                                )}
                                                 <span className="text-dark-500">•</span>
                                                 <p className="text-sm text-dark-400">{formatDate(tx.timestamp)}</p>
                                             </div>
+                                            {tx.metadata?.charmAmount && (
+                                                <p className="text-xs text-blue-400 mb-1">
+                                                    Amount: {(tx.metadata.charmAmount / 100000000).toLocaleString()} {tx.metadata.ticker || 'tokens'}
+                                                </p>
+                                            )}
                                             {/* Full txid on desktop, truncated on mobile */}
                                             <p className="hidden lg:block text-xs text-dark-400 hover:text-primary-400 transition-colors font-mono break-all">
                                                 {tx.txid}

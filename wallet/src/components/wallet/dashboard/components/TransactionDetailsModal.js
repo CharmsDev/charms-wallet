@@ -69,11 +69,24 @@ export default function TransactionDetailsModal({ transaction, network, onClose 
                             </div>
                         </div>
                         <div className="text-right">
-                            <p className={`text-2xl font-bold ${transaction.type === 'received' ? 'text-green-400' : 'text-red-400'}`}>
-                                {transaction.type === 'received' ? '+' : '-'}{formatBTC(transaction.amount)} BTC
-                            </p>
-                            {transaction.fee && (
-                                <p className="text-sm text-dark-400">Fee: {formatBTC(transaction.fee)} BTC</p>
+                            {(transaction.metadata?.isCharmTransfer || transaction.metadata?.isCharmConsolidation) ? (
+                                <>
+                                    <p className="text-2xl font-bold text-blue-400">
+                                        {(transaction.metadata.charmAmount / 100000000).toLocaleString()} {transaction.metadata.ticker || 'tokens'}
+                                    </p>
+                                    {transaction.fee && (
+                                        <p className="text-sm text-dark-400">Fee: {formatBTC(transaction.fee)} BTC</p>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <p className={`text-2xl font-bold ${transaction.type === 'received' ? 'text-green-400' : 'text-red-400'}`}>
+                                        {transaction.type === 'received' ? '+' : '-'}{formatBTC(transaction.amount)} BTC
+                                    </p>
+                                    {transaction.fee && (
+                                        <p className="text-sm text-dark-400">Fee: {formatBTC(transaction.fee)} BTC</p>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>
@@ -94,6 +107,96 @@ export default function TransactionDetailsModal({ transaction, network, onClose 
                             </button>
                         </div>
                     </div>
+
+                    {/* Charm/Token Details */}
+                    {(transaction.metadata?.isCharmTransfer || transaction.metadata?.isCharmConsolidation) && (
+                        <div className="bg-gradient-to-r from-blue-900/20 to-cyan-900/20 border border-blue-700/30 rounded-lg p-4">
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="text-2xl">{transaction.metadata.isCharmConsolidation ? '🔄' : '🎁'}</span>
+                                <p className="text-lg font-semibold text-blue-400">
+                                    {transaction.metadata.isCharmConsolidation ? 'Charm Consolidation Details' : 'Charm Transfer Details'}
+                                </p>
+                            </div>
+                            
+                            {/* Consolidation-specific info */}
+                            {transaction.metadata.isCharmConsolidation && (
+                                <>
+                                    {transaction.metadata.inputUtxoCount && transaction.metadata.outputUtxoCount && (
+                                        <div className="bg-dark-900/50 rounded-lg p-4 mb-3 border border-cyan-700/20">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <div className="text-center flex-1">
+                                                    <p className="text-xs text-dark-400 mb-1">Input UTXOs</p>
+                                                    <p className="text-2xl font-bold text-orange-400">{transaction.metadata.inputUtxoCount}</p>
+                                                </div>
+                                                <div className="text-cyan-400 text-2xl px-4">→</div>
+                                                <div className="text-center flex-1">
+                                                    <p className="text-xs text-dark-400 mb-1">Output UTXOs</p>
+                                                    <p className="text-2xl font-bold text-green-400">{transaction.metadata.outputUtxoCount}</p>
+                                                </div>
+                                            </div>
+                                            <p className="text-xs text-center text-cyan-400 mb-3">
+                                                Consolidated {transaction.metadata.inputUtxoCount} charm UTXO{transaction.metadata.inputUtxoCount > 1 ? 's' : ''} into {transaction.metadata.outputUtxoCount}
+                                            </p>
+                                            {/* Bitcoin Recovered */}
+                                            {(() => {
+                                                const inputBtc = transaction.metadata.inputUtxoCount * 330;
+                                                const outputBtc = transaction.metadata.outputUtxoCount * 330;
+                                                const recovered = inputBtc - outputBtc;
+                                                const netRecovered = recovered - (transaction.fee || 0);
+                                                if (recovered > 0) {
+                                                    return (
+                                                        <div className="bg-green-900/20 rounded p-2 border border-green-700/30">
+                                                            <div className="flex justify-between items-center text-xs">
+                                                                <span className="text-dark-400">Bitcoin Recovered:</span>
+                                                                <span className="text-green-400 font-semibold">{formatBTC(recovered)} BTC</span>
+                                                            </div>
+                                                            <div className="flex justify-between items-center text-xs mt-1">
+                                                                <span className="text-dark-400">After Fee:</span>
+                                                                <span className="text-green-300 font-semibold">{formatBTC(netRecovered)} BTC</span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+                                            })()}
+                                        </div>
+                                    )}
+                                    
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <p className="text-xs text-dark-400 mb-1">Token</p>
+                                            <p className="text-white font-semibold">
+                                                ${transaction.metadata.ticker || 'CHARM'}
+                                            </p>
+                                        </div>
+                                        {transaction.metadata.charmName && (
+                                            <div>
+                                                <p className="text-xs text-dark-400 mb-1">Charm Name</p>
+                                                <p className="text-white">{transaction.metadata.charmName}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                            
+                            {/* Transfer-specific info */}
+                            {transaction.metadata.isCharmTransfer && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <p className="text-xs text-dark-400 mb-1">Token</p>
+                                        <p className="text-white font-semibold">
+                                            ${transaction.metadata.ticker || 'CHARM'}
+                                        </p>
+                                    </div>
+                                    {transaction.metadata.charmName && (
+                                        <div>
+                                            <p className="text-xs text-dark-400 mb-1">Charm Name</p>
+                                            <p className="text-white">{transaction.metadata.charmName}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {/* Timestamp & Block Info */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

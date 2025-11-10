@@ -26,7 +26,7 @@ export interface AddressEntry {
 export interface TransactionEntry {
     id: string; // unique ID: tx_{timestamp}_{type}_{counter}
     txid: string; // can be duplicate for sent/received pairs
-    type: 'sent' | 'received';
+    type: 'sent' | 'received' | 'bro_mining' | 'bro_mint' | 'charm_transfer' | 'charm_consolidation';
     amount: number; // in satoshis
     fee?: number; // only for sent transactions
     timestamp: number;
@@ -42,6 +42,14 @@ export interface TransactionEntry {
         isSelfSend?: boolean;
         changeAmount?: number;
         totalInputs?: number;
+        // Charm/Token specific metadata
+        isCharmTransfer?: boolean;
+        isCharmConsolidation?: boolean;
+        charmAmount?: number;
+        charmName?: string;
+        ticker?: string;
+        inputUtxoCount?: number;
+        outputUtxoCount?: number;
     };
 }
 
@@ -155,19 +163,87 @@ export const getTransactions = async (blockchain?: string, network?: string): Pr
 };
 
 export const addTransaction = async (transaction: TransactionEntry, blockchain?: string, network?: string): Promise<TransactionEntry[]> => {
+    console.log('[Storage] addTransaction called:', {
+        id: transaction.id,
+        txid: transaction.txid,
+        type: transaction.type,
+        blockchain,
+        network
+    });
+    
     const transactions = await getTransactions(blockchain, network);
-    const existingIndex = transactions.findIndex(tx => 
-        tx.id === transaction.id || (tx.txid === transaction.txid && tx.type === transaction.type)
+    console.log('[Storage] Current transactions count:', transactions.length);
+    console.log('[Storage] Existing transaction IDs:', transactions.map(tx => ({ id: tx.id, txid: tx.txid.slice(0, 8), type: tx.type })));
+    
+    // Check if transaction already exists by txid + type
+    const existingByTxid = transactions.findIndex(tx => 
+        tx.txid === transaction.txid && tx.type === transaction.type
     );
-
-    if (existingIndex >= 0) {
-        transactions[existingIndex] = transaction;
+    
+    if (existingByTxid >= 0) {
+        // For charm transactions, update metadata if new transaction has more complete data
+        const isCharmTx = transaction.type === 'charm_transfer' || transaction.type === 'charm_consolidation';
+        const hasNewMetadata = transaction.metadata?.inputUtxoCount !== undefined || 
+                               transaction.metadata?.outputUtxoCount !== undefined;
+        
+        const existingHasMetadata = transactions[existingByTxid].metadata?.inputUtxoCount !== undefined || 
+                                    transactions[existingByTxid].metadata?.outputUtxoCount !== undefined;
+        
+        console.log('[Storage] Charm transaction check:', {
+            isCharmTx,
+            hasNewMetadata,
+            existingHasMetadata,
+            newInputCount: transaction.metadata?.inputUtxoCount,
+            newOutputCount: transaction.metadata?.outputUtxoCount,
+            existingInputCount: transactions[existingByTxid].metadata?.inputUtxoCount,
+            existingOutputCount: transactions[existingByTxid].metadata?.outputUtxoCount,
+            willUpdate: isCharmTx && hasNewMetadata
+        });
+        
+        if (isCharmTx && hasNewMetadata) {
+            console.log('[Storage] Updating charm transaction with new metadata:', {
+                existingId: transactions[existingByTxid].id,
+                txid: transaction.txid.slice(0, 8),
+                type: transaction.type,
+                newInputCount: transaction.metadata?.inputUtxoCount,
+                newOutputCount: transaction.metadata?.outputUtxoCount
+            });
+            // Merge metadata, keeping existing fields and adding new ones
+            transactions[existingByTxid] = { 
+                ...transactions[existingByTxid], 
+                metadata: {
+                    ...transactions[existingByTxid].metadata,
+                    ...transaction.metadata
+                }
+            };
+            // Fall through to save the updated transaction
+        } else {
+            console.log('[Storage] Transaction already exists (same txid+type), skipping:', {
+                existingId: transactions[existingByTxid].id,
+                newId: transaction.id,
+                txid: transaction.txid.slice(0, 8),
+                type: transaction.type,
+                hasNewMetadata,
+                existingHasMetadata
+            });
+            return transactions; // Don't update, just return existing
+        }
     } else {
-        transactions.push(transaction);
+        // Check if we're updating by exact ID
+        const existingById = transactions.findIndex(tx => tx.id === transaction.id);
+        
+        if (existingById >= 0) {
+            console.log('[Storage] Updating existing transaction by ID at index:', existingById);
+            transactions[existingById] = transaction;
+        } else {
+            console.log('[Storage] Adding new transaction');
+            transactions.push(transaction);
+        }
     }
 
     transactions.sort((a, b) => b.timestamp - a.timestamp);
     await saveTransactions(transactions, blockchain, network);
+    console.log('[Storage] Transaction saved, new count:', transactions.length);
     
     return transactions;
 };
