@@ -164,17 +164,8 @@ export const getTransactions = async (blockchain?: string, network?: string): Pr
 };
 
 export const addTransaction = async (transaction: TransactionEntry, blockchain?: string, network?: string): Promise<TransactionEntry[]> => {
-    console.log('[Storage] addTransaction called:', {
-        id: transaction.id,
-        txid: transaction.txid,
-        type: transaction.type,
-        blockchain,
-        network
-    });
     
     const transactions = await getTransactions(blockchain, network);
-    console.log('[Storage] Current transactions count:', transactions.length);
-    console.log('[Storage] Existing transaction IDs:', transactions.map(tx => ({ id: tx.id, txid: tx.txid.slice(0, 8), type: tx.type })));
     
     // Check if transaction already exists by txid + type
     const existingByTxid = transactions.findIndex(tx => 
@@ -193,13 +184,6 @@ export const addTransaction = async (transaction: TransactionEntry, blockchain?:
                                     transactions[existingByTxid].metadata?.outputUtxoCount !== undefined;
         
         if (isCharmTx && hasNewMetadata) {
-            console.log('[Storage] Updating charm transaction with new metadata:', {
-                existingId: transactions[existingByTxid].id,
-                txid: transaction.txid.slice(0, 8),
-                type: transaction.type,
-                newInputCount: transaction.metadata?.inputUtxoCount,
-                newOutputCount: transaction.metadata?.outputUtxoCount
-            });
             // Complete replacement for charm transactions to ensure fresh data
             transactions[existingByTxid] = { 
                 ...transaction,  // Use new transaction data completely
@@ -207,14 +191,6 @@ export const addTransaction = async (transaction: TransactionEntry, blockchain?:
             };
             // Fall through to save the updated transaction
         } else {
-            console.log('[Storage] Transaction already exists (same txid+type), skipping:', {
-                existingId: transactions[existingByTxid].id,
-                newId: transaction.id,
-                txid: transaction.txid.slice(0, 8),
-                type: transaction.type,
-                hasNewMetadata,
-                existingHasMetadata
-            });
             return transactions; // Don't update, just return existing
         }
     } else {
@@ -222,17 +198,14 @@ export const addTransaction = async (transaction: TransactionEntry, blockchain?:
         const existingById = transactions.findIndex(tx => tx.id === transaction.id);
         
         if (existingById >= 0) {
-            console.log('[Storage] Updating existing transaction by ID at index:', existingById);
             transactions[existingById] = transaction;
         } else {
-            console.log('[Storage] Adding new transaction');
             transactions.push(transaction);
         }
     }
 
     transactions.sort((a, b) => b.timestamp - a.timestamp);
     await saveTransactions(transactions, blockchain, network);
-    console.log('[Storage] Transaction saved, new count:', transactions.length);
     
     return transactions;
 };
@@ -396,7 +369,6 @@ export const saveBalance = (
         
         localStorage.setItem(STORAGE_KEYS.BALANCE, JSON.stringify(balances));
     } catch (error) {
-        console.error('Failed to save balance:', error);
     }
 };
 
@@ -413,7 +385,6 @@ export const getBalance = (blockchain: string, network: string): BalanceData | n
         
         return result;
     } catch (error) {
-        console.error('Failed to get balance:', error);
         return null;
     }
 };

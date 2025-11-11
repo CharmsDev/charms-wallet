@@ -69,45 +69,31 @@ export default function RecentTransactions({ utxos, isLoading }) {
      */
     const handleRefreshTransactions = async () => {
         if (isRefreshing || !addresses || addresses.length === 0) {
-            console.log('[RecentTx] Refresh blocked:', { isRefreshing, addressCount: addresses?.length });
             return;
         }
 
-        console.log('[RecentTx] Starting optimized transaction refresh...');
-        console.log('[RecentTx] Current transactions count:', transactions.length);
         
         setIsRefreshing(true);
         try {
             // Refresh UTXOs first
-            console.log('[RecentTx] Refreshing UTXOs...');
             await refreshUTXOs(activeBlockchain, activeNetwork, 10);
-            console.log('[RecentTx] UTXOs refreshed');
             
             // Process UTXOs to detect and record new received transactions
             if (utxos && Object.keys(utxos).length > 0) {
-                console.log('[RecentTx] Scanning for new transactions...', Object.keys(utxos).length, 'addresses');
                 await processUTXOsForReceivedTransactions(utxos, addresses, activeBlockchain, activeNetwork);
-                console.log('[RecentTx] Transaction scan complete');
             } else {
-                console.log('[RecentTx] No UTXOs to scan');
             }
             
             // Scan for charm transfer transactions (sent transactions)
             if (charms && charms.length > 0) {
-                console.log('[RecentTx] Scanning for charm transfers...', charms.length, 'charms');
                 const walletAddresses = new Set(addresses.map(a => a.address));
                 await scanCharmTransactions(charms, activeBlockchain, activeNetwork, recordSentTransaction, walletAddresses);
-                console.log('[RecentTx] Charm transfer scan complete');
             } else {
-                console.log('[RecentTx] No charms to scan');
             }
             
             // Reload transactions from localStorage to display newly detected transactions
-            console.log('[RecentTx] Reloading transaction list...');
             loadTransactions(activeBlockchain, activeNetwork);
-            console.log('[RecentTx] Transactions reloaded, new count:', transactions.length);
         } catch (error) {
-            console.error('[RecentTx] Failed to refresh transactions:', error);
         } finally {
             setIsRefreshing(false);
         }

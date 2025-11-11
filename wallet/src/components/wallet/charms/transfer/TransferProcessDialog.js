@@ -85,7 +85,6 @@ export default function TransferProcessDialog({
             setSpellTxId(broadcastResult.spellData.txid);
             
             // Record charm transfer transaction
-            console.log('[CharmTransfer] Recording transaction...');
             const { useTransactionStore } = await import('@/stores/transactionStore');
             const recordSentTransaction = useTransactionStore.getState().recordSentTransaction;
             
@@ -95,16 +94,10 @@ export default function TransferProcessDialog({
             const transferAmount = spellData.outs[0]?.charms?.['$01'] || 0;
             const destinationAddress = spellData.outs[0]?.address || '';
             
-            console.log('[CharmTransfer] Transfer details:', {
-                transferAmount,
-                destinationAddress,
-                ticker: charm.ticker || charm.metadata?.ticker
-            });
             
             // Calculate total BTC spent (fees)
             const totalBtcSpent = (fundingUtxo?.value || 0) + (selectedCharmUtxos.length * 330);
             
-            console.log('[CharmTransfer] Calling recordSentTransaction...');
             await recordSentTransaction({
                 id: `tx_${Date.now()}_charm_${Math.random().toString(36).substr(2, 9)}`,
                 txid: broadcastResult.spellData.txid,
@@ -125,7 +118,6 @@ export default function TransferProcessDialog({
                 }
             }, 'bitcoin', activeNetwork);
             
-            console.log('[CharmTransfer] Transaction recorded successfully');
             
             // Remove spent charm UTXOs from BOTH stores (charms + utxos)
             const { useUTXOStore } = await import('@/stores/utxoStore');
@@ -168,7 +160,6 @@ export default function TransferProcessDialog({
                     fundingAddress: fundingUtxo?.address
                 });
             } catch (syncError) {
-                console.error('[Transfer] Post-transfer sync failed (non-critical):', syncError);
                 // Silent fail - data will be refreshed on next page load
             }
 

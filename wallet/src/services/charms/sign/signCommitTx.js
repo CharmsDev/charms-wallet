@@ -18,8 +18,6 @@ const bip32 = BIP32Factory(ecc);
 
 // Signs a Bitcoin Taproot (P2TR) transaction with derived keys
 export async function signCommitTransaction(unsignedTxHex, network, inputSigningMap = null, logCallback) {
-    console.log('🔐 [signCommitTx] ===== FUNCTION CALLED =====');
-    console.log('🔐 [signCommitTx] inputSigningMap:', inputSigningMap);
 
     // Initialize transaction
     if (!unsignedTxHex) {
@@ -39,7 +37,6 @@ export async function signCommitTransaction(unsignedTxHex, network, inputSigning
         // Identify UTXO address
         const { utxoTxId: inputTxid, utxoVout: inputVout, utxoSequence } = txDetails;
         
-        console.log(`🔐 [signCommitTx] Processing funding UTXO: ${inputTxid}:${inputVout}`);
 
         // Use inputSigningMap if provided, otherwise fallback to findAddressForUTXO
         const utxoKey = `${inputTxid}:${inputVout}`;
@@ -47,9 +44,7 @@ export async function signCommitTransaction(unsignedTxHex, network, inputSigning
         
         if (inputSigningMap && inputSigningMap[utxoKey]) {
             addressInfo = inputSigningMap[utxoKey];
-            console.log(`🔐 [signCommitTx] ✅ Using inputSigningMap for ${utxoKey} -> ${addressInfo.address}`);
         } else {
-            console.log(`🔐 [signCommitTx] ⚠️ inputSigningMap not found for ${utxoKey}, using findAddressForUTXO`);
             addressInfo = await findAddressForUTXO(inputTxid, inputVout, network);
         }
         

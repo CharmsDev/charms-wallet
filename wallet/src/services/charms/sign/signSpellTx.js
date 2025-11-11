@@ -24,12 +24,6 @@ export async function signSpellTransaction(
     inputSigningMap = null,  // NEW: Map of txid:vout -> addressInfo
     logCallback = () => { }
 ) {
-    console.log('🔐 [signSpellTx] ===== FUNCTION CALLED =====');
-    console.log('🔐 [signSpellTx] Parameters received:');
-    console.log('  - spellTxHex length:', spellTxHex?.length || 0);
-    console.log('  - commitTxHex length:', commitTxHex?.length || 0);
-    console.log('  - network:', network);
-    console.log('  - inputSigningMap:', inputSigningMap);
     
     // Logging function that only outputs the final transaction ID
     const log = message => {
@@ -38,7 +32,6 @@ export async function signSpellTransaction(
         }
     };
     try {
-        console.log('🔐 [signSpellTx] Starting validation...');
         
         if (!spellTxHex) throw new Error('Spell transaction hex is required');
         if (!commitTxHex) throw new Error('Commit transaction hex is required');
@@ -77,20 +70,15 @@ export async function signSpellTransaction(
             const utxoKey = `${rawTxid}:${vout}`;
             let addressInfo = null;
             
-            console.log(`🔐 [signSpellTx] Processing input ${i}: ${utxoKey}`);
             
             if (inputSigningMap && inputSigningMap[utxoKey]) {
                 // Use pre-computed address info from the map
                 addressInfo = inputSigningMap[utxoKey];
-                console.log(`🔐 [signSpellTx] ✅ Using inputSigningMap for ${utxoKey} -> ${addressInfo.address}`);
             } else {
                 // Fallback: search in UTXO store
-                console.log(`🔐 [signSpellTx] ⚠️ inputSigningMap not found for ${utxoKey}, using findAddressForUTXO`);
                 addressInfo = await findAddressForUTXO(rawTxid, vout, network);
                 if (addressInfo) {
-                    console.log(`🔐 [signSpellTx] Found via findAddressForUTXO: ${addressInfo.address}`);
                 } else {
-                    console.log(`🔐 [signSpellTx] ❌ NOT FOUND via findAddressForUTXO`);
                 }
             }
             
@@ -177,9 +165,6 @@ export async function signSpellTransaction(
         log(`Spell transaction signed successfully: TXID ${txidFinal}`);
         return { txid: txidFinal, hex: signedTxHex };
     } catch (error) {
-        console.error('🔐 [signSpellTx] ❌ ERROR:', error);
-        console.error('🔐 [signSpellTx] Error message:', error.message);
-        console.error('🔐 [signSpellTx] Error stack:', error.stack);
         log(`Error signing spell transaction: ${error.message}`);
         throw error;
     }

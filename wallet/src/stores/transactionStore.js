@@ -24,12 +24,10 @@ const useTransactionStore = create((set, get) => ({
     loadTransactions: async (blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         const state = get();
         
-        console.log('[TxStore] loadTransactions called for:', blockchain, network);
 
         // Check if network has changed - if so, clear existing transactions
         const networkKey = `${blockchain}-${network}`;
         if (state.currentNetwork && state.currentNetwork !== networkKey) {
-            console.log('[TxStore] Network changed, clearing transactions');
             set({
                 transactions: [],
                 initialized: false,
@@ -48,7 +46,6 @@ const useTransactionStore = create((set, get) => ({
 
         // Prevent multiple simultaneous loads
         if (state.isLoading) {
-            console.log('[TxStore] Already loading, skipping');
             return;
         }
 
@@ -56,7 +53,6 @@ const useTransactionStore = create((set, get) => ({
 
         try {
             const storedTransactions = await getTransactions(blockchain, network);
-            console.log('[TxStore] Loaded from localStorage:', storedTransactions.length, 'transactions');
 
             // Sort transactions by timestamp (most recent first)
             const sortedTransactions = storedTransactions.sort((a, b) => b.timestamp - a.timestamp);
@@ -89,16 +85,9 @@ const useTransactionStore = create((set, get) => ({
 
     // Record sent transaction (called by transaction orchestrator)
     recordSentTransaction: async (transactionData, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
-        console.log('[TxStore] recordSentTransaction called:', {
-            type: transactionData.type,
-            txid: transactionData.txid,
-            blockchain,
-            network
-        });
         
         try {
             const updatedTransactions = await addTransactionToStorage(transactionData, blockchain, network);
-            console.log('[TxStore] Transaction recorded, total now:', updatedTransactions.length);
 
             // Update pagination info
             const state = get();
@@ -115,9 +104,7 @@ const useTransactionStore = create((set, get) => ({
                 }
             });
             
-            console.log('[TxStore] Store updated with new transaction');
         } catch (error) {
-            console.error('[TxStore] Error recording transaction:', error);
             set({ error: error.message });
         }
     },
@@ -167,7 +154,6 @@ const useTransactionStore = create((set, get) => ({
             await transactionRecorder.processUTXOsForReceivedTransactions(utxos, addresses);
             await get().loadTransactions(blockchain, network);
         } catch (error) {
-            console.error('Error processing transactions:', error);
             set({ error: error.message });
         }
     },

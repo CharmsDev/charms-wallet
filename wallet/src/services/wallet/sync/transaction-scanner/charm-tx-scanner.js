@@ -14,7 +14,6 @@
  * @param {Set} walletAddresses - Set of wallet addresses (optional, will import if not provided)
  */
 export async function scanCharmTransactions(charms, blockchain, network, recordSentTransaction = null, walletAddresses = null) {
-    console.log('[CharmTxScanner] Starting scan for', charms.length, 'charms');
     
     try {
         const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
@@ -26,7 +25,6 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
             const { useTransactionStore } = await import('@/stores/transactionStore');
             recordSentTransaction = useTransactionStore.getState().recordSentTransaction;
             if (!recordSentTransaction) {
-                console.error('[CharmTxScanner] recordSentTransaction not available');
                 return;
             }
         }
@@ -38,73 +36,42 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
             walletAddresses = new Set(addressStore?.addresses?.map(a => a.address) || []);
         }
         
-        console.log('[CharmTxScanner] Transaction store available');
-        console.log('[CharmTxScanner] Wallet addresses:', walletAddresses.size);
         
         // Get unique transaction IDs from charms
         const txIds = [...new Set(charms.map(c => c.txid))];
-        console.log('[CharmTxScanner] Scanning', txIds.length, 'unique transactions');
         
         for (const txid of txIds) {
-            console.log('[CharmTxScanner] Processing txid:', txid);
             try {
                 // Get transaction details with prevout data for accurate fee calculation
                 const txDetails = await bitcoinApiRouter.getTransactionWithPrevout(txid, network);
                 if (!txDetails) {
-                    console.log('[CharmTxScanner] No tx details for:', txid);
                     continue;
                 }
                 
-                console.log('[CharmTxScanner] ========== TX DETAILS ANALYSIS ==========');
-                console.log('[CharmTxScanner] txDetails structure:', {
-                    hasTx: !!txDetails.tx,
-                    hasVin: !!txDetails.tx?.vin,
-                    vinLength: txDetails.tx?.vin?.length || 0,
-                    hasVout: !!txDetails.tx?.vout,
-                    voutLength: txDetails.tx?.vout?.length || 0
-                });
                 
                 if (txDetails.tx?.vin && txDetails.tx.vin.length > 0) {
-                    console.log('[CharmTxScanner] First input analysis:', {
-                        hasPrevout: !!txDetails.tx.vin[0].prevout,
-                        prevoutValue: txDetails.tx.vin[0].prevout?.value,
-                        prevoutStructure: txDetails.tx.vin[0].prevout ? Object.keys(txDetails.tx.vin[0].prevout) : 'no prevout'
-                    });
                 }
-                console.log('[CharmTxScanner] =============================================');
                 
                 // Get transaction hex
                 const txHex = await bitcoinApiRouter.getTransactionHex(txid, network);
                 if (!txHex) {
-                    console.log('[CharmTxScanner] No tx hex for:', txid);
                     continue;
                 }
                 
                 // Extract spell data
                 const result = await extractAndVerifySpell(txHex, network);
-                console.log('[CharmTxScanner] Spell extraction result:', {
-                    success: result.success,
-                    charmsCount: result.charms?.length || 0
-                });
                 
                 if (!result.success || !result.charms || result.charms.length === 0) {
-                    console.log('[CharmTxScanner] No valid spell data');
                     continue;
                 }
                 
                 // Analyze charm outputs to determine transaction type
-                console.log('[CharmTxScanner] ========== CHARM OUTPUTS ANALYSIS ==========');
                 
                 const externalOutputs = [];
                 const internalOutputs = [];
                 
                 result.charms.forEach((charm, index) => {
                     const isExternal = charm.address && !walletAddresses.has(charm.address);
-                    console.log(`[CharmTxScanner] Output ${index}:`);
-                    console.log(`  Address: ${charm.address || 'N/A'}`);
-                    console.log(`  Amount: ${charm.amount || 0}`);
-                    console.log(`  Is External: ${isExternal}`);
-                    console.log(`  In Wallet: ${charm.address ? walletAddresses.has(charm.address) : 'N/A'}`);
                     
                     if (isExternal) {
                         externalOutputs.push(charm);
@@ -113,8 +80,6 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
                     }
                 });
                 
-                console.log('[CharmTxScanner] ==========================================');
-                console.log(`[CharmTxScanner] Summary: ${externalOutputs.length} external, ${internalOutputs.length} internal`);
                 
                 // Decode transaction to count inputs (needed for type detection)
                 let totalInputs = 0;
@@ -122,7 +87,6 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
                     const tx = bitcoin.default.Transaction.fromHex(txHex);
                     totalInputs = tx.ins.length;
                 } catch (e) {
-                    console.warn('[CharmTxScanner] Failed to decode tx for input count:', e.message);
                 }
                 
                 // Determine transaction type based on output pattern and input count
@@ -133,9 +97,7 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
                     // Has external outputs = Transfer (even if there's change back to wallet)
                     transactionType = 'charm_transfer';
                     targetCharm = externalOutputs[0]; // Use first external output
-                    console.log('[CharmTxScanner] ✅ External output detected, recording as charm_transfer');
                     if (internalOutputs.length > 0) {
-                        console.log(`[CharmTxScanner]    (with ${internalOutputs.length} change output(s) back to wallet)`);
                     }
                 } else if (internalOutputs.length > 0) {
                     // All outputs internal - check if consolidation or self-transfer
@@ -143,15 +105,12 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
                         // Multiple inputs = Consolidation
                         transactionType = 'charm_consolidation';
                         targetCharm = internalOutputs[0];
-                        console.log(`[CharmTxScanner] ✅ All outputs internal with ${totalInputs} inputs, recording as charm_consolidation`);
                     } else {
                         // Single input = Self-transfer (not consolidation)
                         transactionType = 'charm_self_transfer';
                         targetCharm = internalOutputs[0];
-                        console.log(`[CharmTxScanner] ✅ All outputs internal with 1 input, recording as charm_self_transfer`);
                     }
                 } else {
-                    console.log('[CharmTxScanner] ❌ No valid outputs found, skipping');
                     continue;
                 }
                 
@@ -169,7 +128,6 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
                 const destinationAddress = targetCharm.address || '';
                 
                 // Record the transaction
-                console.log(`[CharmTxScanner] Recording ${transactionType}:`, txid);
                 
                 // For consolidations, count actual input and output UTXOs from transaction
                 // Decode transaction to count inputs and outputs with 330 sats (charm UTXOs)
@@ -180,62 +138,42 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
                 try {
                     const tx = bitcoin.default.Transaction.fromHex(txHex);
                     
-                    console.log(`[CharmTxScanner] Decoded transaction: ${tx.ins.length} inputs, ${tx.outs.length} outputs`);
                     
                     // Calculate total output value
                     const totalOutputValue = tx.outs.reduce((sum, out) => sum + out.value, 0);
                     
                     // Count outputs with 330 sats (charm outputs) - this is reliable
                     charmOutputCount = tx.outs.filter(out => out.value === 330).length;
-                    console.log(`[CharmTxScanner] Outputs with 330 sats: ${charmOutputCount}`);
-                    console.log(`[CharmTxScanner] Total output value: ${totalOutputValue} sats`);
                     
                     // For inputs, try to get from txDetails.vin[].prevout
                     let foundPrevoutData = false;
                     let totalInputValue = 0;
                     
-                    console.log(`[CharmTxScanner] ========== INPUT ANALYSIS ==========`);
-                    console.log(`[CharmTxScanner] txDetails.tx.vin exists: ${!!txDetails?.tx?.vin}`);
-                    console.log(`[CharmTxScanner] txDetails.tx.vin length: ${txDetails?.tx?.vin?.length || 0}`);
                     
                     if (txDetails?.tx?.vin) {
                         // Log all inputs with their prevout data
                         txDetails.tx.vin.forEach((input, index) => {
-                            console.log(`[CharmTxScanner] Input ${index}:`, {
-                                hasPrevout: !!input.prevout,
-                                prevoutValue: input.prevout?.value,
-                                prevoutKeys: input.prevout ? Object.keys(input.prevout) : 'no prevout'
-                            });
                         });
                         
                         const inputsWithPrevout = txDetails.tx.vin.filter(input => 
                             input.prevout && input.prevout.value === 330
                         );
                         
-                        console.log(`[CharmTxScanner] Inputs with 330 sats: ${inputsWithPrevout.length}`);
                         
                         if (inputsWithPrevout.length > 0) {
                             charmInputCount = inputsWithPrevout.length;
                             foundPrevoutData = true;
-                            console.log(`[CharmTxScanner] Found charm inputs from prevout: ${charmInputCount}`);
                         }
                         
                         // Calculate total input value if we have prevout data
                         const inputsWithValue = txDetails.tx.vin.filter(input => input.prevout && input.prevout.value);
-                        console.log(`[CharmTxScanner] Inputs with value: ${inputsWithValue.length} of ${txDetails.tx.vin.length}`);
                         
                         if (inputsWithValue.length === txDetails.tx.vin.length) {
                             totalInputValue = txDetails.tx.vin.reduce((sum, input) => sum + (input.prevout?.value || 0), 0);
                             actualFee = totalInputValue - totalOutputValue;
-                            console.log(`[CharmTxScanner] ✅ ALL INPUTS HAVE PREVOUT DATA`);
-                            console.log(`[CharmTxScanner] Total input value: ${totalInputValue} sats`);
-                            console.log(`[CharmTxScanner] Total output value: ${totalOutputValue} sats`);
-                            console.log(`[CharmTxScanner] Calculated fee: ${actualFee} sats`);
                         } else {
-                            console.log(`[CharmTxScanner] ❌ MISSING PREVOUT DATA - using estimation`);
                         }
                     }
-                    console.log(`[CharmTxScanner] =======================================`);
                     
                     // If no prevout data, for consolidations we can estimate:
                     // Total input value = (outputs value) + fee
@@ -252,11 +190,8 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
                             charmInputCount = tx.ins.length;
                         }
                         
-                        console.log(`[CharmTxScanner] Estimated charm inputs (no prevout data): ${charmInputCount} (from ${tx.ins.length} total inputs)`);
-                        console.log(`[CharmTxScanner] Estimated input value: ${estimatedInputValue} sats`);
                     }
                 } catch (decodeError) {
-                    console.warn('[CharmTxScanner] Failed to decode transaction:', decodeError.message);
                     charmInputCount = txCharms.length; // Fallback to charm count
                     charmOutputCount = result.charms.length || 0;
                 }
@@ -265,13 +200,6 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
                 const inputUtxoCount = transactionType === 'charm_consolidation' ? charmInputCount : undefined;
                 const outputUtxoCount = transactionType === 'charm_consolidation' ? charmOutputCount : undefined;
                 
-                console.log(`[CharmTxScanner] ========== UTXO COUNTS ==========`);
-                console.log(`[CharmTxScanner] Transaction type: ${transactionType}`);
-                console.log(`[CharmTxScanner] Charm inputs: ${charmInputCount}`);
-                console.log(`[CharmTxScanner] Charm outputs: ${charmOutputCount}`);
-                console.log(`[CharmTxScanner] Transaction fee: ${actualFee} sats`);
-                console.log(`[CharmTxScanner] Will save: inputUtxoCount=${inputUtxoCount}, outputUtxoCount=${outputUtxoCount}, fee=${actualFee}`);
-                console.log(`[CharmTxScanner] ====================================`);
                 
                 await recordSentTransaction({
                     id: `tx_${txid}_${transactionType}`,
@@ -298,14 +226,11 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
                     }
                 }, blockchain, network);
                 
-                console.log(`[CharmTxScanner] Successfully recorded ${transactionType}:`, txid);
                 
             } catch (error) {
                 // Continue with next transaction on error
-                console.warn(`[CharmTxScanner] Failed to process ${txid}:`, error.message);
             }
         }
     } catch (error) {
-        console.error('[CharmTxScanner] Error scanning charm transactions:', error);
     }
 }
