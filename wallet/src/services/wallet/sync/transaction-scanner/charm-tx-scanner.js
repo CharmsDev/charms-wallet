@@ -83,9 +83,18 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
                 
                 // Decode transaction to count inputs (needed for type detection)
                 let totalInputs = 0;
+                let charmInputsCount = 0;
                 try {
                     const tx = bitcoin.default.Transaction.fromHex(txHex);
                     totalInputs = tx.ins.length;
+                    
+                    // CRITICAL: Check if inputs contain charms (330 or 1000 sats)
+                    // This distinguishes MINT (no charm inputs) from SELF-TRANSFER (has charm inputs)
+                    if (txDetails?.tx?.vin) {
+                        charmInputsCount = txDetails.tx.vin.filter(input => 
+                            input.prevout && (input.prevout.value === 330 || input.prevout.value === 1000)
+                        ).length;
+                    }
                 } catch (e) {
                 }
                 
@@ -100,13 +109,22 @@ export async function scanCharmTransactions(charms, blockchain, network, recordS
                     if (internalOutputs.length > 0) {
                     }
                 } else if (internalOutputs.length > 0) {
-                    // All outputs internal - check if consolidation or self-transfer
-                    if (totalInputs > 1) {
-                        // Multiple inputs = Consolidation
+                    // All outputs internal - check if this is a real charm transaction
+                    // CRITICAL FIX: Only classify as charm transaction if inputs contain charms
+                    // This prevents MINT transactions from being classified as self-transfers
+                    if (charmInputsCount === 0) {
+                        // No charm inputs = This is a MINT, not a charm transfer
+                        // Skip this transaction (don't record it as a charm transaction)
+                        continue;
+                    }
+                    
+                    // Has charm inputs - determine if consolidation or self-transfer
+                    if (charmInputsCount > 1) {
+                        // Multiple charm inputs = Consolidation
                         transactionType = 'charm_consolidation';
                         targetCharm = internalOutputs[0];
                     } else {
-                        // Single input = Self-transfer (not consolidation)
+                        // Single charm input = Self-transfer
                         transactionType = 'charm_self_transfer';
                         targetCharm = internalOutputs[0];
                     }
