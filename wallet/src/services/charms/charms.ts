@@ -2,12 +2,38 @@ import { CharmObj, UTXOMap } from '@/types';
 import { isNFT, isToken, getCharmDisplayName } from './utils/charm-utils';
 import { bitcoinApiRouter } from '../shared/bitcoin-api-router';
 import { extractAndVerifySpell } from 'charms-js';
+import * as bitcoin from 'bitcoinjs-lib';
 
 /**
  * Service for handling Charms functionality using charms-js library
  * Provides both batch and progressive charm extraction from UTXOs
  */
 class CharmsService {
+    
+    /**
+     * Extract address from transaction output
+     */
+    private extractAddressFromOutput(txHex: string, outputIndex: number, network: 'mainnet' | 'testnet4'): string | null {
+        try {
+            const networkObj = network === 'mainnet' ? bitcoin.networks.bitcoin : bitcoin.networks.testnet;
+            const tx = bitcoin.Transaction.fromHex(txHex);
+            
+            if (!tx.outs || outputIndex >= tx.outs.length) {
+                return null;
+            }
+            
+            const output = tx.outs[outputIndex];
+            if (!output || !output.script) {
+                return null;
+            }
+            
+            // Decode address from script
+            const address = bitcoin.address.fromOutputScript(output.script, networkObj);
+            return address;
+        } catch (error) {
+            return null;
+        }
+    }
     
     /**
      * Gets transaction hex from the API for a specific network
@@ -119,6 +145,17 @@ class CharmsService {
                             // charms-js v3.3.1+ returns txid in big-endian format (same as wallet)
                             // No need to reverse anymore
                             const walletTxId = charm.txid;
+                            
+                            // CRITICAL FIX: charms-js is not returning the address
+                            // Extract it ourselves from the transaction output
+                            if (!charm.address || charm.address === '') {
+                                const extractedAddress = this.extractAddressFromOutput(txHex, charm.outputIndex, network);
+                                if (extractedAddress) {
+                                    charm.address = extractedAddress;
+                                } else {
+                                    continue;
+                                }
+                            }
                             
                             // Check if this charm belongs to one of our addresses and UTXO still exists
                             if (charm.address && walletAddresses.has(charm.address)) {
