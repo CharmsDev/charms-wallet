@@ -25,58 +25,93 @@ export const TRANSACTION_LABELS = {
     [TRANSACTION_TYPES.CHARM_SELF_TRANSFER]: 'Charm Self-Transfer'
 };
 
-/**
- * Check if transaction has OP_RETURN data at index 0
- */
 function hasOpReturnAtIndex0(outputs) {
     if (!outputs || outputs.length === 0) return false;
     const firstOutput = outputs[0];
-    // OP_RETURN outputs typically have no address
     return firstOutput.address === null || firstOutput.address === undefined;
 }
 
-/**
- * Check if transaction contains specific satoshi amounts
- */
-function hasOutputWithAmount(outputs, amount) {
-    if (!outputs || outputs.length === 0) return false;
-    return outputs.some(output => output.amount === amount);
+function countCharmInputs(inputs) {
+    if (!inputs || inputs.length === 0) return 0;
+    return inputs.filter(input => input.value === 330 || input.value === 1000).length;
 }
 
-/**
- * Classify transaction type based on outputs and inputs
- * 
- * @param {Object} transaction - Transaction object with inputs and outputs
- * @param {Array} myAddresses - Array of user's addresses to determine if received/sent
- * @returns {string} Transaction type from TRANSACTION_TYPES
- */
+function getCharmOutputs(outputs, myAddresses) {
+    if (!outputs || outputs.length === 0) return { internal: [], external: [] };
+    
+    const myAddressSet = new Set(myAddresses.map(addr => addr.address || addr));
+    const internal = [];
+    const external = [];
+    
+    outputs.forEach(output => {
+        if (output.amount === 330 || output.amount === 1000) {
+            if (output.address && myAddressSet.has(output.address)) {
+                internal.push(output);
+            } else if (output.address) {
+                external.push(output);
+            }
+        }
+    });
+    
+    return { internal, external };
+}
+
 export function classifyTransaction(transaction, myAddresses = []) {
     const { outputs, inputs } = transaction;
     
     if (!outputs || outputs.length === 0) {
-        return TRANSACTION_TYPES.RECEIVED; // Default fallback
+        return TRANSACTION_TYPES.RECEIVED;
     }
 
-    // Check for Bro Mining: OP_RETURN at index 0 + (333 or 777 sats)
+    // 1. BRO MINING: OP_RETURN at index 0 + 333 or 777 sats
     if (hasOpReturnAtIndex0(outputs)) {
-        if (hasOutputWithAmount(outputs, 333) || hasOutputWithAmount(outputs, 777)) {
+        const has333or777 = outputs.some(o => o.amount === 333 || o.amount === 777);
+        if (has333or777) {
             return TRANSACTION_TYPES.BRO_MINING;
         }
     }
 
-    // Check for Bro Mint: (1000 or 330 sats) + change
-    // Mint transactions typically have 2+ outputs (mint amount + change)
-    if (outputs.length >= 2) {
-        if (hasOutputWithAmount(outputs, 1000) || hasOutputWithAmount(outputs, 330)) {
+    const charmInputCount = countCharmInputs(inputs);
+    
+    // 2. CHARM TRANSACTIONS: Multiple charm inputs (330 or 1000 sats)
+    if (charmInputCount > 1) {
+        const charmOutputs = getCharmOutputs(outputs, myAddresses);
+        
+        // 2a. CHARM TRANSFER: Has external charm output
+        if (charmOutputs.external.length > 0) {
+            return TRANSACTION_TYPES.CHARM_TRANSFER;
+        }
+        
+        // 2b. CONSOLIDATION PARTIAL: Multiple internal charm outputs
+        if (charmOutputs.internal.length > 1) {
+            return TRANSACTION_TYPES.CHARM_CONSOLIDATION;
+        }
+        
+        // 2c. CONSOLIDATION TOTAL: Single internal charm output
+        if (charmOutputs.internal.length === 1) {
+            return TRANSACTION_TYPES.CHARM_CONSOLIDATION;
+        }
+    }
+    
+    // 3. CHARM SELF-TRANSFER: Single charm input
+    if (charmInputCount === 1) {
+        const hasCharmOutput = outputs.some(o => o.amount === 330 || o.amount === 1000);
+        if (hasCharmOutput) {
+            return TRANSACTION_TYPES.CHARM_SELF_TRANSFER;
+        }
+    }
+
+    // 4. BRO MINT: No charm inputs but has 330 or 1000 sat output
+    if (charmInputCount === 0) {
+        const hasCharmOutput = outputs.some(o => o.amount === 330 || o.amount === 1000);
+        if (hasCharmOutput) {
             return TRANSACTION_TYPES.BRO_MINT;
         }
     }
 
-    // Determine if sent or received based on addresses
+    // 5. STANDARD BITCOIN: Sent or Received
     if (myAddresses && myAddresses.length > 0) {
         const myAddressSet = new Set(myAddresses.map(addr => addr.address || addr));
-        
-        // Check if any input is from our addresses (we sent it)
         const hasMyInput = inputs && inputs.some(input => 
             input.address && myAddressSet.has(input.address)
         );
@@ -86,7 +121,6 @@ export function classifyTransaction(transaction, myAddresses = []) {
         }
     }
 
-    // Default: received transaction
     return TRANSACTION_TYPES.RECEIVED;
 }
 
