@@ -189,6 +189,24 @@ export class BitcoinApiRouter {
     }
 
     /**
+     * Get transaction details with prevout data (for fee calculation)
+     * This method specifically fetches prevout data needed for accurate fee calculation
+     */
+    async getTransactionWithPrevout(txid, network = null) {
+        const currentNetwork = this._getCurrentNetwork(network);
+        
+        // For now, always use mempool.space for prevout data
+        // QuickNode might have different format, so we use mempool directly
+        try {
+            return await mempoolService.getTransactionWithPrevout(txid, currentNetwork);
+        } catch (error) {
+            console.warn(`[BitcoinApiRouter] Failed to get transaction with prevout: ${error.message}`);
+            // Fallback to regular transaction (without prevout)
+            return await this.getTransaction(txid, currentNetwork);
+        }
+    }
+
+    /**
      * Get raw transaction hex
      * Tries QuickNode first, falls back to mempool.space with caching
      */

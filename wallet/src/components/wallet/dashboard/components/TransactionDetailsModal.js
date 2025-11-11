@@ -69,7 +69,7 @@ export default function TransactionDetailsModal({ transaction, network, onClose 
                             </div>
                         </div>
                         <div className="text-right">
-                            {(transaction.metadata?.isCharmTransfer || transaction.metadata?.isCharmConsolidation) ? (
+                            {(transaction.metadata?.isCharmTransfer || transaction.metadata?.isCharmConsolidation || transaction.metadata?.isCharmSelfTransfer) ? (
                                 <>
                                     <p className="text-2xl font-bold text-blue-400">
                                         {(transaction.metadata.charmAmount / 100000000).toLocaleString()} {transaction.metadata.ticker || 'tokens'}
@@ -109,12 +109,17 @@ export default function TransactionDetailsModal({ transaction, network, onClose 
                     </div>
 
                     {/* Charm/Token Details */}
-                    {(transaction.metadata?.isCharmTransfer || transaction.metadata?.isCharmConsolidation) && (
+                    {(transaction.metadata?.isCharmTransfer || transaction.metadata?.isCharmConsolidation || transaction.metadata?.isCharmSelfTransfer) && (
                         <div className="bg-gradient-to-r from-blue-900/20 to-cyan-900/20 border border-blue-700/30 rounded-lg p-4">
                             <div className="flex items-center gap-2 mb-3">
-                                <span className="text-2xl">{transaction.metadata.isCharmConsolidation ? '🔄' : '🎁'}</span>
+                                <span className="text-2xl">
+                                    {transaction.metadata.isCharmConsolidation ? '🔄' : 
+                                     transaction.metadata.isCharmSelfTransfer ? '↻' : '🎁'}
+                                </span>
                                 <p className="text-lg font-semibold text-blue-400">
-                                    {transaction.metadata.isCharmConsolidation ? 'Charm Consolidation Details' : 'Charm Transfer Details'}
+                                    {transaction.metadata.isCharmConsolidation ? 'Charm Consolidation Details' : 
+                                     transaction.metadata.isCharmSelfTransfer ? 'Charm Self-Transfer Details' : 
+                                     'Charm Transfer Details'}
                                 </p>
                             </div>
                             
@@ -193,6 +198,29 @@ export default function TransactionDetailsModal({ transaction, network, onClose 
                                             <p className="text-white">{transaction.metadata.charmName}</p>
                                         </div>
                                     )}
+                                </div>
+                            )}
+                            
+                            {/* Self-transfer info */}
+                            {transaction.metadata.isCharmSelfTransfer && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <p className="text-xs text-dark-400 mb-1">Token</p>
+                                        <p className="text-white font-semibold">
+                                            ${transaction.metadata.ticker || 'CHARM'}
+                                        </p>
+                                    </div>
+                                    {transaction.metadata.charmName && (
+                                        <div>
+                                            <p className="text-xs text-dark-400 mb-1">Charm Name</p>
+                                            <p className="text-white">{transaction.metadata.charmName}</p>
+                                        </div>
+                                    )}
+                                    <div className="col-span-2">
+                                        <p className="text-xs text-cyan-400 text-center">
+                                            Moved 1 charm UTXO to another wallet address
+                                        </p>
+                                    </div>
                                 </div>
                             )}
                         </div>

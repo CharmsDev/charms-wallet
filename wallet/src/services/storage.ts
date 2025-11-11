@@ -26,7 +26,7 @@ export interface AddressEntry {
 export interface TransactionEntry {
     id: string; // unique ID: tx_{timestamp}_{type}_{counter}
     txid: string; // can be duplicate for sent/received pairs
-    type: 'sent' | 'received' | 'bro_mining' | 'bro_mint' | 'charm_transfer' | 'charm_consolidation';
+    type: 'sent' | 'received' | 'bro_mining' | 'bro_mint' | 'charm_transfer' | 'charm_consolidation' | 'charm_self_transfer';
     amount: number; // in satoshis
     fee?: number; // only for sent transactions
     timestamp: number;
@@ -45,6 +45,7 @@ export interface TransactionEntry {
         // Charm/Token specific metadata
         isCharmTransfer?: boolean;
         isCharmConsolidation?: boolean;
+        isCharmSelfTransfer?: boolean;
         charmAmount?: number;
         charmName?: string;
         ticker?: string;
@@ -182,23 +183,14 @@ export const addTransaction = async (transaction: TransactionEntry, blockchain?:
     
     if (existingByTxid >= 0) {
         // For charm transactions, update metadata if new transaction has more complete data
-        const isCharmTx = transaction.type === 'charm_transfer' || transaction.type === 'charm_consolidation';
+        const isCharmTx = transaction.type === 'charm_transfer' || 
+                          transaction.type === 'charm_consolidation' || 
+                          transaction.type === 'charm_self_transfer';
         const hasNewMetadata = transaction.metadata?.inputUtxoCount !== undefined || 
                                transaction.metadata?.outputUtxoCount !== undefined;
         
         const existingHasMetadata = transactions[existingByTxid].metadata?.inputUtxoCount !== undefined || 
                                     transactions[existingByTxid].metadata?.outputUtxoCount !== undefined;
-        
-        console.log('[Storage] Charm transaction check:', {
-            isCharmTx,
-            hasNewMetadata,
-            existingHasMetadata,
-            newInputCount: transaction.metadata?.inputUtxoCount,
-            newOutputCount: transaction.metadata?.outputUtxoCount,
-            existingInputCount: transactions[existingByTxid].metadata?.inputUtxoCount,
-            existingOutputCount: transactions[existingByTxid].metadata?.outputUtxoCount,
-            willUpdate: isCharmTx && hasNewMetadata
-        });
         
         if (isCharmTx && hasNewMetadata) {
             console.log('[Storage] Updating charm transaction with new metadata:', {
@@ -208,13 +200,10 @@ export const addTransaction = async (transaction: TransactionEntry, blockchain?:
                 newInputCount: transaction.metadata?.inputUtxoCount,
                 newOutputCount: transaction.metadata?.outputUtxoCount
             });
-            // Merge metadata, keeping existing fields and adding new ones
+            // Complete replacement for charm transactions to ensure fresh data
             transactions[existingByTxid] = { 
-                ...transactions[existingByTxid], 
-                metadata: {
-                    ...transactions[existingByTxid].metadata,
-                    ...transaction.metadata
-                }
+                ...transaction,  // Use new transaction data completely
+                id: transactions[existingByTxid].id  // Keep original ID to maintain consistency
             };
             // Fall through to save the updated transaction
         } else {

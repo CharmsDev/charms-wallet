@@ -10,7 +10,8 @@ export const TRANSACTION_TYPES = {
     BRO_MINING: 'bro_mining',       // Bro token mining (333 or 777 sats + OP_RETURN at index 0)
     BRO_MINT: 'bro_mint',           // Bro token minting (1000 or 330 sats + change)
     CHARM_TRANSFER: 'charm_transfer', // Charm/token transfer to external address
-    CHARM_CONSOLIDATION: 'charm_consolidation' // Charm/token consolidation (self-transfer)
+    CHARM_CONSOLIDATION: 'charm_consolidation', // Charm/token consolidation (2+ inputs)
+    CHARM_SELF_TRANSFER: 'charm_self_transfer' // Charm/token self-transfer (1 input)
 };
 
 // Transaction labels for UI
@@ -20,7 +21,8 @@ export const TRANSACTION_LABELS = {
     [TRANSACTION_TYPES.BRO_MINING]: 'Bro Mining',
     [TRANSACTION_TYPES.BRO_MINT]: 'Bro Mint',
     [TRANSACTION_TYPES.CHARM_TRANSFER]: 'Charm Transfer',
-    [TRANSACTION_TYPES.CHARM_CONSOLIDATION]: 'Charm Consolidation'
+    [TRANSACTION_TYPES.CHARM_CONSOLIDATION]: 'Charm Consolidation',
+    [TRANSACTION_TYPES.CHARM_SELF_TRANSFER]: 'Charm Self-Transfer'
 };
 
 /**
@@ -112,6 +114,8 @@ export function getTransactionIcon(transactionType) {
             return '🎁';
         case TRANSACTION_TYPES.CHARM_CONSOLIDATION:
             return '🔄';
+        case TRANSACTION_TYPES.CHARM_SELF_TRANSFER:
+            return '↻';
         default:
             return '↙';
     }
