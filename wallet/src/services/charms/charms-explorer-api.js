@@ -123,6 +123,37 @@ class CharmsExplorerAPI {
     }
 
     /**
+     * Get token metadata from Charms Explorer API
+     * @param {string} appId - The App ID of the token
+     * @returns {Promise<Object|null>} Token metadata or null
+     */
+    async getTokenMetadata(appId) {
+        try {
+            // Fetch from real Charms Explorer API
+            const response = await fetch(`https://api.charms-explorer.com/app/${appId}`);
+            
+            if (!response.ok) {
+                return null;
+            }
+
+            const data = await response.json();
+            
+            // Return standardized metadata
+            return {
+                name: data.name || data.metadata?.name || 'Unknown Token',
+                ticker: data.ticker || data.metadata?.ticker || 'TOKEN',
+                image: data.image || data.metadata?.image || null,
+                description: data.description || data.metadata?.description || '',
+                decimals: data.decimals || 8
+            };
+
+        } catch (error) {
+            console.error('[CharmsExplorerAPI] Error fetching token metadata:', error);
+            return null;
+        }
+    }
+
+    /**
      * Batch process multiple charms to get their reference NFT data
      * @param {Array} charms - Array of charm objects
      * @returns {Promise<Array>} Array of enhanced charm objects

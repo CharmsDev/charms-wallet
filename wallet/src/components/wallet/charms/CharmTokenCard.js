@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useCharms } from '@/stores/charmsStore';
 import TransferCharmWizard from './transfer/TransferCharmWizard';
 
 /**
@@ -11,6 +12,10 @@ export default function CharmTokenCard({ groupedToken }) {
     const [showTransferDialog, setShowTransferDialog] = useState(false);
     const [imageError, setImageError] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
+    const { getPendingByAppId } = useCharms();
+    
+    // Get pending balance for this token
+    const pendingAmount = getPendingByAppId(groupedToken.appId);
     
     const handleTransferTokenClick = () => {
         setShowTransferDialog(true);
@@ -49,6 +54,11 @@ export default function CharmTokenCard({ groupedToken }) {
                         <span className="text-lg font-bold text-bitcoin-400 bitcoin-glow-text">
                             {groupedToken.totalAmount.toLocaleString()}
                         </span>
+                        {pendingAmount > 0 && (
+                            <p className="text-xs text-orange-400 mt-0.5">
+                                +{pendingAmount.toFixed(2)} pending
+                            </p>
+                        )}
                         <p className="text-xs text-dark-300">
                             {groupedToken.ticker}
                         </p>

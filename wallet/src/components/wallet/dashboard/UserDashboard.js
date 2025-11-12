@@ -17,12 +17,16 @@ import SendBitcoinDialog from '../utxos/SendBitcoinDialog';
 import ReceiveBitcoinDialog from './components/ReceiveBitcoinDialog';
 import SettingsDialog from './components/SettingsDialog';
 import BroMintingBanner from './components/BroMintingBanner';
+import TransferCharmWizard from '../charms/transfer/TransferCharmWizard';
 import { useWalletSync } from '@/hooks/useWalletSync';
+import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
 
 export default function UserDashboard({ seedPhrase, walletInfo, derivationLoading, createSuccess }) {
     const [showSendDialog, setShowSendDialog] = useState(false);
     const [showReceiveDialog, setShowReceiveDialog] = useState(false);
     const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+    const [showBroTransferDialog, setShowBroTransferDialog] = useState(false);
+    const [broCharmToTransfer, setBroCharmToTransfer] = useState(null);
     const [btcPrice, setBtcPrice] = useState(null);
     const [priceLoading, setPriceLoading] = useState(true);
 
@@ -89,6 +93,24 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
 
     const handleSettings = () => {
         setShowSettingsDialog(true);
+    };
+
+    const handleSendBro = () => {
+        // Find BRO charm from charms list
+        const broAppId = getBroTokenAppId();
+        const broCharm = charms.find(charm => charm.appId === broAppId);
+        
+        if (broCharm) {
+            setBroCharmToTransfer(broCharm);
+            setShowBroTransferDialog(true);
+        } else {
+            console.warn('No BRO tokens found');
+        }
+    };
+
+    const handleReceiveBro = () => {
+        // For receiving BRO, just show the receive dialog (same as BTC)
+        setShowReceiveDialog(true);
     };
 
     /**
@@ -161,12 +183,6 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                             Welcome to your Bitcoin wallet
                         </p>
                     </div>
-                    <div className="flex items-center space-x-4">
-                        <div className="flex items-center space-x-2 text-sm text-dark-400">
-                            <div className={`w-2 h-2 rounded-full ${activeNetwork === 'mainnet' ? 'bg-green-500' : 'bg-orange-500'}`}></div>
-                            <span className="capitalize">{activeNetwork}</span>
-                        </div>
-                    </div>
                 </div>
 
                 {/* Success notification */}
@@ -180,10 +196,8 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
 
                 {/* Main Dashboard Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Left Column - Balance and Quick Actions */}
+                    {/* Left Column - Balance and Transactions */}
                     <div className="lg:col-span-2 space-y-6">
-                        <BroMintingBanner />
-
                         {/* Balance Display */}
                         <BalanceDisplay
                             balance={totalBalance}
@@ -195,14 +209,10 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                             onRefresh={handleRefresh}
                             isRefreshing={isRefreshing}
                             refreshProgress={refreshProgress}
-                        />
-
-                        {/* Quick Actions */}
-                        <QuickActionsPanel
-                            onSend={() => setShowSendDialog(true)}
-                            onReceive={() => setShowReceiveDialog(true)}
-                            onViewHistory={handleViewHistory}
-                            onSettings={() => setShowSettingsDialog(true)}
+                            onSendBTC={() => setShowSendDialog(true)}
+                            onReceiveBTC={() => setShowReceiveDialog(true)}
+                            onSendBro={handleSendBro}
+                            onReceiveBro={handleReceiveBro}
                         />
 
                         {/* Recent Transactions */}
@@ -214,6 +224,9 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
 
                     {/* Right Column - Portfolio and Security */}
                     <div className="space-y-6">
+                        {/* Bro Minting Banner */}
+                        <BroMintingBanner />
+
                         {/* Portfolio Summary */}
                         <PortfolioSummary
                             utxos={utxos}
@@ -258,6 +271,18 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                 isOpen={showSettingsDialog}
                 onClose={() => setShowSettingsDialog(false)}
             />
+
+            {/* BRO Transfer Dialog */}
+            {broCharmToTransfer && (
+                <TransferCharmWizard
+                    charm={broCharmToTransfer}
+                    show={showBroTransferDialog}
+                    onClose={() => {
+                        setShowBroTransferDialog(false);
+                        setBroCharmToTransfer(null);
+                    }}
+                />
+            )}
         </div>
     );
 }

@@ -158,6 +158,97 @@ const useTransactionStore = create((set, get) => ({
         }
     },
 
+    // Re-extract charm data for all existing charm transactions
+    reprocessCharmTransactions: async (blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, addresses = []) => {
+        try {
+            console.log('[TransactionStore] Reprocessing all charm transactions...');
+            const { getTransactions, saveTransactions } = await import('@/services/storage');
+            const { extractCharmTokenData } = await import('@/services/transactions/charm-transaction-extractor');
+            const { classifyTransaction } = await import('@/services/transactions/transaction-classifier');
+            const { MempoolService } = await import('@/services/shared/mempool-service');
+            
+            const mempoolService = new MempoolService();
+            const transactions = await getTransactions(blockchain, network);
+            const charmTypes = ['charm_received', 'charm_sent', 'charm_consolidation', 'charm_self_transfer', 'bro_mint', 'bro_mining'];
+            
+            const updatedTransactions = await Promise.all(transactions.map(async (tx) => {
+                // If transaction has no inputs/outputs, fetch them from API
+                if (!tx.inputs || tx.inputs.length === 0 || !tx.outputs || tx.outputs.length === 0) {
+                    console.log(`[TransactionStore] Fetching missing data for ${tx.txid?.slice(0,8)}`);
+                    try {
+                        const response = await mempoolService.getTransaction(tx.txid, network);
+                        const txDetails = response?.tx || response;
+                        
+                        if (txDetails) {
+                            // Extract inputs
+                            tx.inputs = (txDetails.vin || []).map(input => ({
+                                txid: input.txid,
+                                vout: input.vout,
+                                address: input.prevout?.scriptpubkey_address || null,
+                                value: input.prevout?.value || null
+                            }));
+                            
+                            // Extract outputs
+                            tx.outputs = (txDetails.vout || []).map(output => ({
+                                address: output.scriptpubkey_address || null,
+                                amount: output.value || 0,
+                                vout: output.n
+                            }));
+                            
+                            tx.fee = txDetails.fee || tx.fee;
+                            console.log(`[TransactionStore] Fetched ${tx.inputs.length} inputs, ${tx.outputs.length} outputs`);
+                        }
+                    } catch (error) {
+                        console.error(`[TransactionStore] Error fetching tx data:`, error);
+                    }
+                }
+                
+                // Re-classify transaction
+                tx.type = classifyTransaction(tx, addresses);
+                
+                // If it's a charm transaction, re-extract data
+                if (charmTypes.includes(tx.type)) {
+                    console.log(`[TransactionStore] Reprocessing ${tx.txid}, type: ${tx.type}`);
+                    try {
+                        const charmData = await extractCharmTokenData(tx.txid, network, addresses);
+                        if (charmData) {
+                            // Remove old metadata
+                            delete tx.metadata;
+                            
+                            // Add new charmTokenData
+                            tx.charmTokenData = {
+                                appId: charmData.appId,
+                                tokenName: charmData.tokenName,
+                                tokenTicker: charmData.tokenTicker,
+                                tokenImage: charmData.tokenImage,
+                                tokenAmount: charmData.tokenAmount
+                            };
+                            console.log(`[TransactionStore] Updated ${tx.txid} with:`, tx.charmTokenData);
+                        }
+                    } catch (error) {
+                        console.error(`[TransactionStore] Error reprocessing ${tx.txid}:`, error);
+                    }
+                }
+                return tx;
+            }));
+            
+            // Deduplicate by txid - keep the most recent one (last in array)
+            const txidMap = new Map();
+            updatedTransactions.forEach(tx => {
+                txidMap.set(tx.txid, tx);
+            });
+            const deduplicatedTransactions = Array.from(txidMap.values());
+            
+            console.log(`[TransactionStore] Removed ${updatedTransactions.length - deduplicatedTransactions.length} duplicate transactions`);
+            
+            await saveTransactions(deduplicatedTransactions, blockchain, network);
+            console.log('[TransactionStore] Reprocessing complete');
+        } catch (error) {
+            console.error('[TransactionStore] Error reprocessing charm transactions:', error);
+            set({ error: error.message });
+        }
+    },
+
     // Check if transaction exists by txid and type
     checkTransactionExists: async (txid, type, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
@@ -257,4 +348,5 @@ const useTransactionStore = create((set, get) => ({
     }
 }));
 
+export { useTransactionStore };
 export const useTransactions = () => useTransactionStore();

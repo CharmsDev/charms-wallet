@@ -17,6 +17,7 @@ export default function RecentTransactions({ utxos, isLoading }) {
         loadTransactions,
         processUTXOsForReceivedTransactions,
         recordSentTransaction,
+        reprocessCharmTransactions,
         getPaginatedTransactions,
         pagination,
         nextPage,
@@ -91,7 +92,10 @@ export default function RecentTransactions({ utxos, isLoading }) {
             } else {
             }
             
-            // Reload transactions from localStorage to display newly detected transactions
+            // Re-extract charm data for ALL existing charm transactions
+            await reprocessCharmTransactions(activeBlockchain, activeNetwork, addresses);
+            
+            // Reload transactions from localStorage to display updated transactions
             loadTransactions(activeBlockchain, activeNetwork);
         } catch (error) {
         } finally {
@@ -126,13 +130,24 @@ export default function RecentTransactions({ utxos, isLoading }) {
                 return 'bg-orange-500/20 text-orange-400';
             case 'bro_mint':
                 return 'bg-purple-500/20 text-purple-400';
+            case 'charm_received':
+                return 'bg-green-500/20 text-green-400';
+            case 'charm_sent':
+                return 'bg-red-500/20 text-red-400';
             case 'charm_transfer':
                 return 'bg-blue-500/20 text-blue-400';
             case 'charm_consolidation':
                 return 'bg-cyan-500/20 text-cyan-400';
+            case 'charm_self_transfer':
+                return 'bg-blue-500/20 text-blue-400';
             default:
                 return 'bg-dark-500/20 text-dark-400';
         }
+    };
+
+    // Check if transaction is a charm transaction
+    const isCharmTransaction = (tx) => {
+        return ['charm_received', 'charm_sent', 'charm_transfer', 'charm_consolidation', 'charm_self_transfer', 'bro_mint', 'bro_mining'].includes(tx.type);
     };
 
     return (
@@ -196,18 +211,22 @@ export default function RecentTransactions({ utxos, isLoading }) {
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center gap-2 mb-1">
                                                 <p className="font-medium text-white">{getTransactionDescription(tx)}</p>
-                                                {tx.metadata?.ticker && (
+                                                {/* Show charm token ticker if available */}
+                                                {tx.charmTokenData?.tokenTicker && (
                                                     <>
                                                         <span className="text-dark-500">•</span>
-                                                        <span className="text-sm font-semibold text-primary-400">{tx.metadata.ticker}</span>
+                                                        <span className="text-sm font-semibold text-primary-400">
+                                                            {tx.charmTokenData.tokenTicker}
+                                                        </span>
                                                     </>
                                                 )}
                                                 <span className="text-dark-500">•</span>
                                                 <p className="text-sm text-dark-400">{formatDate(tx.timestamp)}</p>
                                             </div>
-                                            {tx.metadata?.charmAmount && (
-                                                <p className="text-xs text-blue-400 mb-1">
-                                                    Amount: {(tx.metadata.charmAmount / 100000000).toLocaleString()} {tx.metadata.ticker || 'tokens'}
+                                            {/* Show charm token name and amount if available */}
+                                            {tx.charmTokenData?.tokenName && (
+                                                <p className="text-xs text-purple-400 mb-1 font-medium">
+                                                    {tx.charmTokenData.tokenName} • {tx.charmTokenData.tokenAmount.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 8})} {tx.charmTokenData.tokenTicker}
                                                 </p>
                                             )}
                                             {/* Full txid on desktop, truncated on mobile */}
@@ -222,15 +241,27 @@ export default function RecentTransactions({ utxos, isLoading }) {
                                     
                                     {/* Right section: Amount + Status */}
                                     <div className="flex flex-col sm:text-right space-y-1 flex-shrink-0">
-                                        <p className={`font-medium text-sm sm:text-base ${tx.type === 'received' ? 'text-green-400' : 'text-red-400'}`}>
-                                            {tx.type === 'received' ? '+' : '-'}{formatBTC(tx.amount)} BTC
-                                        </p>
+                                        {/* Show charm token amount or BTC amount */}
+                                        {isCharmTransaction(tx) && tx.charmTokenData ? (
+                                            <p className={`font-medium text-sm sm:text-base ${tx.type === 'charm_received' ? 'text-green-400' : tx.type === 'charm_sent' ? 'text-red-400' : 'text-purple-400'}`}>
+                                                {tx.type === 'charm_received' ? '+' : tx.type === 'charm_sent' ? '-' : ''}{tx.charmTokenData.tokenAmount.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 8})} {tx.charmTokenData.tokenTicker}
+                                            </p>
+                                        ) : isCharmTransaction(tx) ? (
+                                            <p className="font-medium text-sm sm:text-base text-dark-400">
+                                                Charm Transaction
+                                            </p>
+                                        ) : (
+                                            <p className={`font-medium text-sm sm:text-base ${tx.type === 'received' ? 'text-green-400' : 'text-red-400'}`}>
+                                                {tx.type === 'received' ? '+' : '-'}{formatBTC(tx.amount)} BTC
+                                            </p>
+                                        )}
                                         <div className="flex items-center justify-end gap-x-2 text-xs">
                                             <span className={getStatusColor(tx.status)}>{tx.status}</span>
                                             {tx.blockHeight && (
                                                 <span className="text-dark-500">({tx.blockHeight.toLocaleString()})</span>
                                             )}
-                                            {tx.fee && tx.type === 'sent' && (
+                                            {/* Only show fee for non-charm transactions */}
+                                            {tx.fee && tx.type === 'sent' && !isCharmTransaction(tx) && (
                                                 <>
                                                     <span className="text-dark-500 hidden sm:inline">•</span>
                                                     <span className="text-dark-400">Fee: {formatBTC(tx.fee)}</span>

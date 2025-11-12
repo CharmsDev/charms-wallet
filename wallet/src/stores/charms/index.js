@@ -60,6 +60,7 @@ const getDisplayName = (charm) => {
 export const useCharmsStore = create((set, get) => ({
     // State
     charms: [],
+    pendingCharms: [], // Pending charms waiting for confirmation
     isLoading: false,
     error: null,
     initialized: false,
@@ -79,7 +80,7 @@ export const useCharmsStore = create((set, get) => ({
         
         // Network changed - clear and reinitialize
         if (state.currentNetwork && state.currentNetwork !== networkKey) {
-            set({ charms: [], initialized: false, currentNetwork: networkKey });
+            set({ charms: [], pendingCharms: [], initialized: false, currentNetwork: networkKey });
         } else if (state.initialized && state.currentNetwork === networkKey) {
             // Already initialized for this network - skip reload
             return;
@@ -111,6 +112,7 @@ export const useCharmsStore = create((set, get) => ({
 
     /**
      * Add charm progressively (with deduplication)
+     * Also removes matching pending charm if found
      */
     addCharm: async (charm) => {
         const enhanced = await charmsExplorerAPI.processCharmsWithReferenceData([charm]);
@@ -119,7 +121,16 @@ export const useCharmsStore = create((set, get) => ({
             const filtered = state.charms.filter(c => 
                 !enhanced.some(newC => getCharmKey(c) === getCharmKey(newC))
             );
-            return { charms: [...filtered, ...enhanced] };
+            
+            // Remove matching pending charms (now confirmed)
+            const updatedPending = state.pendingCharms.filter(p => 
+                !enhanced.some(newC => p.txid === newC.txid && p.outputIndex === newC.outputIndex)
+            );
+            
+            return { 
+                charms: [...filtered, ...enhanced],
+                pendingCharms: updatedPending
+            };
         });
     },
 
@@ -137,7 +148,41 @@ export const useCharmsStore = create((set, get) => ({
     /**
      * Clear all charms
      */
-    clear: () => set({ charms: [], initialized: false }),
+    clear: () => set({ charms: [], pendingCharms: [], initialized: false }),
+
+    /**
+     * Add pending charm (expected change from transfer)
+     */
+    addPendingCharm: (pendingCharm) => {
+        set((state) => ({
+            pendingCharms: [...state.pendingCharms, {
+                ...pendingCharm,
+                isPending: true,
+                createdAt: Date.now()
+            }]
+        }));
+    },
+
+    /**
+     * Remove pending charm (when confirmed or timeout)
+     */
+    removePendingCharm: (txid, outputIndex) => {
+        set((state) => ({
+            pendingCharms: state.pendingCharms.filter(c => 
+                !(c.txid === txid && c.outputIndex === outputIndex)
+            )
+        }));
+    },
+
+    /**
+     * Clear old pending charms (older than 10 minutes)
+     */
+    clearOldPendingCharms: () => {
+        const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
+        set((state) => ({
+            pendingCharms: state.pendingCharms.filter(c => c.createdAt > tenMinutesAgo)
+        }));
+    },
 
     // ============================================
     // Selectors (computed values)
@@ -151,6 +196,16 @@ export const useCharmsStore = create((set, get) => ({
         return state.charms
             .filter(charm => isToken(charm) && charm.appId === appId)
             .reduce((total, charm) => total + extractAmount(charm), 0);
+    },
+
+    /**
+     * Get pending balance for specific token by appId
+     */
+    getPendingByAppId: (appId) => {
+        const state = get();
+        return state.pendingCharms
+            .filter(charm => charm.appId === appId)
+            .reduce((total, charm) => total + (charm.amount || 0), 0);
     },
 
     /**

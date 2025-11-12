@@ -16,13 +16,18 @@ export function useCharms() {
     
     const {
         charms,
+        pendingCharms,
         isLoading,
         error,
         initialized,
         initialize,
         addCharm,
         removeCharm,
+        addPendingCharm,
+        removePendingCharm,
+        clearOldPendingCharms,
         getTotalByAppId,
+        getPendingByAppId,
         groupTokensByAppId,
         getNFTs,
         isCharmNFT,
@@ -37,13 +42,27 @@ export function useCharms() {
         }
     }, [activeBlockchain, activeNetwork]);
 
+    // Auto-cleanup old pending charms (every 2 minutes)
+    useEffect(() => {
+        const interval = setInterval(() => {
+            clearOldPendingCharms();
+        }, 2 * 60 * 1000); // 2 minutes
+
+        return () => clearInterval(interval);
+    }, [clearOldPendingCharms]);
+
     return {
         charms,
+        pendingCharms,
         isLoading,
         error,
         initialized,
         updateAfterTransfer: removeCharm,
+        addPendingCharm,
+        removePendingCharm,
+        clearOldPendingCharms,
         getTotalByAppId,
+        getPendingByAppId,
         groupTokensByAppId,
         getNFTs,
         isCharmNFT,

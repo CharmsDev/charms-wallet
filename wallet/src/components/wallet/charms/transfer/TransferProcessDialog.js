@@ -30,7 +30,7 @@ export default function TransferProcessDialog({
     const hasStartedRef = useRef(false);
 
     const { seedPhrase } = useWallet();
-    const { updateAfterTransfer } = useCharms();
+    const { updateAfterTransfer, addPendingCharm } = useCharms();
     const { syncAfterCharmTransfer } = useWalletSync();
     const { activeNetwork, activeBlockchain } = useBlockchain();
     const { addresses: walletAddresses } = useAddresses();
@@ -84,14 +84,33 @@ export default function TransferProcessDialog({
             setCommitTxId(broadcastResult.commitData.txid);
             setSpellTxId(broadcastResult.spellData.txid);
             
+            // Parse spell JSON to get transfer details
+            const spellData = JSON.parse(spellJson);
+            const totalCharmAmount = selectedCharmUtxos.reduce((sum, utxo) => sum + (utxo.amount || utxo.displayAmount || 0), 0);
+            const transferAmount = spellData.outs[0]?.charms?.['$01'] || 0;
+            const changeAmount = totalCharmAmount - transferAmount;
+            
+            // Add pending charm for expected change (if any)
+            if (changeAmount > 0 && changeAddress) {
+                const pendingCharm = {
+                    txid: broadcastResult.spellData.txid,
+                    outputIndex: 1, // Change is typically output index 1
+                    address: changeAddress,
+                    amount: changeAmount,
+                    appId: charm.appId || selectedCharmUtxos[0]?.appId,
+                    name: charm.name || charm.metadata?.name || 'Charm',
+                    ticker: charm.ticker || charm.metadata?.ticker || 'CHARM',
+                    image: charm.image || charm.metadata?.image,
+                    type: 'token',
+                    status: 'pending'
+                };
+                addPendingCharm(pendingCharm);
+            }
+            
             // Record charm transfer transaction
             const { useTransactionStore } = await import('@/stores/transactionStore');
             const recordSentTransaction = useTransactionStore.getState().recordSentTransaction;
             
-            // Parse spell JSON to get transfer details
-            const spellData = JSON.parse(spellJson);
-            const totalCharmAmount = selectedCharmUtxos.reduce((sum, utxo) => sum + (utxo.amount || 0), 0);
-            const transferAmount = spellData.outs[0]?.charms?.['$01'] || 0;
             const destinationAddress = spellData.outs[0]?.address || '';
             
             
