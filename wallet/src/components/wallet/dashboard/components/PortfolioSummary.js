@@ -3,18 +3,17 @@
 import { useBlockchain } from '@/stores/blockchainStore';
 import { getBalance } from '@/services/storage';
 import { useState, useEffect } from 'react';
+import { formatBTC } from '@/utils/formatters';
 
 export default function PortfolioSummary({ utxos, charms, addresses, isLoading }) {
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const [balanceData, setBalanceData] = useState(null);
 
-    // Load balance data from localStorage (unified structure)
     useEffect(() => {
         const data = getBalance(activeBlockchain, activeNetwork);
         setBalanceData(data);
-    }, [activeBlockchain, activeNetwork, utxos, charms]); // Reload when UTXOs or charms change
+    }, [activeBlockchain, activeNetwork, utxos, charms]);
 
-    // Calculate portfolio statistics from unified structure
     const getPortfolioStats = () => {
         if (balanceData) {
             return {
@@ -28,7 +27,6 @@ export default function PortfolioSummary({ utxos, charms, addresses, isLoading }
             };
         }
         
-        // Fallback calculation if balance not cached
         const utxoCount = Object.keys(utxos || {}).length;
         const charmsCount = charms?.length || 0;
         
@@ -44,11 +42,6 @@ export default function PortfolioSummary({ utxos, charms, addresses, isLoading }
     };
 
     const stats = getPortfolioStats();
-
-    const formatBTC = (satoshis) => {
-        const btc = satoshis / 100000000;
-        return btc.toFixed(8);
-    };
 
     const portfolioCards = [
         {

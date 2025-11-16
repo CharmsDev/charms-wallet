@@ -225,6 +225,16 @@ export default function Header({ activeSection, setActiveSection }) {
                             Wallets
                         </button>
                         <button
+                            className={`px-1 inline-flex items-center border-b-2 ${activeSection === 'history'
+                                ? 'border-primary-500 text-primary-400'
+                                : 'border-transparent text-dark-300 hover:border-dark-500 hover:text-dark-200'
+                                }`}
+                            style={{paddingTop: '6px', paddingBottom: '6px'}}
+                            onClick={() => setActiveSection("history")}
+                        >
+                            History
+                        </button>
+                        <button
                             className={`px-1 inline-flex items-center border-b-2 ${activeSection === 'addresses'
                                 ? 'border-primary-500 text-primary-400'
                                 : 'border-transparent text-dark-300 hover:border-dark-500 hover:text-dark-200'
@@ -257,9 +267,9 @@ export default function Header({ activeSection, setActiveSection }) {
                     </div>
                     
                     {/* Mobile navigation - reduced height */}
-                    <div className="sm:hidden flex space-x-6">
+                    <div className="sm:hidden flex space-x-4 overflow-x-auto">
                         <button
-                            className={`py-2 px-1 inline-flex items-center border-b-2 text-sm ${activeSection === 'wallets'
+                            className={`py-2 px-1 inline-flex items-center border-b-2 text-sm whitespace-nowrap ${activeSection === 'wallets'
                                 ? 'border-primary-500 text-primary-400'
                                 : 'border-transparent text-dark-300 hover:border-dark-500 hover:text-dark-200'
                                 }`}
@@ -268,7 +278,16 @@ export default function Header({ activeSection, setActiveSection }) {
                             Wallets
                         </button>
                         <button
-                            className={`py-2 px-1 inline-flex items-center border-b-2 text-sm ${activeSection === 'addresses'
+                            className={`py-2 px-1 inline-flex items-center border-b-2 text-sm whitespace-nowrap ${activeSection === 'history'
+                                ? 'border-primary-500 text-primary-400'
+                                : 'border-transparent text-dark-300 hover:border-dark-500 hover:text-dark-200'
+                                }`}
+                            onClick={() => setActiveSection("history")}
+                        >
+                            History
+                        </button>
+                        <button
+                            className={`py-2 px-1 inline-flex items-center border-b-2 text-sm whitespace-nowrap ${activeSection === 'addresses'
                                 ? 'border-primary-500 text-primary-400'
                                 : 'border-transparent text-dark-300 hover:border-dark-500 hover:text-dark-200'
                                 }`}
@@ -277,7 +296,7 @@ export default function Header({ activeSection, setActiveSection }) {
                             Addresses
                         </button>
                         <button
-                            className={`py-2 px-1 inline-flex items-center border-b-2 text-sm ${activeSection === 'utxos'
+                            className={`py-2 px-1 inline-flex items-center border-b-2 text-sm whitespace-nowrap ${activeSection === 'utxos'
                                 ? 'border-primary-500 text-primary-400'
                                 : 'border-transparent text-dark-300 hover:border-dark-500 hover:text-dark-200'
                                 }`}
@@ -286,7 +305,7 @@ export default function Header({ activeSection, setActiveSection }) {
                             UTXOs
                         </button>
                         <button
-                            className={`py-2 px-1 inline-flex items-center border-b-2 text-sm ${activeSection === 'charms'
+                            className={`py-2 px-1 inline-flex items-center border-b-2 text-sm whitespace-nowrap ${activeSection === 'charms'
                                 ? 'border-primary-500 text-primary-400'
                                 : 'border-transparent text-dark-300 hover:border-dark-500 hover:text-dark-200'
                                 }`}

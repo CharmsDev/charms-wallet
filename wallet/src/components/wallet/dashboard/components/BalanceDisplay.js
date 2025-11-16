@@ -5,18 +5,13 @@ import { useCharms } from '@/stores/charmsStore';
 import { useUTXOs } from '@/stores/utxoStore';
 import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
 import { useBlockchain } from '@/stores/blockchainStore';
+import { formatBTC } from '@/utils/formatters';
 
 export default function BalanceDisplay({ balance, pendingBalance, btcPrice, priceLoading, isLoading, network, onRefresh, isRefreshing, refreshProgress, onSendBTC, onReceiveBTC, onSendBro, onReceiveBro }) {
     const [showUSD, setShowUSD] = useState(false);
     const [trend, setTrend] = useState(null);
     const { charms, getTotalByAppId, getPendingByAppId, isLoading: charmsLoading } = useCharms();
     const { activeBlockchain, activeNetwork } = useBlockchain();
-
-    // Format balance in BTC
-    const formatBTC = (satoshis) => {
-        const btc = satoshis / 100000000;
-        return btc.toFixed(8);
-    };
 
     // Format balance in fiat
     const formatFiat = (satoshis, currency = 'usd') => {

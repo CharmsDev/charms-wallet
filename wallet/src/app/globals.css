@@ -117,6 +117,24 @@
   @apply bg-dark-500;
 }
 
+/* Custom scrollbar class for specific elements */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  @apply bg-dark-800/50;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-dark-600 rounded-full;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  @apply bg-primary-500;
+}
+
 /* Line clamp utility */
 .line-clamp-2 {
   display: -webkit-box;

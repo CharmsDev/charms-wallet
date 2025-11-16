@@ -9,6 +9,7 @@ import { useCharmsStore } from '@/stores/charms';
 import TransactionDetailsModal from './TransactionDetailsModal';
 import { getTransactionLabel, getTransactionIcon } from '@/services/transactions/transaction-classifier';
 import { scanCharmTransactions } from '@/services/wallet/sync/transaction-scanner';
+import { formatBTC, formatTransactionDate } from '@/utils/formatters';
 
 export default function RecentTransactions({ utxos, isLoading }) {
     const {
@@ -18,86 +19,51 @@ export default function RecentTransactions({ utxos, isLoading }) {
         processUTXOsForReceivedTransactions,
         recordSentTransaction,
         reprocessCharmTransactions,
-        getPaginatedTransactions,
-        pagination,
-        nextPage,
-        previousPage,
-        goToPage
+        getRecentTransactions
     } = useTransactions();
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const { addresses } = useAddresses();
-    const { refreshUTXOs, refreshProgress } = useUTXOStore();
+    const { refreshUTXOs } = useUTXOStore();
     const { charms } = useCharmsStore();
     const [selectedTransaction, setSelectedTransaction] = useState(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
 
-    // Get current page transactions
-    const paginatedTransactions = getPaginatedTransactions();
+    const recentTransactions = getRecentTransactions(8);
 
-    // Track list rendering attempts
-    useEffect(() => {
-    }, [transactions, pagination.currentPage, pagination.totalPages, paginatedTransactions.length]);
-
-    // Handle transaction click - show details modal
     const handleTransactionClick = (tx) => {
         setSelectedTransaction(tx);
     };
 
-    // Load transactions from localStorage only on mount or network change
     useEffect(() => {
         loadTransactions(activeBlockchain, activeNetwork);
     }, [activeBlockchain, activeNetwork, loadTransactions]);
 
-    const formatBTC = (satoshis) => {
-        const btc = satoshis / 100000000;
-        return btc.toFixed(8);
-    };
-
-    const formatDate = (timestamp) => {
-        return new Date(timestamp).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    };
-
     /**
-     * Optimized transaction refresh
-     * - Refreshes UTXOs from first 10 addresses (lightweight)
-     * - Scans for new received transactions
-     * - Does NOT recalculate balances or parse charms (optimization)
+     * Refreshes recent transactions by syncing UTXOs and charm data
+     * Optimized for dashboard by limiting UTXO scan to first 10 addresses
      */
     const handleRefreshTransactions = async () => {
         if (isRefreshing || !addresses || addresses.length === 0) {
             return;
         }
 
-        
         setIsRefreshing(true);
         try {
-            // Refresh UTXOs first
             await refreshUTXOs(activeBlockchain, activeNetwork, 10);
             
-            // Process UTXOs to detect and record new received transactions
             if (utxos && Object.keys(utxos).length > 0) {
                 await processUTXOsForReceivedTransactions(utxos, addresses, activeBlockchain, activeNetwork);
-            } else {
             }
             
-            // Scan for charm transfer transactions (sent transactions)
             if (charms && charms.length > 0) {
                 const walletAddresses = new Set(addresses.map(a => a.address));
                 await scanCharmTransactions(charms, activeBlockchain, activeNetwork, recordSentTransaction, walletAddresses);
-            } else {
             }
             
-            // Re-extract charm data for ALL existing charm transactions
             await reprocessCharmTransactions(activeBlockchain, activeNetwork, addresses);
-            
-            // Reload transactions from localStorage to display updated transactions
             loadTransactions(activeBlockchain, activeNetwork);
         } catch (error) {
+            // Silently handle errors
         } finally {
             setIsRefreshing(false);
         }
@@ -112,13 +78,6 @@ export default function RecentTransactions({ utxos, isLoading }) {
         }
     };
 
-    const getTypeIcon = (type) => {
-        return getTransactionIcon(type);
-    };
-
-    const getTransactionDescription = (tx) => {
-        return getTransactionLabel(tx.type);
-    };
 
     const getIconStyle = (type) => {
         switch (type) {
@@ -194,7 +153,7 @@ export default function RecentTransactions({ utxos, isLoading }) {
             ) : (
                 <>
                     <div className="space-y-2">
-                        {paginatedTransactions.map((tx) => (
+                        {recentTransactions.map((tx) => (
                             <div
                                 key={tx.id}
                                 onClick={() => handleTransactionClick(tx)}
@@ -206,11 +165,11 @@ export default function RecentTransactions({ utxos, isLoading }) {
                                     {/* Left section: Icon + Transaction info */}
                                     <div className="flex items-center space-x-3 min-w-0 flex-1">
                                         <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${getIconStyle(tx.type)}`}>
-                                            {getTypeIcon(tx.type)}
+                                            {getTransactionIcon(tx.type)}
                                         </div>
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center gap-2 mb-1">
-                                                <p className="font-medium text-white">{getTransactionDescription(tx)}</p>
+                                                <p className="font-medium text-white">{getTransactionLabel(tx.type)}</p>
                                                 {/* Show charm token ticker if available */}
                                                 {tx.charmTokenData?.tokenTicker && (
                                                     <>
@@ -221,7 +180,7 @@ export default function RecentTransactions({ utxos, isLoading }) {
                                                     </>
                                                 )}
                                                 <span className="text-dark-500">•</span>
-                                                <p className="text-sm text-dark-400">{formatDate(tx.timestamp)}</p>
+                                                <p className="text-sm text-dark-400">{formatTransactionDate(tx.timestamp)}</p>
                                             </div>
                                             {/* Show charm token name and amount if available */}
                                             {tx.charmTokenData?.tokenName && (
@@ -274,64 +233,12 @@ export default function RecentTransactions({ utxos, isLoading }) {
                         ))}
                     </div>
 
-                    {/* Pagination Controls */}
-                    {pagination.totalPages > 1 && (
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4 pt-4 border-t border-dark-700">
-                            <div className="text-sm text-dark-400 text-center sm:text-left">
-                                Page {pagination.currentPage} of {pagination.totalPages}
-                                <span className="block sm:inline sm:ml-2">({pagination.totalTransactions} total)</span>
-                            </div>
-
-                            <div className="flex items-center justify-center sm:justify-end space-x-2">
-                                <button
-                                    onClick={previousPage}
-                                    disabled={pagination.currentPage === 1}
-                                    className="px-3 py-1 text-sm bg-dark-700 hover:bg-dark-600 disabled:bg-dark-800 disabled:text-dark-500 rounded transition-colors"
-                                >
-                                    Previous
-                                </button>
-
-                                {/* Page numbers - responsive */}
-                                <div className="hidden sm:flex space-x-1">
-                                    {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
-                                        let pageNum;
-                                        if (pagination.totalPages <= 5) {
-                                            pageNum = i + 1;
-                                        } else {
-                                            const start = Math.max(1, pagination.currentPage - 2);
-                                            const end = Math.min(pagination.totalPages, start + 4);
-                                            pageNum = start + i;
-                                            if (pageNum > end) return null;
-                                        }
-
-                                        return (
-                                            <button
-                                                key={pageNum}
-                                                onClick={() => goToPage(pageNum)}
-                                                className={`px-2 py-1 text-sm rounded transition-colors ${pageNum === pagination.currentPage
-                                                        ? 'bg-primary-500 text-white'
-                                                        : 'bg-dark-700 hover:bg-dark-600 text-dark-300'
-                                                    }`}
-                                            >
-                                                {pageNum}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                
-                                {/* Mobile page indicator */}
-                                <div className="sm:hidden px-2 py-1 text-sm bg-dark-700 rounded text-dark-300">
-                                    {pagination.currentPage}/{pagination.totalPages}
-                                </div>
-
-                                <button
-                                    onClick={nextPage}
-                                    disabled={pagination.currentPage === pagination.totalPages}
-                                    className="px-3 py-1 text-sm bg-dark-700 hover:bg-dark-600 disabled:bg-dark-800 disabled:text-dark-500 rounded transition-colors"
-                                >
-                                    Next
-                                </button>
-                            </div>
+                    {/* View All Link */}
+                    {transactions.length > 8 && (
+                        <div className="mt-4 pt-4 border-t border-dark-700 text-center">
+                            <p className="text-sm text-dark-400">
+                                Showing {recentTransactions.length} of {transactions.length} transactions
+                            </p>
                         </div>
                     )}
                 </>

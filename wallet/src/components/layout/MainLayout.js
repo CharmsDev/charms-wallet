@@ -7,6 +7,7 @@ import Footer from './Footer';
 // Import AddressManager and UTXOList directly for instant loading, lazy load others
 import AddressManager from '@/components/wallet/addresses/AddressManager';
 import UTXOList from '@/components/wallet/utxos/UTXOList';
+import TransactionHistory from '@/components/wallet/history/TransactionHistory';
 const CharmsList = lazy(() => import('@/components/wallet/charms/CharmsList'));
 
 export default function MainLayout({ children }) {
@@ -33,6 +34,16 @@ export default function MainLayout({ children }) {
                     >
                         {children}
                     </div>
+
+                    {/* History section - instant loading */}
+                    {loadedSections.has('history') && (
+                        <div
+                            className={`pt-6 transition-opacity duration-200 ${activeSection !== "history" ? "opacity-0 hidden" : ""
+                                }`}
+                        >
+                            <TransactionHistory />
+                        </div>
+                    )}
 
                     {/* Addresses section - instant loading */}
                     {loadedSections.has('addresses') && (
