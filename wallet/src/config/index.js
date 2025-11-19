@@ -9,7 +9,36 @@ const config = {
         wallet: process.env.NEXT_PUBLIC_WALLET_API_URL,
         charms: process.env.NEXT_PUBLIC_CHARMS_API_URL,
         cardano: process.env.NEXT_PUBLIC_CARDANO_API_URL,
-        prover: process.env.NEXT_PUBLIC_PROVE_API_URL,
+        prover: {
+            mainnet: process.env.NEXT_PUBLIC_PROVER_MAINNET_URL,
+            testnet4: process.env.NEXT_PUBLIC_PROVER_TESTNET4_URL,
+        },
+        
+        // Get prover URL by network
+        getProverUrl: (network) => {
+            const target = network.toString().toLowerCase();
+            let url = null;
+            
+            if (target === 'mainnet') {
+                url = config.api.prover.mainnet;
+            } else if (target === 'testnet4') {
+                url = config.api.prover.testnet4;
+            }
+            
+            if (!url) {
+                const envVarName = target === 'mainnet' 
+                    ? 'NEXT_PUBLIC_PROVER_MAINNET_URL'
+                    : 'NEXT_PUBLIC_PROVER_TESTNET4_URL';
+                    
+                throw new Error(
+                    `❌ Prover URL not configured for network: ${network}\n` +
+                    `Please set environment variable: ${envVarName}\n` +
+                    `This is required for charm transfers to work.`
+                );
+            }
+            
+            return url;
+        },
     },
 
     // Bitcoin network configuration

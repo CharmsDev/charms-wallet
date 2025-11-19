@@ -5,73 +5,67 @@ import { useTransactions } from '@/stores/transactionStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useUTXOStore } from '@/stores/utxoStore';
+import { useCharmsStore } from '@/stores/charms';
 import TransactionDetailsModal from './TransactionDetailsModal';
 import { getTransactionLabel, getTransactionIcon } from '@/services/transactions/transaction-classifier';
+import { scanCharmTransactions } from '@/services/wallet/sync/transaction-scanner';
+import { formatBTC, formatTransactionDate } from '@/utils/formatters';
 
-export default function RecentTransactions({ utxos, isLoading }) {
+export default function RecentTransactions({ utxos, isLoading, onViewAllTransactions }) {
     const {
         transactions,
         isLoading: txLoading,
         loadTransactions,
         processUTXOsForReceivedTransactions,
-        getPaginatedTransactions,
-        pagination,
-        nextPage,
-        previousPage,
-        goToPage
+        recordSentTransaction,
+        reprocessCharmTransactions,
+        getRecentTransactions
     } = useTransactions();
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const { addresses } = useAddresses();
-    const { refreshUTXOs, refreshProgress } = useUTXOStore();
+    const { refreshUTXOs } = useUTXOStore();
+    const { charms } = useCharmsStore();
     const [selectedTransaction, setSelectedTransaction] = useState(null);
-    
-    // Use refresh progress from UTXO store
-    const isRefreshing = refreshProgress.isRefreshing;
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
-    // Get current page transactions
-    const paginatedTransactions = getPaginatedTransactions();
+    const recentTransactions = getRecentTransactions(8);
 
-    // Track list rendering attempts
-    useEffect(() => {
-    }, [transactions, pagination.currentPage, pagination.totalPages, paginatedTransactions.length]);
-
-    // Handle transaction click - show details modal
     const handleTransactionClick = (tx) => {
         setSelectedTransaction(tx);
     };
 
-    // Load transactions from localStorage only on mount or network change
     useEffect(() => {
         loadTransactions(activeBlockchain, activeNetwork);
     }, [activeBlockchain, activeNetwork, loadTransactions]);
 
-    const formatBTC = (satoshis) => {
-        const btc = satoshis / 100000000;
-        return btc.toFixed(8);
-    };
-
-    const formatDate = (timestamp) => {
-        return new Date(timestamp).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    };
-
+    /**
+     * Refreshes recent transactions by syncing UTXOs and charm data
+     * Optimized for dashboard by limiting UTXO scan to first 10 addresses
+     */
     const handleRefreshTransactions = async () => {
-        if (isRefreshing || !addresses || addresses.length === 0) return;
-        
+        if (isRefreshing || !addresses || addresses.length === 0) {
+            return;
+        }
+
+        setIsRefreshing(true);
         try {
-            // Refresh UTXOs from blockchain (scans first 10 addresses)
             await refreshUTXOs(activeBlockchain, activeNetwork, 10);
             
-            // Process UTXOs to detect and update transactions
             if (utxos && Object.keys(utxos).length > 0) {
                 await processUTXOsForReceivedTransactions(utxos, addresses, activeBlockchain, activeNetwork);
             }
+            
+            if (charms && charms.length > 0) {
+                const walletAddresses = new Set(addresses.map(a => a.address));
+                await scanCharmTransactions(charms, activeBlockchain, activeNetwork, recordSentTransaction, walletAddresses);
+            }
+            
+            await reprocessCharmTransactions(activeBlockchain, activeNetwork, addresses);
+            loadTransactions(activeBlockchain, activeNetwork);
         } catch (error) {
-            console.error('Failed to refresh transactions:', error);
+            // Silently handle errors
+        } finally {
+            setIsRefreshing(false);
         }
     };
 
@@ -84,13 +78,6 @@ export default function RecentTransactions({ utxos, isLoading }) {
         }
     };
 
-    const getTypeIcon = (type) => {
-        return getTransactionIcon(type);
-    };
-
-    const getTransactionDescription = (tx) => {
-        return getTransactionLabel(tx.type);
-    };
 
     const getIconStyle = (type) => {
         switch (type) {
@@ -102,9 +89,24 @@ export default function RecentTransactions({ utxos, isLoading }) {
                 return 'bg-orange-500/20 text-orange-400';
             case 'bro_mint':
                 return 'bg-purple-500/20 text-purple-400';
+            case 'charm_received':
+                return 'bg-green-500/20 text-green-400';
+            case 'charm_sent':
+                return 'bg-red-500/20 text-red-400';
+            case 'charm_transfer':
+                return 'bg-blue-500/20 text-blue-400';
+            case 'charm_consolidation':
+                return 'bg-cyan-500/20 text-cyan-400';
+            case 'charm_self_transfer':
+                return 'bg-blue-500/20 text-blue-400';
             default:
                 return 'bg-dark-500/20 text-dark-400';
         }
+    };
+
+    // Check if transaction is a charm transaction
+    const isCharmTransaction = (tx) => {
+        return ['charm_received', 'charm_sent', 'charm_transfer', 'charm_consolidation', 'charm_self_transfer', 'bro_mint', 'bro_mining'].includes(tx.type);
     };
 
     return (
@@ -151,7 +153,7 @@ export default function RecentTransactions({ utxos, isLoading }) {
             ) : (
                 <>
                     <div className="space-y-2">
-                        {paginatedTransactions.map((tx) => (
+                        {recentTransactions.map((tx) => (
                             <div
                                 key={tx.id}
                                 onClick={() => handleTransactionClick(tx)}
@@ -163,14 +165,29 @@ export default function RecentTransactions({ utxos, isLoading }) {
                                     {/* Left section: Icon + Transaction info */}
                                     <div className="flex items-center space-x-3 min-w-0 flex-1">
                                         <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${getIconStyle(tx.type)}`}>
-                                            {getTypeIcon(tx.type)}
+                                            {getTransactionIcon(tx.type)}
                                         </div>
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center gap-2 mb-1">
-                                                <p className="font-medium text-white">{getTransactionDescription(tx)}</p>
+                                                <p className="font-medium text-white">{getTransactionLabel(tx.type)}</p>
+                                                {/* Show charm token ticker if available */}
+                                                {tx.charmTokenData?.tokenTicker && (
+                                                    <>
+                                                        <span className="text-dark-500">•</span>
+                                                        <span className="text-sm font-semibold text-primary-400">
+                                                            {tx.charmTokenData.tokenTicker}
+                                                        </span>
+                                                    </>
+                                                )}
                                                 <span className="text-dark-500">•</span>
-                                                <p className="text-sm text-dark-400">{formatDate(tx.timestamp)}</p>
+                                                <p className="text-sm text-dark-400">{formatTransactionDate(tx.timestamp)}</p>
                                             </div>
+                                            {/* Show charm token name and amount if available */}
+                                            {tx.charmTokenData?.tokenName && (
+                                                <p className="text-xs text-purple-400 mb-1 font-medium">
+                                                    {tx.charmTokenData.tokenName} • {tx.charmTokenData.tokenAmount.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 8})} {tx.charmTokenData.tokenTicker}
+                                                </p>
+                                            )}
                                             {/* Full txid on desktop, truncated on mobile */}
                                             <p className="hidden lg:block text-xs text-dark-400 hover:text-primary-400 transition-colors font-mono break-all">
                                                 {tx.txid}
@@ -183,15 +200,27 @@ export default function RecentTransactions({ utxos, isLoading }) {
                                     
                                     {/* Right section: Amount + Status */}
                                     <div className="flex flex-col sm:text-right space-y-1 flex-shrink-0">
-                                        <p className={`font-medium text-sm sm:text-base ${tx.type === 'received' ? 'text-green-400' : 'text-red-400'}`}>
-                                            {tx.type === 'received' ? '+' : '-'}{formatBTC(tx.amount)} BTC
-                                        </p>
+                                        {/* Show charm token amount or BTC amount */}
+                                        {isCharmTransaction(tx) && tx.charmTokenData ? (
+                                            <p className={`font-medium text-sm sm:text-base ${tx.type === 'charm_received' ? 'text-green-400' : tx.type === 'charm_sent' ? 'text-red-400' : 'text-purple-400'}`}>
+                                                {tx.type === 'charm_received' ? '+' : tx.type === 'charm_sent' ? '-' : ''}{tx.charmTokenData.tokenAmount.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 8})} {tx.charmTokenData.tokenTicker}
+                                            </p>
+                                        ) : isCharmTransaction(tx) ? (
+                                            <p className="font-medium text-sm sm:text-base text-dark-400">
+                                                Charm Transaction
+                                            </p>
+                                        ) : (
+                                            <p className={`font-medium text-sm sm:text-base ${tx.type === 'received' ? 'text-green-400' : 'text-red-400'}`}>
+                                                {tx.type === 'received' ? '+' : '-'}{formatBTC(tx.amount)} BTC
+                                            </p>
+                                        )}
                                         <div className="flex items-center justify-end gap-x-2 text-xs">
                                             <span className={getStatusColor(tx.status)}>{tx.status}</span>
                                             {tx.blockHeight && (
                                                 <span className="text-dark-500">({tx.blockHeight.toLocaleString()})</span>
                                             )}
-                                            {tx.fee && tx.type === 'sent' && (
+                                            {/* Only show fee for non-charm transactions */}
+                                            {tx.fee && tx.type === 'sent' && !isCharmTransaction(tx) && (
                                                 <>
                                                     <span className="text-dark-500 hidden sm:inline">•</span>
                                                     <span className="text-dark-400">Fee: {formatBTC(tx.fee)}</span>
@@ -204,64 +233,15 @@ export default function RecentTransactions({ utxos, isLoading }) {
                         ))}
                     </div>
 
-                    {/* Pagination Controls */}
-                    {pagination.totalPages > 1 && (
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4 pt-4 border-t border-dark-700">
-                            <div className="text-sm text-dark-400 text-center sm:text-left">
-                                Page {pagination.currentPage} of {pagination.totalPages}
-                                <span className="block sm:inline sm:ml-2">({pagination.totalTransactions} total)</span>
-                            </div>
-
-                            <div className="flex items-center justify-center sm:justify-end space-x-2">
-                                <button
-                                    onClick={previousPage}
-                                    disabled={pagination.currentPage === 1}
-                                    className="px-3 py-1 text-sm bg-dark-700 hover:bg-dark-600 disabled:bg-dark-800 disabled:text-dark-500 rounded transition-colors"
-                                >
-                                    Previous
-                                </button>
-
-                                {/* Page numbers - responsive */}
-                                <div className="hidden sm:flex space-x-1">
-                                    {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
-                                        let pageNum;
-                                        if (pagination.totalPages <= 5) {
-                                            pageNum = i + 1;
-                                        } else {
-                                            const start = Math.max(1, pagination.currentPage - 2);
-                                            const end = Math.min(pagination.totalPages, start + 4);
-                                            pageNum = start + i;
-                                            if (pageNum > end) return null;
-                                        }
-
-                                        return (
-                                            <button
-                                                key={pageNum}
-                                                onClick={() => goToPage(pageNum)}
-                                                className={`px-2 py-1 text-sm rounded transition-colors ${pageNum === pagination.currentPage
-                                                        ? 'bg-primary-500 text-white'
-                                                        : 'bg-dark-700 hover:bg-dark-600 text-dark-300'
-                                                    }`}
-                                            >
-                                                {pageNum}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                
-                                {/* Mobile page indicator */}
-                                <div className="sm:hidden px-2 py-1 text-sm bg-dark-700 rounded text-dark-300">
-                                    {pagination.currentPage}/{pagination.totalPages}
-                                </div>
-
-                                <button
-                                    onClick={nextPage}
-                                    disabled={pagination.currentPage === pagination.totalPages}
-                                    className="px-3 py-1 text-sm bg-dark-700 hover:bg-dark-600 disabled:bg-dark-800 disabled:text-dark-500 rounded transition-colors"
-                                >
-                                    Next
-                                </button>
-                            </div>
+                    {/* More Button */}
+                    {transactions.length > 8 && (
+                        <div className="mt-4 pt-4 border-t border-dark-700 text-center">
+                            <button
+                                onClick={onViewAllTransactions}
+                                className="text-sm text-primary-400 hover:text-primary-300 transition-colors font-medium"
+                            >
+                                More →
+                            </button>
                         </div>
                     )}
                 </>

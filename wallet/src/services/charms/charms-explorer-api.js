@@ -44,7 +44,6 @@ class CharmsExplorerAPI {
             const response = await fetch(`${this.baseUrl}/reference-nft/${appId}`);
             
             if (!response.ok) {
-                console.warn(`Failed to fetch reference NFT for App ID: ${appId}`);
                 return charmData;
             }
 
@@ -65,7 +64,6 @@ class CharmsExplorerAPI {
             };
 
         } catch (error) {
-            console.error('Error fetching reference NFT data:', error);
             return charmData; // Return original data on error
         }
     }
@@ -122,6 +120,37 @@ class CharmsExplorerAPI {
             decimals: BRO_TOKEN_DATA.decimals,
             isBroToken: true
         };
+    }
+
+    /**
+     * Get token metadata from Charms Explorer API
+     * @param {string} appId - The App ID of the token
+     * @returns {Promise<Object|null>} Token metadata or null
+     */
+    async getTokenMetadata(appId) {
+        try {
+            // Fetch from real Charms Explorer API
+            const response = await fetch(`https://api.charms-explorer.com/app/${appId}`);
+            
+            if (!response.ok) {
+                return null;
+            }
+
+            const data = await response.json();
+            
+            // Return standardized metadata
+            return {
+                name: data.name || data.metadata?.name || 'Unknown Token',
+                ticker: data.ticker || data.metadata?.ticker || 'TOKEN',
+                image: data.image || data.metadata?.image || null,
+                description: data.description || data.metadata?.description || '',
+                decimals: data.decimals || 8
+            };
+
+        } catch (error) {
+            console.error('[CharmsExplorerAPI] Error fetching token metadata:', error);
+            return null;
+        }
     }
 
     /**

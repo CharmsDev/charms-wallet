@@ -26,7 +26,7 @@ export interface AddressEntry {
 export interface TransactionEntry {
     id: string; // unique ID: tx_{timestamp}_{type}_{counter}
     txid: string; // can be duplicate for sent/received pairs
-    type: 'sent' | 'received';
+    type: 'sent' | 'received' | 'bro_mining' | 'bro_mint' | 'charm_transfer' | 'charm_consolidation' | 'charm_self_transfer';
     amount: number; // in satoshis
     fee?: number; // only for sent transactions
     timestamp: number;
@@ -42,6 +42,15 @@ export interface TransactionEntry {
         isSelfSend?: boolean;
         changeAmount?: number;
         totalInputs?: number;
+        // Charm/Token specific metadata
+        isCharmTransfer?: boolean;
+        isCharmConsolidation?: boolean;
+        isCharmSelfTransfer?: boolean;
+        charmAmount?: number;
+        charmName?: string;
+        ticker?: string;
+        inputUtxoCount?: number;
+        outputUtxoCount?: number;
     };
 }
 
@@ -120,13 +129,6 @@ export const addAddress = async (address: AddressEntry, blockchain?: string, net
     return addresses;
 };
 
-export const addMultipleAddresses = async (newAddresses: AddressEntry[], blockchain?: string, network?: string): Promise<AddressEntry[]> => {
-    const addresses = await getAddresses(blockchain, network);
-    addresses.push(...newAddresses);
-    await saveAddresses(addresses, blockchain, network);
-    return addresses;
-};
-
 export const clearAddresses = async (blockchain?: string, network?: string): Promise<void> => {
     const storageKey = getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
     localStorage.removeItem(storageKey);
@@ -141,11 +143,7 @@ export const saveUTXOs = async (utxoMap: UTXOMap, blockchain?: string, network?:
 export const getUTXOs = async (blockchain?: string, network?: string): Promise<UTXOMap> => {
     const storageKey = getStorageKey(STORAGE_KEYS.UTXOS, blockchain, network);
     const stored = localStorage.getItem(storageKey);
-    const result = stored ? JSON.parse(stored) : {};
-    
-    
-    
-    return result;
+    return stored ? JSON.parse(stored) : {};
 };
 
 export const clearUTXOs = async (blockchain?: string, network?: string): Promise<void> => {
@@ -166,15 +164,44 @@ export const getTransactions = async (blockchain?: string, network?: string): Pr
 };
 
 export const addTransaction = async (transaction: TransactionEntry, blockchain?: string, network?: string): Promise<TransactionEntry[]> => {
+    
     const transactions = await getTransactions(blockchain, network);
-    const existingIndex = transactions.findIndex(tx => 
-        tx.id === transaction.id || (tx.txid === transaction.txid && tx.type === transaction.type)
+    
+    // Check if transaction already exists by txid + type
+    const existingByTxid = transactions.findIndex(tx => 
+        tx.txid === transaction.txid && tx.type === transaction.type
     );
-
-    if (existingIndex >= 0) {
-        transactions[existingIndex] = transaction;
+    
+    if (existingByTxid >= 0) {
+        // For charm transactions, update metadata if new transaction has more complete data
+        const isCharmTx = transaction.type === 'charm_transfer' || 
+                          transaction.type === 'charm_consolidation' || 
+                          transaction.type === 'charm_self_transfer';
+        const hasNewMetadata = transaction.metadata?.inputUtxoCount !== undefined || 
+                               transaction.metadata?.outputUtxoCount !== undefined;
+        
+        const existingHasMetadata = transactions[existingByTxid].metadata?.inputUtxoCount !== undefined || 
+                                    transactions[existingByTxid].metadata?.outputUtxoCount !== undefined;
+        
+        if (isCharmTx && hasNewMetadata) {
+            // Complete replacement for charm transactions to ensure fresh data
+            transactions[existingByTxid] = { 
+                ...transaction,  // Use new transaction data completely
+                id: transactions[existingByTxid].id  // Keep original ID to maintain consistency
+            };
+            // Fall through to save the updated transaction
+        } else {
+            return transactions; // Don't update, just return existing
+        }
     } else {
-        transactions.push(transaction);
+        // Check if we're updating by exact ID
+        const existingById = transactions.findIndex(tx => tx.id === transaction.id);
+        
+        if (existingById >= 0) {
+            transactions[existingById] = transaction;
+        } else {
+            transactions.push(transaction);
+        }
     }
 
     transactions.sort((a, b) => b.timestamp - a.timestamp);
@@ -221,7 +248,7 @@ export const clearAllWalletData = async (): Promise<void> => {
     await clearBlockchainWalletData(BLOCKCHAINS.CARDANO, NETWORKS.CARDANO.MAINNET);
     await clearBlockchainWalletData(BLOCKCHAINS.CARDANO, NETWORKS.CARDANO.TESTNET);
     
-    // Also clear any legacy keys that might exist
+    // Clear all wallet-related keys from localStorage
     const allKeys = Object.keys(localStorage);
     const walletKeys = allKeys.filter(key => 
         key.includes('wallet') || 
@@ -229,7 +256,10 @@ export const clearAllWalletData = async (): Promise<void> => {
         key.includes('address') || 
         key.includes('transaction') ||
         key.includes('bitcoin') ||
-        key.includes('pending')
+        key.includes('cardano') ||
+        key.includes('pending') ||
+        key.includes('balance') ||
+        key.includes('charms')
     );
     
     walletKeys.forEach(key => localStorage.removeItem(key));
@@ -267,14 +297,33 @@ export const getCharms = async (blockchain: string = BLOCKCHAINS.BITCOIN, networ
 };
 
 // Balance storage - centralized balance storage with extended stats
-export interface BalanceData {
-    spendable: number;
-    pending: number;
-    nonSpendable: number;
+// Single localStorage key: "balance" contains all balances for all networks
+export interface TokenBalance {
+    appId: string;
+    ticker: string;
+    name: string;
+    amount: number;
     utxoCount: number;
-    charmCount: number;
-    ordinalCount: number;
-    runeCount: number;
+}
+
+export interface BalanceData {
+    // Bitcoin balances (in satoshis)
+    bitcoin: {
+        spendable: number;
+        pending: number;
+        nonSpendable: number;
+        total: number;
+    };
+    // Counts
+    counts: {
+        utxos: number;
+        charms: number;
+        ordinals: number;
+        runes: number;
+    };
+    // Token balances (BRO, etc.)
+    tokens: TokenBalance[];
+    // Metadata
     timestamp: number;
 }
 
@@ -289,6 +338,7 @@ export const saveBalance = (
         charmCount: number;
         ordinalCount: number;
         runeCount: number;
+        tokens?: TokenBalance[];
     }
 ): void => {
     try {
@@ -299,26 +349,42 @@ export const saveBalance = (
             balances[blockchain] = {};
         }
         
+        // Unified structure
         balances[blockchain][network] = {
-            ...data,
+            bitcoin: {
+                spendable: data.spendable,
+                pending: data.pending,
+                nonSpendable: data.nonSpendable,
+                total: data.spendable + data.pending + data.nonSpendable
+            },
+            counts: {
+                utxos: data.utxoCount,
+                charms: data.charmCount,
+                ordinals: data.ordinalCount,
+                runes: data.runeCount
+            },
+            tokens: data.tokens || [],
             timestamp: Date.now()
         };
         
         localStorage.setItem(STORAGE_KEYS.BALANCE, JSON.stringify(balances));
     } catch (error) {
-        console.error('Failed to save balance:', error);
     }
 };
 
 export const getBalance = (blockchain: string, network: string): BalanceData | null => {
     try {
         const stored = localStorage.getItem(STORAGE_KEYS.BALANCE);
-        if (!stored) return null;
+        
+        if (!stored) {
+            return null;
+        }
         
         const balances = JSON.parse(stored);
-        return balances[blockchain]?.[network] || null;
+        const result = balances[blockchain]?.[network] || null;
+        
+        return result;
     } catch (error) {
-        console.error('Failed to get balance:', error);
         return null;
     }
 };

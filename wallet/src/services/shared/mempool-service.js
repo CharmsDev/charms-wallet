@@ -225,6 +225,45 @@ export class MempoolService {
     }
 
     /**
+     * Get transaction details with prevout data (for fee calculation)
+     * Uses different endpoint that includes input values
+     */
+    async getTransactionWithPrevout(txid, network = null) {
+        const baseUrl = this._getMempoolUrl(network);
+        
+        // First get basic transaction
+        const basicTx = await this.getTransaction(txid, network);
+        
+        // Then get each input's prevout data
+        if (basicTx.tx.vin && basicTx.tx.vin.length > 0) {
+            for (let i = 0; i < basicTx.tx.vin.length; i++) {
+                const input = basicTx.tx.vin[i];
+                if (input.txid && input.vout !== undefined) {
+                    try {
+                        // Get the previous transaction to find output value
+                        const prevTxUrl = `${baseUrl}/tx/${input.txid}`;
+                        const prevTx = await this._makeHttpRequest(prevTxUrl);
+                        
+                        if (prevTx.vout && prevTx.vout[input.vout]) {
+                            // Add prevout data to input
+                            input.prevout = {
+                                value: prevTx.vout[input.vout].value,
+                                scriptpubkey: prevTx.vout[input.vout].scriptpubkey,
+                                scriptpubkey_address: prevTx.vout[input.vout].scriptpubkey_address
+                            };
+                        }
+                    } catch (error) {
+                        console.warn(`[MempoolService] Failed to get prevout for input ${i}:`, error.message);
+                        // Continue with other inputs
+                    }
+                }
+            }
+        }
+        
+        return basicTx;
+    }
+
+    /**
      * Get raw transaction hex
      */
     async getTransactionHex(txid, network = null) {

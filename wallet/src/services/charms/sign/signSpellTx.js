@@ -20,8 +20,11 @@ export async function signSpellTransaction(
     spellTxHex,
     commitTxHex,
     seedPhrase,
+    network,
+    inputSigningMap = null,  // NEW: Map of txid:vout -> addressInfo
     logCallback = () => { }
 ) {
+    
     // Logging function that only outputs the final transaction ID
     const log = message => {
         if (message.startsWith('Spell transaction signed successfully: TXID')) {
@@ -29,6 +32,7 @@ export async function signSpellTransaction(
         }
     };
     try {
+        
         if (!spellTxHex) throw new Error('Spell transaction hex is required');
         if (!commitTxHex) throw new Error('Commit transaction hex is required');
 
@@ -48,7 +52,8 @@ export async function signSpellTransaction(
         const mnemonic = seedPhrase || await getSeedPhrase();
         if (!mnemonic) throw new Error('Seed phrase not found');
         const seed = await bip39.mnemonicToSeed(mnemonic);
-        const root = bip32.fromSeed(seed, bitcoin.networks.testnet);
+        const bitcoinNetwork = network === 'mainnet' ? bitcoin.networks.bitcoin : bitcoin.networks.testnet;
+        const root = bip32.fromSeed(seed, bitcoinNetwork);
 
         const prevOutScripts = [];
         const values = [];
@@ -61,28 +66,43 @@ export async function signSpellTransaction(
             let utxoValue = null;
             let script = null;
 
-            // Identify wallet-owned UTXOs
-            const addressInfo = await findAddressForUTXO(rawTxid, vout);
+            // Use inputSigningMap if provided, otherwise fallback to findAddressForUTXO
+            const utxoKey = `${rawTxid}:${vout}`;
+            let addressInfo = null;
+            
+            
+            if (inputSigningMap && inputSigningMap[utxoKey]) {
+                // Use pre-computed address info from the map
+                addressInfo = inputSigningMap[utxoKey];
+            } else {
+                // Fallback: search in UTXO store
+                addressInfo = await findAddressForUTXO(rawTxid, vout, network);
+                if (addressInfo) {
+                } else {
+                }
+            }
+            
             if (addressInfo) {
-                const path = getDerivationPath(addressInfo);
+                const path = getDerivationPath(addressInfo, network, 'bitcoin');
                 const child = root.derivePath(path);
                 let privKey = child.privateKey;
                 if (!privKey) throw new Error(`Could not derive private key for ${path}`);
                 if (!Buffer.isBuffer(privKey)) privKey = Buffer.from(privKey);
 
-                if (!verifyPrivateKeyForAddress(privKey, addressInfo.address, ECPair)) {
+                if (!verifyPrivateKeyForAddress(privKey, addressInfo.address, ECPair, network)) {
                     throw new Error(`Private key does not correspond to address: ${addressInfo.address}`);
                 }
 
                 const internalPubkey = toXOnly(child.publicKey);
                 const p2tr = bitcoin.payments.p2tr({
                     internalPubkey,
-                    network: bitcoin.networks.testnet
+                    network: bitcoinNetwork
                 });
                 script = p2tr.output;
 
-                // Retrieve UTXO value from storage
-                const matchingUtxos = await utxoService.findUtxosByTxid(rawTxid);
+                // Retrieve UTXO value from storage (with correct network)
+                const utxoNetwork = network === 'mainnet' ? 'mainnet' : 'testnet';
+                const matchingUtxos = await utxoService.findUtxosByTxid(rawTxid, 'bitcoin', utxoNetwork);
                 const matchingUtxo = matchingUtxos.find(utxo => utxo.vout === vout);
 
                 if (!matchingUtxo) {

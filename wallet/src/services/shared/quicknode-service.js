@@ -171,6 +171,43 @@ export class QuickNodeService {
     }
 
     /**
+     * Submit a package of transactions (CPFP)
+     * @param {Array<string>} hexes - Array of transaction hex strings
+     * @param {string} network - Network (mainnet, testnet)
+     * @returns {Promise<Array>} Array of transaction IDs
+     */
+    async submitPackage(hexes, network = null) {
+        try {
+            const result = await this.makeRequest('submitpackage', [hexes], network);
+            return result;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Get mempool entry for a transaction
+     */
+    async getMempoolEntry(txid, network = null) {
+        try {
+            return await this.makeRequest('getmempoolentry', [txid], network);
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Get raw transaction with verbose option
+     */
+    async getRawTransaction(txid, verbose = true, network = null) {
+        try {
+            return await this.makeRequest('getrawtransaction', [txid, verbose], network);
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
      * Get transaction details
      */
     async getTransaction(txid, network = null) {

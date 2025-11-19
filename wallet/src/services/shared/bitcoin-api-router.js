@@ -143,11 +143,67 @@ export class BitcoinApiRouter {
     }
 
     /**
+     * Send raw transaction (alias for broadcastTransaction)
+     */
+    async sendRawTransaction(txHex, network) {
+        return await this.broadcastTransaction(txHex, network);
+    }
+
+    /**
+     * Submit a package of transactions (CPFP)
+     * Only works with QuickNode - mempool.space doesn't support package submission
+     */
+    async submitPackage(hexes, network) {
+        const targetNetwork = this._getCurrentNetwork(network);
+        
+        try {
+            // Try QuickNode first
+            const result = await quickNodeService.submitPackage(hexes, targetNetwork);
+            return result;
+        } catch (error) {
+            // Package submission requires QuickNode - no fallback to mempool.space
+            throw new Error('Package submission requires QuickNode API. Individual broadcast is not safe for CPFP transactions.');
+        }
+    }
+
+    /**
+     * Get mempool entry for a transaction
+     */
+    async getMempoolEntry(txid, network) {
+        return await this._tryWithFallback('getMempoolEntry', txid, network);
+    }
+
+    /**
+     * Get raw transaction with verbose option
+     */
+    async getRawTransaction(txid, verbose = true, network) {
+        return await this._tryWithFallback('getRawTransaction', txid, verbose, network);
+    }
+
+    /**
      * Get transaction details
      * Tries QuickNode first, falls back to mempool.space
      */
     async getTransaction(txid, network = null) {
         return await this._tryWithFallback('getTransaction', txid, network);
+    }
+
+    /**
+     * Get transaction details with prevout data (for fee calculation)
+     * This method specifically fetches prevout data needed for accurate fee calculation
+     */
+    async getTransactionWithPrevout(txid, network = null) {
+        const currentNetwork = this._getCurrentNetwork(network);
+        
+        // For now, always use mempool.space for prevout data
+        // QuickNode might have different format, so we use mempool directly
+        try {
+            return await mempoolService.getTransactionWithPrevout(txid, currentNetwork);
+        } catch (error) {
+            console.warn(`[BitcoinApiRouter] Failed to get transaction with prevout: ${error.message}`);
+            // Fallback to regular transaction (without prevout)
+            return await this.getTransaction(txid, currentNetwork);
+        }
     }
 
     /**

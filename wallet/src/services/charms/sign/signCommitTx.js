@@ -17,7 +17,7 @@ const ECPair = ECPairFactory(ecc);
 const bip32 = BIP32Factory(ecc);
 
 // Signs a Bitcoin Taproot (P2TR) transaction with derived keys
-export async function signCommitTransaction(unsignedTxHex, logCallback) {
+export async function signCommitTransaction(unsignedTxHex, network, inputSigningMap = null, logCallback) {
 
     // Initialize transaction
     if (!unsignedTxHex) {
@@ -30,17 +30,29 @@ export async function signCommitTransaction(unsignedTxHex, logCallback) {
     // Set up logging function
     const log = message => logCallback ? logCallback(message) : null;
 
+    // Determine Bitcoin network
+    const bitcoinNetwork = network === 'mainnet' ? bitcoin.networks.bitcoin : bitcoin.networks.testnet;
+
     try {
         // Identify UTXO address
         const { utxoTxId: inputTxid, utxoVout: inputVout, utxoSequence } = txDetails;
+        
 
-        // Find address for the input UTXO
-        const addressInfo = await findAddressForUTXO(inputTxid, inputVout);
+        // Use inputSigningMap if provided, otherwise fallback to findAddressForUTXO
+        const utxoKey = `${inputTxid}:${inputVout}`;
+        let addressInfo = null;
+        
+        if (inputSigningMap && inputSigningMap[utxoKey]) {
+            addressInfo = inputSigningMap[utxoKey];
+        } else {
+            addressInfo = await findAddressForUTXO(inputTxid, inputVout, network);
+        }
+        
         if (!addressInfo)
             throw new Error(`Could not find address for UTXO: ${inputTxid}:${inputVout}`);
 
         // Derive private key
-        const path = getDerivationPath(addressInfo);
+        const path = getDerivationPath(addressInfo, network, 'bitcoin');
 
         // Get seed phrase from secure storage
         const seedPhrase = await getSeedPhrase();
@@ -50,7 +62,7 @@ export async function signCommitTransaction(unsignedTxHex, logCallback) {
         const seed = await bip39.mnemonicToSeed(seedPhrase);
 
         // Generate BIP32 root key
-        const root = bip32.fromSeed(seed, bitcoin.networks.testnet);
+        const root = bip32.fromSeed(seed, bitcoinNetwork);
 
         // Derive child key from path
         const child = root.derivePath(path);
@@ -59,7 +71,7 @@ export async function signCommitTransaction(unsignedTxHex, logCallback) {
             throw new Error(`Could not derive private key for path: ${path}`);
 
         // Verify key corresponds to address
-        if (!verifyPrivateKeyForAddress(privateKey, addressInfo.address, ECPair))
+        if (!verifyPrivateKeyForAddress(privateKey, addressInfo.address, ECPair, network))
             throw new Error(`Private key does not correspond to address: ${addressInfo.address}`);
 
         // Apply Taproot tweaking
@@ -86,11 +98,12 @@ export async function signCommitTransaction(unsignedTxHex, logCallback) {
         // Initialize P2TR with internal pubkey
         const p2tr = bitcoin.payments.p2tr({
             internalPubkey,
-            network: bitcoin.networks.testnet
+            network: bitcoinNetwork
         });
 
-        // Get UTXO value
-        const matchingUtxos = await utxoService.findUtxosByTxid(inputTxid);
+        // Get UTXO value (with correct network)
+        const utxoNetwork = network === 'mainnet' ? 'mainnet' : 'testnet';
+        const matchingUtxos = await utxoService.findUtxosByTxid(inputTxid, 'bitcoin', utxoNetwork);
         const matchingUtxo = matchingUtxos.find(utxo => utxo.vout === inputVout);
 
         if (!matchingUtxo)

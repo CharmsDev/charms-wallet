@@ -134,21 +134,25 @@ export class UTXOFetcher {
                 }
             }
 
-            const addressEntries = await getAddresses(blockchain, network);
-            const allAddresses = addressEntries
-                .filter(entry => !entry.blockchain || entry.blockchain === blockchain)
-                .map(entry => entry.address);
-            
-            const totalAddressCount = allAddresses.length;
-            let filteredAddresses = allAddresses;
+            const { getAddresses } = await import('@/services/storage');
+            const addresses = await getAddresses(blockchain, network);
 
-            // Apply address limit and offset if specified
-            if (startOffset > 0) {
-                filteredAddresses = filteredAddresses.slice(startOffset);
+            if (!addresses || addresses.length === 0) {
+                return {};
             }
-            if (addressLimit && addressLimit > 0) {
-                filteredAddresses = filteredAddresses.slice(0, addressLimit);
-            }
+
+            // Apply address limit if specified - simple and direct
+            const addressesToScan = addressLimit 
+                ? addresses.slice(startOffset, startOffset + addressLimit)
+                : addresses.slice(startOffset);
+
+            // Sort addresses by index for sequential scanning
+            const sortedEntries = addressesToScan
+                .filter(entry => !entry.blockchain || entry.blockchain === blockchain)
+                .sort((a, b) => a.index - b.index);
+            const filteredAddresses = sortedEntries.map(entry => entry.address);
+            
+            const totalAddressCount = filteredAddresses.length;
 
             if (filteredAddresses.length === 0) {
                 return {};
@@ -170,9 +174,20 @@ export class UTXOFetcher {
                 const batchPromises = batch.map(async (address) => {
                     try {
                         const utxos = await this.getAddressUTXOs(address, blockchain, network);
-                        return { address, utxos, success: true };
+                        
+                        // Validate that each UTXO belongs to this address
+                        let validUtxos = utxos;
+                        if (utxos && utxos.length > 0) {
+                            validUtxos = utxos.filter(utxo => {
+                                if (utxo.address && utxo.address !== address) {
+                                    return false;
+                                }
+                                return true;
+                            });
+                        }
+                        
+                        return { address, utxos: validUtxos, success: true };
                     } catch (error) {
-                        console.warn(`Failed to fetch UTXOs for ${address}:`, error.message);
                         return { address, utxos: [], success: false, error: error.message };
                     }
                 });
@@ -194,14 +209,9 @@ export class UTXOFetcher {
                     await saveUTXOs(currentUTXOs, blockchain, network);
                 }, 0);
 
-                // Add delay only for mempool.space and only between batches
+                // Add 1 second delay between batches (for all providers)
                 if (i + batchSize < filteredAddresses.length) {
-                    const { quickNodeService } = await import('@/services/shared/quicknode-service');
-                    
-                    // Only delay if using mempool.space fallback (not QuickNode)
-                    if (!quickNodeService.isAvailable(network)) {
-                        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay for mempool.space
-                    }
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }
 
@@ -215,7 +225,7 @@ export class UTXOFetcher {
                 setTimeout(async () => {
                     try {
                         const transactionRecorder = new TransactionRecorder(blockchain, network);
-                        await transactionRecorder.processUTXOsForReceivedTransactions(utxoMap, addressEntries);
+                        await transactionRecorder.processUTXOsForReceivedTransactions(utxoMap, sortedEntries);
                     } catch (error) {
                         // Don't fail the entire UTXO fetch if transaction processing fails
                         console.warn('Transaction processing failed:', error.message);

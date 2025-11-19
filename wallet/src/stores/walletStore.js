@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { generateSeedPhrase, importSeedPhrase } from '@/utils/wallet';
 import { getSeedPhrase, clearSeedPhrase } from '@/services/storage';
-import { WalletInitializationService } from '@/services/wallet/wallet-initialization-service';
+import { WalletInitializationService } from '@/services/wallet/services/wallet-initialization-service';
 
 // Create context
 const WalletContext = createContext();
