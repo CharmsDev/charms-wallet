@@ -89,9 +89,15 @@ export default function TransferProcessDialog({
             const totalCharmAmount = selectedCharmUtxos.reduce((sum, utxo) => sum + (utxo.amount || utxo.displayAmount || 0), 0);
             const transferAmount = spellData.outs[0]?.charms?.['$01'] || 0;
             const changeAmount = totalCharmAmount - transferAmount;
+            const destinationAddress = spellData.outs[0]?.address || '';
+            
+            // Detect if this is an internal transfer (destination belongs to our wallet)
+            const walletAddressSet = new Set(walletAddresses.map(a => a.address));
+            const isInternalTransfer = walletAddressSet.has(destinationAddress);
             
             // Add pending charm for expected change (if any)
-            if (changeAmount > 0 && changeAddress) {
+            // ONLY if this is NOT an internal transfer (balance doesn't change in internal transfers)
+            if (changeAmount > 0 && changeAddress && !isInternalTransfer) {
                 const pendingCharm = {
                     txid: broadcastResult.spellData.txid,
                     outputIndex: 1, // Change is typically output index 1
@@ -111,8 +117,6 @@ export default function TransferProcessDialog({
             const { useTransactionStore } = await import('@/stores/transactionStore');
             const recordSentTransaction = useTransactionStore.getState().recordSentTransaction;
             
-            const destinationAddress = spellData.outs[0]?.address || '';
-            
             
             // Calculate total BTC spent (fees)
             const totalBtcSpent = (fundingUtxo?.value || 0) + (selectedCharmUtxos.length * 330);
@@ -131,6 +135,7 @@ export default function TransferProcessDialog({
                 },
                 metadata: {
                     isCharmTransfer: true,
+                    isInternalTransfer: isInternalTransfer,
                     charmAmount: transferAmount,
                     charmName: charm.name || charm.metadata?.name || 'Charm',
                     ticker: charm.ticker || charm.metadata?.ticker || 'CHARM'
