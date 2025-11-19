@@ -73,16 +73,21 @@ export default function Header({ activeSection, setActiveSection }) {
                         {/* Logo section */}
                         <div className="flex items-center space-x-6">
                             {/* Main Charms Logo */}
-                            <img
-                                src="https://charms.dev/_astro/logo-charms-dark.Ceshk2t3.png"
-                                alt="Charms Wallet"
-                                className="h-8"
-                            />
+                            <div className="flex items-center space-x-3">
+                                <img
+                                    src="/logo.png"
+                                    alt="Charms Wallet"
+                                    className="h-8"
+                                />
+                                <span className="text-lg font-semibold text-dark-100 tracking-tight" style={{ transform: 'translateX(-3px)' }}>
+                                    Charms Wallet
+                                </span>
+                            </div>
                             
                             {/* "Designed for" text with BOS logo */}
                             <a href="https://bitcoinos.build/" target="_blank" rel="noopener noreferrer" className="flex items-center hover:opacity-80 transition-opacity">
-                                <span className="text-sm text-dark-400 whitespace-nowrap" style={{transform: 'translateY(5px)'}}>Designed for</span>
-                                <svg width="81" height="46" viewBox="0 0 680 386" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-90" style={{transform: 'translateY(8px)', marginLeft: '-13px'}}>
+                                <span className="text-sm text-dark-400 whitespace-nowrap" style={{transform: 'translateY(2px)'}}>Designed for</span>
+                                <svg width="81" height="46" viewBox="0 0 680 386" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-90" style={{transform: 'translateY(5px)', marginLeft: '-13px'}}>
                                     <rect width="680" height="344" rx="4" fill="transparent"/>
                                     <g clipPath="url(#clip0_4151_367)">
                                         <path d="M225.332 171.914C225.148 171.253 224.673 170.751 224.067 170.486C223.803 170.381 223.513 170.328 223.25 170.328C222.881 170.328 222.512 170.434 222.169 170.619L219.216 172.337C217.529 173.315 216.475 175.139 216.475 177.096V224.233C216.475 224.973 216.844 225.634 217.503 226.005C218.135 226.375 218.926 226.375 219.559 226.005L234.823 217.175C236.431 216.249 237.222 214.319 236.721 212.522L225.359 171.94L225.332 171.914Z" fill="#FFFAFA"/>
@@ -146,11 +151,16 @@ export default function Header({ activeSection, setActiveSection }) {
                         {/* Top row: Logo + Buttons */}
                         <div className="flex justify-between items-center">
                             {/* Smaller Charms Logo */}
-                            <img
-                                src="https://charms.dev/_astro/logo-charms-dark.Ceshk2t3.png"
-                                alt="Charms Wallet"
-                                className="h-6"
-                            />
+                            <div className="flex items-center space-x-2">
+                                <img
+                                    src="/logo.png"
+                                    alt="Charms Wallet"
+                                    className="h-6"
+                                />
+                                <span className="text-sm font-semibold text-dark-100 tracking-tight" style={{ transform: 'translateX(-3px)' }}>
+                                    Charms Wallet
+                                </span>
+                            </div>
                             
                             {/* Blockchain and Network selection */}
                             <div className="flex items-center space-x-2">
@@ -183,8 +193,8 @@ export default function Header({ activeSection, setActiveSection }) {
                         {/* Bottom row: Designed for BOS - aligned left and closer */}
                         <div className="flex justify-start" style={{marginTop: '-6px', marginBottom: '-10px'}}>
                             <a href="https://bitcoinos.build/" target="_blank" rel="noopener noreferrer" className="flex items-center hover:opacity-80 transition-opacity">
-                                <span className="text-xs text-dark-400 whitespace-nowrap" style={{transform: 'translateY(2px)'}}>Designed for</span>
-                                <svg width="60" height="34" viewBox="0 0 680 386" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-90" style={{transform: 'translateY(3px)', marginLeft: '-8px'}}>
+                                <span className="text-xs text-dark-400 whitespace-nowrap" style={{transform: 'translateY(-1px)'}}>Designed for</span>
+                                <svg width="60" height="34" viewBox="0 0 680 386" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-90" style={{transform: 'translateY(0px)', marginLeft: '-8px'}}>
                                     <rect width="680" height="344" rx="4" fill="transparent"/>
                                     <g clipPath="url(#clip0_4151_367)">
                                         <path d="M225.332 171.914C225.148 171.253 224.673 170.751 224.067 170.486C223.803 170.381 223.513 170.328 223.25 170.328C222.881 170.328 222.512 170.434 222.169 170.619L219.216 172.337C217.529 173.315 216.475 175.139 216.475 177.096V224.233C216.475 224.973 216.844 225.634 217.503 226.005C218.135 226.375 218.926 226.375 219.559 226.005L234.823 217.175C236.431 216.249 237.222 214.319 236.721 212.522L225.359 171.94L225.332 171.914Z" fill="#FFFAFA"/>

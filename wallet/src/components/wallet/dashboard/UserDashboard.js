@@ -25,6 +25,7 @@ import { useNavigation } from '@/contexts/NavigationContext';
 export default function UserDashboard({ seedPhrase, walletInfo, derivationLoading, createSuccess }) {
     const [showSendDialog, setShowSendDialog] = useState(false);
     const [showReceiveDialog, setShowReceiveDialog] = useState(false);
+    const [receiveAsset, setReceiveAsset] = useState('Bitcoin');
     const [showSettingsDialog, setShowSettingsDialog] = useState(false);
     const [showBroTransferDialog, setShowBroTransferDialog] = useState(false);
     const [broCharmToTransfer, setBroCharmToTransfer] = useState(null);
@@ -33,7 +34,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
 
     const { hasWallet } = useWallet();
     const { utxos, totalBalance, pendingBalance, isLoading: utxosLoading, loadUTXOs } = useUTXOs();
-    const { charms, isLoading: charmsLoading } = useCharms();
+    const { charms, isLoading: charmsLoading, groupTokensByAppId } = useCharms();
     const { addresses, isLoading: addressesLoading, loadAddresses } = useAddresses();
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const { syncFullWallet, isSyncing: isRefreshing, syncProgress } = useWalletSync();
@@ -86,6 +87,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     };
 
     const handleReceiveBitcoin = () => {
+        setReceiveAsset('Bitcoin');
         setShowReceiveDialog(true);
     };
 
@@ -98,20 +100,29 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     };
 
     const handleSendBro = () => {
-        // Find BRO charm from charms list
         const broAppId = getBroTokenAppId();
-        const broCharm = charms.find(charm => charm.appId === broAppId);
         
-        if (broCharm) {
-            setBroCharmToTransfer(broCharm);
+        // Use groupTokensByAppId to get correct structure with all UTXOs
+        const groupedTokens = groupTokensByAppId();
+        const broToken = groupedTokens.find(token => token.appId === broAppId);
+        
+        if (broToken && broToken.tokenUtxos.length > 0) {
+            // Construct charm object with correct structure for TransferCharmWizard
+            const broCharmForTransfer = {
+                ...broToken.tokenUtxos[0],      // First UTXO with all metadata
+                totalAmount: broToken.totalAmount,
+                allUtxos: broToken.tokenUtxos    // All UTXOs for this token
+            };
+            setBroCharmToTransfer(broCharmForTransfer);
             setShowBroTransferDialog(true);
         } else {
-            console.warn('No BRO tokens found');
+            console.warn('No BRO tokens available to send');
         }
     };
 
     const handleReceiveBro = () => {
         // For receiving BRO, just show the receive dialog (same as BTC)
+        setReceiveAsset('Bro');
         setShowReceiveDialog(true);
     };
 
@@ -263,10 +274,11 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                 formatValue={(value) => `${value} sats`}
             />
 
-            {/* Receive Bitcoin Dialog */}
+            {/* Receive Bitcoin / Token Dialog */}
             <ReceiveBitcoinDialog
                 isOpen={showReceiveDialog}
                 onClose={() => setShowReceiveDialog(false)}
+                assetName={receiveAsset}
             />
 
             {/* Settings Dialog */}

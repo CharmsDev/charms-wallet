@@ -198,15 +198,18 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
                             </div>
                             <div className="flex gap-1.5 justify-end mt-auto">
                                 <button
-                                    disabled
-                                    className="flex items-center justify-center gap-1 px-2.5 py-1 rounded-md bg-gray-700/50 border border-gray-600/40 text-xs font-medium text-gray-500 cursor-not-allowed opacity-60 shadow-sm"
+                                    onClick={onSendBro}
+                                    disabled={broBalance <= 0 || charmsLoading}
+                                    className="flex items-center justify-center gap-1 px-2.5 py-1 rounded-md bg-gray-700/80 border border-gray-600/60 text-xs font-medium text-white hover:bg-gray-600/80 hover:border-gray-500 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-gray-700/80"
+                                    title={broBalance <= 0 ? "No BRO tokens available" : "Send BRO tokens"}
                                 >
                                     <span>↗</span>
                                     <span>Send</span>
                                 </button>
                                 <button
-                                    disabled
-                                    className="flex items-center justify-center gap-1 px-2.5 py-1 rounded-md bg-gray-700/50 border border-gray-600/40 text-xs font-medium text-gray-500 cursor-not-allowed opacity-60 shadow-sm"
+                                    onClick={onReceiveBro}
+                                    className="flex items-center justify-center gap-1 px-2.5 py-1 rounded-md bg-gray-700/80 border border-gray-600/60 text-xs font-medium text-white hover:bg-gray-600/80 hover:border-gray-500 transition-all shadow-sm"
+                                    title="Receive BRO tokens"
                                 >
                                     <span>↙</span>
                                     <span>Receive</span>
