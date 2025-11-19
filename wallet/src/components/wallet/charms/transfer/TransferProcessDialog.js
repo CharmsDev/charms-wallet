@@ -31,7 +31,7 @@ export default function TransferProcessDialog({
 
     const { seedPhrase } = useWallet();
     const { updateAfterTransfer, addPendingCharm } = useCharms();
-    const { syncAfterCharmTransfer } = useWalletSync();
+    const { syncAfterCharmTransfer, syncFullWallet } = useWalletSync();
     const { activeNetwork, activeBlockchain } = useBlockchain();
     const { addresses: walletAddresses } = useAddresses();
 
@@ -98,9 +98,24 @@ export default function TransferProcessDialog({
             // Add pending charm for expected change (if any)
             // ONLY if this is NOT an internal transfer (balance doesn't change in internal transfers)
             if (changeAmount > 0 && changeAddress && !isInternalTransfer) {
+                // Calculate correct outputIndex by parsing spell_tx outputs
+                let changeOutputIndex = 1; // Default fallback
+                try {
+                    const spellTxOutputs = spellData.outs || [];
+                    const foundIndex = spellTxOutputs.findIndex(out => 
+                        out.address === changeAddress && 
+                        out.charms?.['$01'] === changeAmount
+                    );
+                    if (foundIndex !== -1) {
+                        changeOutputIndex = foundIndex;
+                    }
+                } catch (e) {
+                    // Use default index 1 if parsing fails
+                }
+
                 const pendingCharm = {
                     txid: broadcastResult.spellData.txid,
-                    outputIndex: 1, // Change is typically output index 1
+                    outputIndex: changeOutputIndex,
                     address: changeAddress,
                     amount: changeAmount,
                     appId: charm.appId || selectedCharmUtxos[0]?.appId,
@@ -172,8 +187,9 @@ export default function TransferProcessDialog({
             }
 
             // UNIFIED POST-TRANSFER SYNC
-            // Sync UTXOs and Charms for all involved addresses
+            // Multi-phase sync to ensure dashboard and charm card update correctly
             try {
+                // Phase 1: Sync involved addresses (targeted sync)
                 const inputAddresses = selectedCharmUtxos
                     .map(utxo => utxo.address)
                     .filter(Boolean);
@@ -183,6 +199,10 @@ export default function TransferProcessDialog({
                     changeAddress,
                     fundingAddress: fundingUtxo?.address
                 });
+
+                // Phase 2: Sync first 12 addresses (dashboard balance update)
+                // This ensures UTXOs and Charms are refreshed for immediate UI update
+                await syncFullWallet();
             } catch (syncError) {
                 // Silent fail - data will be refreshed on next page load
             }
