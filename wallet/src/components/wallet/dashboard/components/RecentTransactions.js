@@ -11,7 +11,7 @@ import { getTransactionLabel, getTransactionIcon } from '@/services/transactions
 import { scanCharmTransactions } from '@/services/wallet/sync/transaction-scanner';
 import { formatBTC, formatTransactionDate } from '@/utils/formatters';
 
-export default function RecentTransactions({ utxos, isLoading }) {
+export default function RecentTransactions({ utxos, isLoading, onViewAllTransactions }) {
     const {
         transactions,
         isLoading: txLoading,
@@ -233,12 +233,15 @@ export default function RecentTransactions({ utxos, isLoading }) {
                         ))}
                     </div>
 
-                    {/* View All Link */}
+                    {/* More Button */}
                     {transactions.length > 8 && (
                         <div className="mt-4 pt-4 border-t border-dark-700 text-center">
-                            <p className="text-sm text-dark-400">
-                                Showing {recentTransactions.length} of {transactions.length} transactions
-                            </p>
+                            <button
+                                onClick={onViewAllTransactions}
+                                className="text-sm text-primary-400 hover:text-primary-300 transition-colors font-medium"
+                            >
+                                More →
+                            </button>
                         </div>
                     )}
                 </>

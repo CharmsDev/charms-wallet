@@ -20,6 +20,7 @@ import BroMintingBanner from './components/BroMintingBanner';
 import TransferCharmWizard from '../charms/transfer/TransferCharmWizard';
 import { useWalletSync } from '@/hooks/useWalletSync';
 import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
+import { useNavigation } from '@/contexts/NavigationContext';
 
 export default function UserDashboard({ seedPhrase, walletInfo, derivationLoading, createSuccess }) {
     const [showSendDialog, setShowSendDialog] = useState(false);
@@ -36,6 +37,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     const { addresses, isLoading: addressesLoading, loadAddresses } = useAddresses();
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const { syncFullWallet, isSyncing: isRefreshing, syncProgress } = useWalletSync();
+    const { setActiveSection } = useNavigation();
     
     // Convert syncProgress to refreshProgress format for BalanceDisplay
     const refreshProgress = {
@@ -88,7 +90,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     };
 
     const handleViewHistory = () => {
-        // TODO: Navigate to transaction history
+        setActiveSection('history');
     };
 
     const handleSettings = () => {
@@ -219,6 +221,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                         <RecentTransactions
                             utxos={utxos}
                             isLoading={utxosLoading}
+                            onViewAllTransactions={handleViewHistory}
                         />
                     </div>
 

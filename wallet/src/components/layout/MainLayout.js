@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, Suspense, lazy } from 'react';
+import { Suspense, lazy } from 'react';
 import Header from './Header';
 import Footer from './Footer';
+import { useNavigation } from '@/contexts/NavigationContext';
 
 // Import AddressManager and UTXOList directly for instant loading, lazy load others
 import AddressManager from '@/components/wallet/addresses/AddressManager';
@@ -11,18 +12,11 @@ import TransactionHistory from '@/components/wallet/history/TransactionHistory';
 const CharmsList = lazy(() => import('@/components/wallet/charms/CharmsList'));
 
 export default function MainLayout({ children }) {
-    const [activeSection, setActiveSection] = useState('wallets');
-    const [loadedSections, setLoadedSections] = useState(new Set(['wallets']));
-
-    // Track which sections have been loaded
-    const handleSectionChange = (section) => {
-        setActiveSection(section);
-        setLoadedSections(prev => new Set([...prev, section]));
-    };
+    const { activeSection, setActiveSection, loadedSections } = useNavigation();
 
     return (
         <div className="min-h-screen flex flex-col bg-dark-950 relative">
-            <Header activeSection={activeSection} setActiveSection={handleSectionChange} />
+            <Header activeSection={activeSection} setActiveSection={setActiveSection} />
 
             {/* Main content section - responsive padding for fixed header */}
             <main className="flex-grow py-8 pt-28 sm:pt-20">
