@@ -26,24 +26,24 @@ export class UTXOCalculations {
             return false;
         }
         
-        // Check if UTXO is a rune
-        if (isRuneUtxo(utxo, transactionData)) {
-            return false;
-        }
-        
         // Check if UTXO is unconfirmed
         const isUnconfirmed = !utxo.status?.confirmed || (utxo.confirmations && utxo.confirmations < 1);
         if (isUnconfirmed) {
             return false;
         }
         
-        // Check if UTXO is locked
-        if (lockedUtxos && lockedUtxos.has(utxoId)) {
+        // Check if UTXO is a rune
+        if (isRuneUtxo(utxo, transactionData)) {
             return false;
         }
         
-        // Check if UTXO is a confirmed charm
+        // Check if UTXO is a charm
         if (isCharmUtxo(utxo, charms)) {
+            return false;
+        }
+        
+        // Check if UTXO is locked
+        if (lockedUtxos && lockedUtxos.has(utxoId)) {
             return false;
         }
         
@@ -156,8 +156,6 @@ export class UTXOCalculations {
             runeCount
         };
     }
-
-    // (Deprecated) calculateSpendableBalance and calculatePendingBalance removed in favor of calculateBalances()
 
     // Get list of spendable UTXOs using the centralized spendability check
     getSpendableUtxos(utxoMap, charms = [], lockedUtxos = null, transactionDataMap = null) {

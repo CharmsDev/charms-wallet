@@ -2,7 +2,8 @@
 
 import { addTransaction, getTransactions, getAddresses } from '@/services/storage';
 import { MempoolService } from '@/services/shared/mempool-service';
-import { classifyTransaction } from './transaction-classifier';
+import { classifyTransaction, TRANSACTION_TYPES } from './transaction-classifier';
+import { extractCharmTokenData } from './charm-transaction-extractor';
 
 export class TransactionRecorder {
     constructor(blockchain, network) {
@@ -16,6 +17,18 @@ export class TransactionRecorder {
     generateTransactionId(type, timestamp) {
         const counter = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
         return `tx_${timestamp}_${type}_${counter}`;
+    }
+
+    // Check if transaction type is a charm transaction
+    isCharmTransaction(type) {
+        return [
+            TRANSACTION_TYPES.CHARM_RECEIVED,
+            TRANSACTION_TYPES.CHARM_SENT,
+            TRANSACTION_TYPES.CHARM_CONSOLIDATION,
+            TRANSACTION_TYPES.CHARM_SELF_TRANSFER,
+            TRANSACTION_TYPES.BRO_MINT,
+            TRANSACTION_TYPES.BRO_MINING
+        ].includes(type);
     }
 
     // Record sent transaction after successful broadcast
@@ -115,10 +128,8 @@ export class TransactionRecorder {
                     if (this.timestampCache.has(blockHeight)) {
                         blockTime = this.timestampCache.get(blockHeight);
                     } else {
-                        console.log(`[TX Recorder] Fetching block timestamp for height ${blockHeight}...`);
                         blockTime = await mempoolService.getBlockTimestamp(blockHeight, this.network);
                         if (blockTime) {
-                            console.log(`[TX Recorder] Got timestamp ${blockTime} for block ${blockHeight}`);
                             // Cache the result
                             this.timestampCache.set(blockHeight, blockTime);
                         }
@@ -154,7 +165,7 @@ export class TransactionRecorder {
                         fee = txDetails.fee || null;
                     }
                 } catch (error) {
-                    console.warn(`[TX Recorder] Failed to fetch tx details for ${txid}:`, error.message);
+                    // Silent fail - tx details are optional
                 }
 
                 // Create transaction object
@@ -177,6 +188,30 @@ export class TransactionRecorder {
 
                 // Classify transaction type
                 transaction.type = classifyTransaction(transaction, addresses);
+
+                // Extract charm token data if this is a charm transaction
+                if (this.isCharmTransaction(transaction.type)) {
+                    console.log(`[TransactionRecorder] Extracting charm data for ${txid}, type: ${transaction.type}`);
+                    try {
+                        const charmData = await extractCharmTokenData(txid, this.network, addresses);
+                        console.log(`[TransactionRecorder] Charm data result:`, charmData);
+                        if (charmData) {
+                            transaction.charmTokenData = {
+                                appId: charmData.appId,
+                                tokenName: charmData.tokenName,
+                                tokenTicker: charmData.tokenTicker,
+                                tokenImage: charmData.tokenImage,
+                                tokenAmount: charmData.tokenAmount
+                            };
+                            console.log(`[TransactionRecorder] Added charmTokenData to transaction:`, transaction.charmTokenData);
+                        } else {
+                            console.log(`[TransactionRecorder] No charm data returned for ${txid}`);
+                        }
+                    } catch (error) {
+                        console.error(`[TransactionRecorder] Error extracting charm data:`, error);
+                        // Silent fail - charm data is optional
+                    }
+                }
 
                 // Save or update transaction
                 if (existingTxids.has(txid)) {
@@ -231,9 +266,8 @@ export class TransactionRecorder {
             const transactions = await getTransactions(this.blockchain, this.network);
             const updatedTransactions = transactions.map(tx => {
                 if (tx.txid === txid && tx.type === newTransactionData.type) {
-                    // Merge new data, always update inputs, outputs, and fee if available
+                    // COMPLETELY REPLACE transaction data, removing old charm-related fields
                     const updated = {
-                        ...tx,
                         ...newTransactionData,
                         id: tx.id, // Keep original ID
                         // Always update inputs if provided
@@ -250,6 +284,19 @@ export class TransactionRecorder {
                     } else {
                         updated.timestamp = tx.timestamp; // Keep original
                     }
+                    
+                    // IMPORTANT: Remove old metadata field if it exists (legacy data)
+                    delete updated.metadata;
+                    
+                    // Ensure charmTokenData is from new data only
+                    if (newTransactionData.charmTokenData) {
+                        updated.charmTokenData = newTransactionData.charmTokenData;
+                    }
+                    
+                    console.log(`[TransactionRecorder] Updated transaction ${txid}:`, {
+                        hasCharmTokenData: !!updated.charmTokenData,
+                        charmTokenData: updated.charmTokenData
+                    });
                     
                     return updated;
                 }

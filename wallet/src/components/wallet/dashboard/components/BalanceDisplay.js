@@ -5,18 +5,13 @@ import { useCharms } from '@/stores/charmsStore';
 import { useUTXOs } from '@/stores/utxoStore';
 import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
 import { useBlockchain } from '@/stores/blockchainStore';
+import { formatBTC } from '@/utils/formatters';
 
-export default function BalanceDisplay({ balance, pendingBalance, btcPrice, priceLoading, isLoading, network, onRefresh, isRefreshing, refreshProgress }) {
+export default function BalanceDisplay({ balance, pendingBalance, btcPrice, priceLoading, isLoading, network, onRefresh, isRefreshing, refreshProgress, onSendBTC, onReceiveBTC, onSendBro, onReceiveBro }) {
     const [showUSD, setShowUSD] = useState(false);
     const [trend, setTrend] = useState(null);
-    const { charms, loadCharms, isLoading: charmsLoading, initialized } = useCharms();
+    const { charms, getTotalByAppId, getPendingByAppId, isLoading: charmsLoading } = useCharms();
     const { activeBlockchain, activeNetwork } = useBlockchain();
-
-    // Format balance in BTC
-    const formatBTC = (satoshis) => {
-        const btc = satoshis / 100000000;
-        return btc.toFixed(8);
-    };
 
     // Format balance in fiat
     const formatFiat = (satoshis, currency = 'usd') => {
@@ -31,53 +26,23 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
         }).format(fiatValue);
     };
 
-    // Memoize BRO token balance calculation to prevent redundant processing
+    // UNIFIED BRO token balance calculation using store function
+    // This ensures consistency with Charms tab and other components
     const broBalance = useMemo(() => {
-        
-        // Sum BRO tokens strictly by exact App ID (or flagged by service)
         const targetId = getBroTokenAppId();
-        const broCharms = charms.filter(charm => {
-            const appId = charm.appId || charm.id || charm.amount?.appId;
-            return charm.isBroToken === true || appId === targetId;
-        });
-        
-        const totalBalance = broCharms.reduce((total, charm) => {
-            let charmBalance = 0;
-            
-            // Use displayAmount directly - it's already properly converted
-            if (charm.displayAmount) {
-                charmBalance = parseFloat(charm.displayAmount);
-            } else if (charm.amount?.remaining) {
-                const remainingValue = parseFloat(charm.amount.remaining);
-                if (remainingValue > 1000) {
-                    // Large raw number needs conversion
-                    charmBalance = remainingValue / Math.pow(10, 8);
-                } else {
-                    // Already converted
-                    charmBalance = remainingValue;
-                }
-            }
-            
-            return total + charmBalance;
-        }, 0);
-        
-        return totalBalance;
-    }, [charms]); // Only recalculate when charms array changes
+        const balance = getTotalByAppId(targetId);
+        return balance;
+    }, [charms, getTotalByAppId]); // Recalculate when charms change
 
-    // Load charms when wallet is initialized or network changes
-    useEffect(() => {
-        if (activeBlockchain && activeNetwork && initialized && !charmsLoading) {
-            if (charms.length === 0) {
-                loadCharms();
-            }
-        }
-    }, [activeBlockchain, activeNetwork, initialized, charmsLoading, charms.length]);
+    // Get pending BRO balance
+    const broPendingBalance = useMemo(() => {
+        const targetId = getBroTokenAppId();
+        const pending = getPendingByAppId(targetId);
+        return pending;
+    }, [charms, getPendingByAppId]);
 
-    // Force balance recalculation when charms change
-    useEffect(() => {
-        if (charms.length > 0) {
-        }
-    }, [charms]);
+    // Charms are now auto-initialized by useCharms hook
+    // No manual loading needed
 
     useEffect(() => {
         if (btcPrice && !priceLoading) {
@@ -93,11 +58,11 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
     return (
         <div className="card p-6 space-y-6">
             <div className="flex justify-between items-center">
-                <div>
-                    <h2 className="text-lg font-semibold text-dark-300 mb-1">Portfolio Balance</h2>
-                    <div className="flex items-center space-x-2">
-                        <div className={`w-2 h-2 rounded-full ${network === 'mainnet' ? 'bg-green-500' : 'bg-orange-500'}`}></div>
-                        <span className="text-sm text-dark-400 capitalize">{network}</span>
+                <div className="flex items-center gap-3">
+                    <h2 className="text-lg font-semibold text-dark-300">Portfolio Balance</h2>
+                    <div className="flex items-center gap-1.5">
+                        <div className={`w-1.5 h-1.5 rounded-full ${network === 'mainnet' ? 'bg-green-500' : 'bg-orange-500'}`}></div>
+                        <span className="text-xs text-dark-400 capitalize">{network}</span>
                     </div>
                 </div>
                 <div className="flex items-center space-x-4">
@@ -142,15 +107,23 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
                     {/* Dual Token Display */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Bitcoin Balance */}
-                        <div className="glass-effect p-4 rounded-xl border border-dark-600">
-                            <div className="flex items-center space-x-2 mb-2">
-                                <div className="w-6 h-6 rounded-full bg-gradient-to-r from-orange-500 to-yellow-500 flex items-center justify-center">
-                                    <span className="text-xs font-bold text-white">₿</span>
+                        <div className="glass-effect p-4 rounded-xl border border-dark-600 relative flex flex-col">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center space-x-2">
+                                    <div className="w-6 h-6 rounded-full bg-gradient-to-r from-orange-500 to-yellow-500 flex items-center justify-center">
+                                        <span className="text-xs font-bold text-white">₿</span>
+                                    </div>
+                                    <span className="text-sm font-medium text-dark-300">Bitcoin Available</span>
                                 </div>
-                                <span className="text-sm font-medium text-dark-300">Bitcoin Available</span>
+                                {/* BTC Price top right */}
+                                {!priceLoading && btcPrice && (
+                                    <div className="text-xs text-dark-500">
+                                        ${btcPrice.usd?.toLocaleString()}
+                                    </div>
+                                )}
                             </div>
                             <div 
-                                className="cursor-pointer hover:opacity-80 transition-opacity"
+                                className="cursor-pointer hover:opacity-80 transition-opacity mb-3"
                                 onClick={toggleCurrency}
                             >
                                 <div className="text-2xl font-bold gradient-text mb-1">
@@ -169,10 +142,26 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
                                     {isRefreshing ? 'Loading...' : (showUSD ? `${formatBTC(balance)} BTC` : formatFiat(balance))}
                                 </div>
                             </div>
+                            <div className="flex gap-1.5 justify-end mt-auto">
+                                <button
+                                    onClick={onSendBTC}
+                                    className="flex items-center justify-center gap-1 px-2.5 py-1 rounded-md bg-gray-700/80 border border-gray-600/60 text-xs font-medium text-white hover:bg-gray-600/80 hover:border-gray-500 transition-all shadow-sm"
+                                >
+                                    <span>↗</span>
+                                    <span>Send</span>
+                                </button>
+                                <button
+                                    onClick={onReceiveBTC}
+                                    className="flex items-center justify-center gap-1 px-2.5 py-1 rounded-md bg-gray-700/80 border border-gray-600/60 text-xs font-medium text-white hover:bg-gray-600/80 hover:border-gray-500 transition-all shadow-sm"
+                                >
+                                    <span>↙</span>
+                                    <span>Receive</span>
+                                </button>
+                            </div>
                         </div>
 
                         {/* Bro Token Balance */}
-                        <div className="glass-effect p-4 rounded-xl border border-dark-600">
+                        <div className="glass-effect p-4 rounded-xl border border-dark-600 relative flex flex-col">
                             <div className="flex items-center space-x-2 mb-2">
                                 <div className="w-6 h-6 rounded-full overflow-hidden">
                                     <img 
@@ -190,35 +179,45 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
                                 </div>
                                 <span className="text-sm font-medium text-dark-300">Bro</span>
                             </div>
-                            <div className="text-2xl font-bold text-purple-400 mb-1">
-                                {charmsLoading ? (
-                                    <div className="h-8 bg-dark-700 rounded animate-pulse w-24"></div>
-                                ) : (
-                                    `${broBalance.toFixed(2)} $BRO`
-                                )}
-                            </div>
-                            {!charmsLoading && (
-                                <div className="text-xs text-orange-400 mb-1">
-                                    No $BRO pending
+                            <div className="mb-3">
+                                <div className="text-2xl font-bold text-purple-400 mb-1">
+                                    {charmsLoading ? (
+                                        <div className="h-8 bg-dark-700 rounded animate-pulse w-24"></div>
+                                    ) : (
+                                        `${broBalance.toFixed(2)} $BRO`
+                                    )}
                                 </div>
-                            )}
-                            <div className="text-sm text-dark-400">
-                                {charmsLoading ? 'Loading...' : (broBalance > 0 ? 'Token Balance' : 'No tokens')}
+                                {!charmsLoading && (
+                                    <div className="text-xs text-orange-400 mb-1">
+                                        {broPendingBalance > 0 ? `+${broPendingBalance.toFixed(2)} $BRO pending` : 'No $BRO pending'}
+                                    </div>
+                                )}
+                                <div className="text-sm text-dark-400">
+                                    {charmsLoading ? 'Loading...' : (broBalance > 0 ? 'Token Balance' : 'No tokens')}
+                                </div>
+                            </div>
+                            <div className="flex gap-1.5 justify-end mt-auto">
+                                <button
+                                    onClick={onSendBro}
+                                    disabled={broBalance <= 0 || charmsLoading}
+                                    className="flex items-center justify-center gap-1 px-2.5 py-1 rounded-md bg-gray-700/80 border border-gray-600/60 text-xs font-medium text-white hover:bg-gray-600/80 hover:border-gray-500 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-gray-700/80"
+                                    title={broBalance <= 0 ? "No BRO tokens available" : "Send BRO tokens"}
+                                >
+                                    <span>↗</span>
+                                    <span>Send</span>
+                                </button>
+                                <button
+                                    onClick={onReceiveBro}
+                                    className="flex items-center justify-center gap-1 px-2.5 py-1 rounded-md bg-gray-700/80 border border-gray-600/60 text-xs font-medium text-white hover:bg-gray-600/80 hover:border-gray-500 transition-all shadow-sm"
+                                    title="Receive BRO tokens"
+                                >
+                                    <span>↙</span>
+                                    <span>Receive</span>
+                                </button>
                             </div>
                         </div>
                     </div>
 
-                </div>
-            )}
-
-            {/* Price Info */}
-            {!priceLoading && btcPrice && (
-                <div className="flex justify-between items-center text-sm text-dark-400 pt-2 border-t border-dark-700">
-                    <span>BTC Price:</span>
-                    <div className="flex space-x-4">
-                        <span>${btcPrice.usd?.toLocaleString()}</span>
-                        <span>€{btcPrice.eur?.toLocaleString()}</span>
-                    </div>
                 </div>
             )}
         </div>

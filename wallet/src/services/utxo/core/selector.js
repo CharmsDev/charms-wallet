@@ -58,7 +58,7 @@ export class UTXOSelector {
         const networkKey = network === 'mainnet' ? 'mainnet' : 'testnet4';
         const charms = await getCharms(blockchain, networkKey) || [];
         
-        // Use centralized spendability check to filter UTXOs (including ordinals/runes detection)
+        // CRITICAL: isUtxoSpendable filters out charms, ordinals, runes, and locked UTXOs - NEVER select reserved UTXOs
         const candidateUtxos = availableUtxos.filter(utxo => {
             const transactionData = transactionDataMap ? transactionDataMap[utxo.txid] : null;
             return utxoCalculations.isUtxoSpendable(utxo, charms, this.lockedUtxos, transactionData);
@@ -152,7 +152,7 @@ export class UTXOSelector {
         const networkKey = network === 'mainnet' ? 'mainnet' : 'testnet4';
         const charms = await getCharms(blockchain, networkKey) || [];
         
-        // Use centralized spendability check to filter UTXOs (including ordinals/runes detection)
+        // CRITICAL: isUtxoSpendable filters out charms, ordinals, runes, and locked UTXOs - NEVER select reserved UTXOs
         const candidateUtxos = availableUtxos.filter(utxo => {
             const transactionData = transactionDataMap ? transactionDataMap[utxo.txid] : null;
             return utxoCalculations.isUtxoSpendable(utxo, charms, this.lockedUtxos, transactionData);

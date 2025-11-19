@@ -17,20 +17,35 @@ import SendBitcoinDialog from '../utxos/SendBitcoinDialog';
 import ReceiveBitcoinDialog from './components/ReceiveBitcoinDialog';
 import SettingsDialog from './components/SettingsDialog';
 import BroMintingBanner from './components/BroMintingBanner';
+import TransferCharmWizard from '../charms/transfer/TransferCharmWizard';
+import { useWalletSync } from '@/hooks/useWalletSync';
+import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
+import { useNavigation } from '@/contexts/NavigationContext';
 
 export default function UserDashboard({ seedPhrase, walletInfo, derivationLoading, createSuccess }) {
     const [showSendDialog, setShowSendDialog] = useState(false);
     const [showReceiveDialog, setShowReceiveDialog] = useState(false);
+    const [receiveAsset, setReceiveAsset] = useState('Bitcoin');
     const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+    const [showBroTransferDialog, setShowBroTransferDialog] = useState(false);
+    const [broCharmToTransfer, setBroCharmToTransfer] = useState(null);
     const [btcPrice, setBtcPrice] = useState(null);
     const [priceLoading, setPriceLoading] = useState(true);
-    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const { hasWallet } = useWallet();
-    const { utxos, totalBalance, pendingBalance, isLoading: utxosLoading, loadUTXOs, refreshUTXOs, refreshProgress } = useUTXOs();
-    const { charms, isLoading: charmsLoading, loadCharms, refreshCharms } = useCharms();
+    const { utxos, totalBalance, pendingBalance, isLoading: utxosLoading, loadUTXOs } = useUTXOs();
+    const { charms, isLoading: charmsLoading, groupTokensByAppId } = useCharms();
     const { addresses, isLoading: addressesLoading, loadAddresses } = useAddresses();
     const { activeBlockchain, activeNetwork } = useBlockchain();
+    const { syncFullWallet, isSyncing: isRefreshing, syncProgress } = useWalletSync();
+    const { setActiveSection } = useNavigation();
+    
+    // Convert syncProgress to refreshProgress format for BalanceDisplay
+    const refreshProgress = {
+        processed: syncProgress.current,
+        total: syncProgress.total,
+        isRefreshing: isRefreshing && syncProgress.phase === 'utxos'
+    };
 
     // Load data on component mount and network changes
     useEffect(() => {
@@ -72,21 +87,49 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     };
 
     const handleReceiveBitcoin = () => {
+        setReceiveAsset('Bitcoin');
         setShowReceiveDialog(true);
     };
 
     const handleViewHistory = () => {
-        // TODO: Navigate to transaction history
+        setActiveSection('history');
     };
 
     const handleSettings = () => {
         setShowSettingsDialog(true);
     };
 
+    const handleSendBro = () => {
+        const broAppId = getBroTokenAppId();
+        
+        // Use groupTokensByAppId to get correct structure with all UTXOs
+        const groupedTokens = groupTokensByAppId();
+        const broToken = groupedTokens.find(token => token.appId === broAppId);
+        
+        if (broToken && broToken.tokenUtxos.length > 0) {
+            // Construct charm object with correct structure for TransferCharmWizard
+            const broCharmForTransfer = {
+                ...broToken.tokenUtxos[0],      // First UTXO with all metadata
+                totalAmount: broToken.totalAmount,
+                allUtxos: broToken.tokenUtxos    // All UTXOs for this token
+            };
+            setBroCharmToTransfer(broCharmForTransfer);
+            setShowBroTransferDialog(true);
+        } else {
+            console.warn('No BRO tokens available to send');
+        }
+    };
+
+    const handleReceiveBro = () => {
+        // For receiving BRO, just show the receive dialog (same as BTC)
+        setReceiveAsset('Bro');
+        setShowReceiveDialog(true);
+    };
+
     /**
-     * OPTIMIZED DASHBOARD REFRESH SEQUENCE
+     * UNIFIED DASHBOARD REFRESH
      * 
-     * This function implements a sequential refresh strategy to ensure data consistency:
+     * Uses the new wallet sync service to ensure data consistency:
      * 
      * 1. UTXOs FIRST (24 addresses = 12 indices × 2 types)
      *    - Scans first 12 receive addresses (m/86'/0'/0'/0/0 to m/86'/0'/0'/0/11)
@@ -94,17 +137,18 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
      *    - Updates balance in real-time during scan
      *    - Deduplicates UTXOs by txid:vout
      * 
-     * 2. ADDRESSES SECOND
-     *    - Refreshes address list for current network
-     *    - Ensures UI has latest address data
-     * 
-     * 3. CHARMS LAST (with force refresh)
-     *    - Uses refreshCharms() instead of loadCharms() to bypass cache
+     * 2. CHARMS SECOND (based on updated UTXOs)
      *    - Processes ALL UTXOs detected in step 1 for charm detection
+     *    - Filters out spent charms automatically
      *    - Recalculates BRO token balance with latest data
      *    - Updates charm cache for faster subsequent loads
      * 
+     * 3. ADDRESSES LAST
+     *    - Refreshes address list for current network
+     *    - Ensures UI has latest address data
+     * 
      * BENEFITS:
+     * - Single source of truth (wallet-sync-service)
      * - Guarantees charms use the most recent UTXO data
      * - Prevents race conditions between UTXO and charm updates
      * - Ensures BRO balance reflects all detected tokens
@@ -112,16 +156,15 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
      */
     const handleRefresh = async () => {
         if (isRefreshing) return;
-        setIsRefreshing(true);
+        
         try {
-            // Sequential refresh to ensure charms use updated UTXOs
-            await refreshUTXOs(activeBlockchain, activeNetwork, 24); // 12 indices = 24 addresses (receive + change)
+            // Use unified sync service - scans all addresses
+            await syncFullWallet();
+            
+            // Refresh addresses (non-critical)
             await loadAddresses(activeBlockchain, activeNetwork);
-            await refreshCharms(); // Force refresh to bypass cache and use updated UTXOs
         } catch (error) {
             console.error("Failed to refresh wallet data:", error);
-        } finally {
-            setIsRefreshing(false);
         }
     };
 
@@ -153,12 +196,6 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                             Welcome to your Bitcoin wallet
                         </p>
                     </div>
-                    <div className="flex items-center space-x-4">
-                        <div className="flex items-center space-x-2 text-sm text-dark-400">
-                            <div className={`w-2 h-2 rounded-full ${activeNetwork === 'mainnet' ? 'bg-green-500' : 'bg-orange-500'}`}></div>
-                            <span className="capitalize">{activeNetwork}</span>
-                        </div>
-                    </div>
                 </div>
 
                 {/* Success notification */}
@@ -172,10 +209,8 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
 
                 {/* Main Dashboard Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Left Column - Balance and Quick Actions */}
+                    {/* Left Column - Balance and Transactions */}
                     <div className="lg:col-span-2 space-y-6">
-                        <BroMintingBanner />
-
                         {/* Balance Display */}
                         <BalanceDisplay
                             balance={totalBalance}
@@ -187,25 +222,25 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                             onRefresh={handleRefresh}
                             isRefreshing={isRefreshing}
                             refreshProgress={refreshProgress}
-                        />
-
-                        {/* Quick Actions */}
-                        <QuickActionsPanel
-                            onSend={() => setShowSendDialog(true)}
-                            onReceive={() => setShowReceiveDialog(true)}
-                            onViewHistory={handleViewHistory}
-                            onSettings={() => setShowSettingsDialog(true)}
+                            onSendBTC={() => setShowSendDialog(true)}
+                            onReceiveBTC={() => setShowReceiveDialog(true)}
+                            onSendBro={handleSendBro}
+                            onReceiveBro={handleReceiveBro}
                         />
 
                         {/* Recent Transactions */}
                         <RecentTransactions
                             utxos={utxos}
                             isLoading={utxosLoading}
+                            onViewAllTransactions={handleViewHistory}
                         />
                     </div>
 
                     {/* Right Column - Portfolio and Security */}
                     <div className="space-y-6">
+                        {/* Bro Minting Banner */}
+                        <BroMintingBanner />
+
                         {/* Portfolio Summary */}
                         <PortfolioSummary
                             utxos={utxos}
@@ -239,10 +274,11 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                 formatValue={(value) => `${value} sats`}
             />
 
-            {/* Receive Bitcoin Dialog */}
+            {/* Receive Bitcoin / Token Dialog */}
             <ReceiveBitcoinDialog
                 isOpen={showReceiveDialog}
                 onClose={() => setShowReceiveDialog(false)}
+                assetName={receiveAsset}
             />
 
             {/* Settings Dialog */}
@@ -250,6 +286,18 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                 isOpen={showSettingsDialog}
                 onClose={() => setShowSettingsDialog(false)}
             />
+
+            {/* BRO Transfer Dialog */}
+            {broCharmToTransfer && (
+                <TransferCharmWizard
+                    charm={broCharmToTransfer}
+                    show={showBroTransferDialog}
+                    onClose={() => {
+                        setShowBroTransferDialog(false);
+                        setBroCharmToTransfer(null);
+                    }}
+                />
+            )}
         </div>
     );
 }

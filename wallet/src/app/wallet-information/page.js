@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useWallet } from '@/stores/walletStore';
 import { useWalletInfo } from '@/stores/walletInfoStore';
 import { useBlockchain } from '@/stores/blockchainStore';
+import { clearAllWalletData } from '@/services/storage';
 
 export default function WalletInformation() {
     const router = useRouter();
@@ -13,6 +14,8 @@ export default function WalletInformation() {
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const [copyNotification, setCopyNotification] = useState(false);
     const [showSeedPhrase, setShowSeedPhrase] = useState(false);
+    const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     // Load wallet info when component mounts
     useEffect(() => {
@@ -29,6 +32,22 @@ export default function WalletInformation() {
         } catch (err) {
             console.error('Failed to copy:', err);
         }
+    };
+
+    const handleDeleteWallet = async () => {
+        setIsDeleting(true);
+        try {
+            await clearAllWalletData();
+            window.location.href = '/';
+        } catch (error) {
+            console.error('Failed to delete wallet:', error);
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+    const handleCancelDelete = () => {
+        setShowDeleteConfirmation(false);
     };
 
     const networkName = activeNetwork === 'mainnet' ? 'mainnet' : 'testnet4';
@@ -275,6 +294,82 @@ export default function WalletInformation() {
                                     </div>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Delete Wallet Section */}
+                        <div className="card p-6 border-l-4 border-red-500">
+                            <h2 className="text-xl font-semibold text-red-400 mb-4">Danger Zone</h2>
+                            
+                            {!showDeleteConfirmation ? (
+                                <>
+                                    <p className="text-dark-300 mb-4">
+                                        Permanently delete your wallet and all associated data. This action cannot be undone.
+                                    </p>
+                                    <div className="glass-effect border-l-4 border-yellow-500 p-4 mb-4">
+                                        <p className="text-sm text-yellow-400">
+                                            <strong>⚠️ Warning:</strong> Make sure you have backed up your seed phrase before proceeding. 
+                                            You will lose access to your Bitcoin unless you have your recovery phrase saved elsewhere.
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowDeleteConfirmation(true)}
+                                        className="bg-red-600 hover:bg-red-700 text-white py-3 px-6 rounded-lg transition-colors font-medium"
+                                    >
+                                        🗑️ Delete Wallet
+                                    </button>
+                                </>
+                            ) : (
+                                <div>
+                                    <h3 className="text-lg font-medium text-red-300 mb-4">Confirm Wallet Deletion</h3>
+                                    <p className="text-dark-300 mb-4">
+                                        Are you absolutely sure you want to delete your wallet? This will permanently remove:
+                                    </p>
+                                    <ul className="text-dark-300 text-sm mb-6 space-y-2 ml-4">
+                                        <li className="flex items-center space-x-2">
+                                            <span className="text-red-400">•</span>
+                                            <span>Your seed phrase and private keys</span>
+                                        </li>
+                                        <li className="flex items-center space-x-2">
+                                            <span className="text-red-400">•</span>
+                                            <span>All wallet addresses</span>
+                                        </li>
+                                        <li className="flex items-center space-x-2">
+                                            <span className="text-red-400">•</span>
+                                            <span>Transaction history</span>
+                                        </li>
+                                        <li className="flex items-center space-x-2">
+                                            <span className="text-red-400">•</span>
+                                            <span>UTXO data and charms</span>
+                                        </li>
+                                        <li className="flex items-center space-x-2">
+                                            <span className="text-red-400">•</span>
+                                            <span>All settings and preferences</span>
+                                        </li>
+                                    </ul>
+                                    <div className="glass-effect border-l-4 border-red-500 p-4 mb-6">
+                                        <p className="text-sm text-red-400 font-medium">
+                                            ⚠️ This action is irreversible. You will lose access to your Bitcoin unless you have your seed phrase backed up elsewhere.
+                                        </p>
+                                    </div>
+                                    
+                                    <div className="flex space-x-3">
+                                        <button
+                                            onClick={handleCancelDelete}
+                                            disabled={isDeleting}
+                                            className="flex-1 bg-dark-700 hover:bg-dark-600 text-white py-3 px-6 rounded-lg transition-colors disabled:opacity-50 font-medium"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleDeleteWallet}
+                                            disabled={isDeleting}
+                                            className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 px-6 rounded-lg transition-colors disabled:opacity-50 font-medium"
+                                        >
+                                            {isDeleting ? 'Deleting...' : 'Yes, Delete Wallet'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                     </div>

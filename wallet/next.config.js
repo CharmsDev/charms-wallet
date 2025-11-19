@@ -4,7 +4,8 @@ const nextConfig = {
         ignoreDuringBuilds: true,
     },
 
-    reactStrictMode: true,
+    // Disabled to prevent double mounting in development
+    reactStrictMode: false,
     
     typescript: {
         // Allow production builds to complete with type errors

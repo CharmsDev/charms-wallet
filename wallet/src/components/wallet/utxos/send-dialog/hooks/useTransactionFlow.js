@@ -57,13 +57,12 @@ export function useTransactionFlow(formState, onClose) {
             setShowPreparing(true);
             setPreparingStatus('Selecting UTXOs and calculating fees...');
             
-            // Use the same UTXO filtering logic as the Max button calculation
+            // CRITICAL: getSpendableUtxos filters out charms, ordinals, runes - NEVER use raw utxos for transactions
             const { utxoCalculations } = await import('@/services/utxo/utils/calculations');
             const spendableUtxos = utxoCalculations.getSpendableUtxos(utxos, charms);
             const allUtxos = Object.entries(spendableUtxos).flatMap(([address, addressUtxos]) => 
                 addressUtxos.map(utxo => ({ ...utxo, address }))
             );
-            
             
             if (allUtxos.length === 0) {
                 const error = 'No spendable UTXOs available. All UTXOs are either charms or reserved (1000 sats).';
@@ -103,11 +102,6 @@ export function useTransactionFlow(formState, onClose) {
                 const exactFee = selector.calculateMixedFee(allUtxos, 1, currentFeeRate);
                 const adjustedAmount = totalAvailable - exactFee;
                 
-                console.log('[TX-FLOW] Max transaction detected');
-                console.log('[TX-FLOW] Total available:', totalAvailable, 'sats');
-                console.log('[TX-FLOW] Calculated fee:', exactFee, 'sats at', currentFeeRate, 'sat/vB');
-                console.log('[TX-FLOW] Adjusted amount:', adjustedAmount, 'sats');
-                
                 selectionResult = {
                     selectedUtxos: allUtxos,
                     totalSelected: totalAvailable,
@@ -128,12 +122,6 @@ export function useTransactionFlow(formState, onClose) {
                     'bitcoin',
                     activeNetwork
                 );
-                
-                console.log('[TX-FLOW] Regular transaction');
-                console.log('[TX-FLOW] Selected UTXOs:', selectionResult.selectedUtxos?.length);
-                console.log('[TX-FLOW] Total selected:', selectionResult.totalSelected, 'sats');
-                console.log('[TX-FLOW] Estimated fee:', selectionResult.estimatedFee, 'sats at', currentFeeRate, 'sat/vB');
-                console.log('[TX-FLOW] Change:', selectionResult.change, 'sats');
                 
                 // Add fee rate to result
                 selectionResult.feeRate = currentFeeRate;

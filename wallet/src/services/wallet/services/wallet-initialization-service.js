@@ -129,7 +129,7 @@ export class WalletInitializationService {
             onStepChange(6, 'Scanning for transaction history...');
 
             try {
-                const transactionHistoryModule = await import('@/services/wallet/transaction-history-service');
+                const transactionHistoryModule = await import('@/services/wallet/services/transaction-history-service');
                 const transactionHistoryService = transactionHistoryModule.default || transactionHistoryModule.transactionHistoryService;
 
                 for (const currentNetwork of networks) {
@@ -155,7 +155,69 @@ export class WalletInitializationService {
                 // Continue with initialization
             }
 
-            onStepChange(7, 'Finalizing setup...');
+            onStepChange(7, 'Calculating balances...');
+
+            // CRITICAL: Calculate and save balances for both networks
+            try {
+                const { utxoService } = await import('@/services/utxo');
+                const { getUTXOs, getCharms, saveBalance } = await import('@/services/storage');
+
+                for (const currentNetwork of networks) {
+                    try {
+                        const utxos = await getUTXOs(blockchain, currentNetwork);
+                        const charms = await getCharms(blockchain, currentNetwork) || [];
+                        
+                        // CRITICAL: calculateBalances filters out charms, ordinals, runes - ensures correct balance
+                        const balanceData = utxoService.calculateBalances(utxos, charms);
+                        
+                        // Calculate token balances
+                        let tokenBalances = [];
+                        if (charms.length > 0) {
+                            const { useCharmsStore } = await import('@/stores/charms');
+                            const tokenGroups = useCharmsStore.getState().groupTokensByAppId();
+                            tokenBalances = tokenGroups.map(group => ({
+                                appId: group.appId,
+                                name: group.name,
+                                ticker: group.ticker,
+                                amount: group.totalAmount
+                            }));
+                        }
+                        
+                        // Calculate total balance (spendable + pending, excludes reserved UTXOs)
+                        const totalBalance = balanceData.spendable + balanceData.pending;
+                        
+                        // Save balance to localStorage
+                        await saveBalance({
+                            spendable: balanceData.spendable,
+                            pending: balanceData.pending,
+                            total: totalBalance,
+                            nonSpendable: balanceData.nonSpendable,
+                            utxoCount: Object.values(utxos).reduce((sum, list) => sum + list.length, 0),
+                            charmCount: charms.length,
+                            ordinalCount: 0,
+                            runeCount: 0,
+                            tokens: tokenBalances
+                        }, blockchain, currentNetwork);
+                        
+                        // Update UTXO store in memory for active network
+                        if (currentNetwork === network) {
+                            const { useUTXOStore } = await import('@/stores/utxoStore');
+                            useUTXOStore.setState({
+                                totalBalance: balanceData.spendable,
+                                pendingBalance: balanceData.pending
+                            });
+                        }
+                    } catch (error) {
+                        console.error(`[WALLET] Error calculating balance for ${currentNetwork}:`, error);
+                        // Continue with initialization
+                    }
+                }
+            } catch (error) {
+                console.error('[WALLET] Error calculating balances:', error);
+                // Continue with initialization
+            }
+
+            onStepChange(8, 'Finalizing setup...');
 
             return finalSeedPhrase;
 

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 
-export default function ReceiveBitcoinDialog({ isOpen, onClose }) {
+export default function ReceiveBitcoinDialog({ isOpen, onClose, assetName = 'Bitcoin' }) {
     const [currentAddressIndex, setCurrentAddressIndex] = useState(0);
     const [displayAddress, setDisplayAddress] = useState('');
     
@@ -59,7 +59,7 @@ export default function ReceiveBitcoinDialog({ isOpen, onClose }) {
         <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
             <div className="bg-dark-900 rounded-lg p-6 w-full max-w-2xl mx-4 border border-white/20">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-semibold gradient-text">Receive Bitcoin</h2>
+                    <h2 className="text-xl font-semibold gradient-text">Receive {assetName}</h2>
                     <button
                         onClick={onClose}
                         className="text-gray-400 hover:text-white transition-colors"
@@ -73,7 +73,7 @@ export default function ReceiveBitcoinDialog({ isOpen, onClose }) {
                 <div className="space-y-4">
                     <div className="glass-effect p-4 rounded-lg">
                         <label className="block text-sm font-medium text-gray-300 mb-2">
-                            Bitcoin Address ({activeNetwork})
+                            {assetName} Address ({activeNetwork})
                         </label>
                         <div className="bg-dark-800 p-3 rounded border break-all text-sm font-mono">
                             {displayAddress || 'Loading address...'}
@@ -81,7 +81,7 @@ export default function ReceiveBitcoinDialog({ isOpen, onClose }) {
                     </div>
 
                     <p className="text-gray-300 text-sm text-center">
-                        Send Bitcoin to this address and you will see it in your balance when UTXOs refresh.
+                        Send {assetName} to this address and you will see it in your balance when UTXOs refresh.
                     </p>
 
                     <div className="flex space-x-3">

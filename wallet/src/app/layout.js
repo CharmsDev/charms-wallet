@@ -2,6 +2,7 @@ import "./globals.css";
 import MainLayout from "@/components/layout/MainLayout";
 import { WalletProvider } from "@/stores/walletStore";
 import { NetworkProvider } from "@/contexts/NetworkContext";
+import { NavigationProvider } from "@/contexts/NavigationContext";
 import { UTXOProvider } from "@/stores/utxoStore";
 import { CharmsProvider } from "@/stores/charmsStore";
 import Script from 'next/script';
@@ -17,13 +18,15 @@ export default function RootLayout({ children }) {
       <body>
         <WalletProvider>
           <NetworkProvider>
-            <UTXOProvider>
-              <CharmsProvider>
-                <MainLayout>
-                  {children}
-                </MainLayout>
-              </CharmsProvider>
-            </UTXOProvider>
+            <NavigationProvider>
+              <UTXOProvider>
+                <CharmsProvider>
+                  <MainLayout>
+                    {children}
+                  </MainLayout>
+                </CharmsProvider>
+              </UTXOProvider>
+            </NavigationProvider>
           </NetworkProvider>
         </WalletProvider>
         <Script

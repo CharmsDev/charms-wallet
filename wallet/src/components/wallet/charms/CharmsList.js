@@ -1,17 +1,18 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useCharms } from '@/stores/charmsStore';
-import CharmCard from './CharmCard';
+import { useWalletSync } from '@/hooks/useWalletSync';
+import CharmNFTCard from './CharmNFTCard';
+import CharmTokenCard from './CharmTokenCard';
 
 export default function CharmsList() {
-    const { charms, isLoading, loadingProgress, error, loadCharms, refreshCharms, isNFT, getCharmDisplayName } = useCharms();
+    const { charms, error, groupTokensByAppId, getNFTs } = useCharms();
+    const { syncCharmsOnly, isSyncing, syncProgress } = useWalletSync();
     const [selectedType, setSelectedType] = useState('all'); // 'all', 'nft', 'token'
-
-    // Load charms on mount
-    useEffect(() => {
-        loadCharms();
-    }, []);
+    
+    // Use syncProgress for loading state
+    const isLoading = isSyncing && syncProgress.phase === 'charms';
 
     // Auto-scroll to show new charms when they're added during loading
     useEffect(() => {
@@ -33,12 +34,23 @@ export default function CharmsList() {
         }
     }, [charms.length, isLoading]);
 
-    const filteredCharms = charms.filter(charm => {
-        if (selectedType === 'all') return true;
-        if (selectedType === 'nft') return isNFT(charm);
-        if (selectedType === 'token') return !isNFT(charm);
-        return true;
-    });
+    // Get NFTs and grouped tokens
+    const nfts = useMemo(() => getNFTs(), [charms, getNFTs]);
+    const groupedTokens = useMemo(() => groupTokensByAppId(), [charms, groupTokensByAppId]);
+
+    // Filter based on selected type
+    const displayItems = useMemo(() => {
+        if (selectedType === 'all') {
+            return [...nfts, ...groupedTokens];
+        }
+        if (selectedType === 'nft') {
+            return nfts;
+        }
+        if (selectedType === 'token') {
+            return groupedTokens;
+        }
+        return [];
+    }, [nfts, groupedTokens, selectedType]);
 
     return (
         <div>
@@ -78,15 +90,15 @@ export default function CharmsList() {
                 </div>
 
                 <button
-                    onClick={refreshCharms}
+                    onClick={syncCharmsOnly}
                     className="btn btn-primary flex items-center gap-2"
-                    disabled={isLoading}
-                    aria-busy={isLoading}
+                    disabled={isSyncing}
+                    aria-busy={isSyncing}
                 >
-                    {isLoading && (
+                    {isSyncing && (
                         <span className="inline-block animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white" />
                     )}
-                    {isLoading ? 'Refreshing…' : 'Refresh'}
+                    {isSyncing ? 'Refreshing…' : 'Refresh'}
                 </button>
             </div>
 
@@ -103,23 +115,23 @@ export default function CharmsList() {
                     <div className="text-center py-8">
                         <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-500"></div>
                         <p className="mt-2 text-dark-300">
-                            {loadingProgress ? 
-                                `Scanning transactions for charms... (${loadingProgress.current}/${loadingProgress.total})` : 
+                            {syncProgress.total > 0 ? 
+                                `Scanning transactions for charms... (${syncProgress.current}/${syncProgress.total})` : 
                                 'Scanning transactions for charms...'
                             }
                         </p>
-                        {loadingProgress && loadingProgress.total > 0 && (
+                        {syncProgress.total > 0 && (
                             <div className="mt-4 w-full max-w-xs mx-auto">
                                 <div className="bg-dark-700 rounded-full h-2">
                                     <div 
                                         className="bg-primary-500 h-2 rounded-full transition-all duration-300"
-                                        style={{ width: `${(loadingProgress.current / loadingProgress.total) * 100}%` }}
+                                        style={{ width: `${(syncProgress.current / syncProgress.total) * 100}%` }}
                                     ></div>
                                 </div>
                             </div>
                         )}
                     </div>
-                ) : filteredCharms.length === 0 && !isLoading ? (
+                ) : displayItems.length === 0 && !isLoading ? (
                     <div className="text-center py-8 glass-effect rounded-xl">
                         <p className="text-dark-300">No charms found.</p>
                         {selectedType !== 'all' && (
@@ -131,16 +143,16 @@ export default function CharmsList() {
                 ) : (
                     <div>
                         {/* Show loading progress when charms are being loaded */}
-                        {isLoading && loadingProgress && (
+                        {isLoading && syncProgress.total > 0 && (
                             <div className="mb-4 p-3 bg-dark-800/50 rounded-lg border border-primary-500/20">
                                 <div className="flex items-center justify-between text-sm text-dark-300 mb-2">
                                     <span>🔄 {charms.length === 0 ? 'Scanning transactions for charms...' : 'Scanning more transactions...'}</span>
-                                    <span>{loadingProgress.current}/{loadingProgress.total}</span>
+                                    <span>{syncProgress.current}/{syncProgress.total}</span>
                                 </div>
                                 <div className="bg-dark-700 rounded-full h-1.5">
                                     <div 
                                         className="bg-primary-500 h-1.5 rounded-full transition-all duration-300"
-                                        style={{ width: `${(loadingProgress.current / loadingProgress.total) * 100}%` }}
+                                        style={{ width: `${(syncProgress.current / syncProgress.total) * 100}%` }}
                                     ></div>
                                 </div>
                             </div>
@@ -148,13 +160,28 @@ export default function CharmsList() {
                         
                         {/* Always show charms grid, even during loading */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {filteredCharms.map((charm, index) => (
-                                <CharmCard 
-                                    key={`${charm.appId || charm.txid}-${charm.outputIndex || index}`} 
-                                    charm={charm}
-                                    className="animate-fade-in"
-                                />
-                            ))}
+                            {displayItems.map((item, index) => {
+                                // Check if item is a grouped token (has tokenUtxos array) or an NFT
+                                const isGroupedToken = item.tokenUtxos && Array.isArray(item.tokenUtxos);
+                                
+                                if (isGroupedToken) {
+                                    return (
+                                        <CharmTokenCard 
+                                            key={`token-${item.appId}`}
+                                            groupedToken={item}
+                                            className="animate-fade-in"
+                                        />
+                                    );
+                                } else {
+                                    return (
+                                        <CharmNFTCard 
+                                            key={`nft-${item.txid}-${item.outputIndex}`}
+                                            nft={item}
+                                            className="animate-fade-in"
+                                        />
+                                    );
+                                }
+                            })}
                         </div>
                         
                         {/* Show a subtle indicator when new charms are being added */}
