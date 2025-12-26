@@ -329,9 +329,10 @@ export default function TransferConfirmDialog({
                     {activeTab === 'details' && (
                         <div className="space-y-4">
                             {/* Selected Charm UTXOs */}
+                            {/* [RJJ-16] - Temporary: Show UTXO count with limit info */}
                             <div className="glass-effect p-4 rounded-xl">
                                 <h4 className="font-bold text-white mb-3">
-                                    Selected Charm UTXOs ({selectedCharmUtxos.length})
+                                    Selected Charm UTXOs ({selectedCharmUtxos.length}/16 max)
                                 </h4>
                                 <div className="space-y-2 max-h-64 overflow-y-auto">
                                     {selectedCharmUtxos.map((utxo, index) => (

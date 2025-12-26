@@ -5,7 +5,20 @@
 
 import { getCharmUtxoAmount } from './charm-utils';
 
+// [RJJ-16] - Temporary 16 UTXO limitation due to Prover constraints
+const MAX_INPUT_UTXOS = 16;
+
 export class CharmUtxoSelector {
+    /**
+     * Get sorted UTXOs for an appId (largest first)
+     * @private
+     */
+    _getSortedUtxos(charmUtxos, appId) {
+        return charmUtxos
+            .filter(utxo => utxo.appId === appId)
+            .sort((a, b) => getCharmUtxoAmount(b) - getCharmUtxoAmount(a));
+    }
+
     /**
      * Select charm UTXOs to reach target amount
      * @param {Array} charmUtxos - Array of charm UTXOs from charmsStore
@@ -14,48 +27,38 @@ export class CharmUtxoSelector {
      * @returns {Object} { selectedUtxos, totalAmount, change, hasExactAmount }
      */
     selectCharmUtxosForAmount(charmUtxos, appId, amountNeeded) {
-        // Filter only UTXOs with matching appId
-        const matchingUtxos = charmUtxos.filter(utxo => utxo.appId === appId);
+        const sortedUtxos = this._getSortedUtxos(charmUtxos, appId);
 
-        if (matchingUtxos.length === 0) {
+        if (sortedUtxos.length === 0) {
             throw new Error(`No UTXOs found for appId: ${appId}`);
         }
-
-        // Sort by amount (largest first) for greedy selection
-        const sortedUtxos = [...matchingUtxos].sort((a, b) => {
-            const amountA = getCharmUtxoAmount(a);
-            const amountB = getCharmUtxoAmount(b);
-            return amountB - amountA;
-        });
 
         const selectedUtxos = [];
         let totalAmount = 0;
 
-        // Greedy selection: pick largest UTXOs until we reach target
+        // [RJJ-16] - Temporary 16 UTXO limitation: Greedy selection limited to MAX_INPUT_UTXOS
         for (const utxo of sortedUtxos) {
-            if (totalAmount >= amountNeeded) {
+            if (totalAmount >= amountNeeded || selectedUtxos.length >= MAX_INPUT_UTXOS) {
                 break;
             }
-
             selectedUtxos.push(utxo);
             totalAmount += getCharmUtxoAmount(utxo);
         }
 
-        // Check if we have enough
         if (totalAmount < amountNeeded) {
+            // [RJJ-16] - Temporary: Max transferable limited by UTXO count
+            const maxAmount = sortedUtxos.slice(0, MAX_INPUT_UTXOS)
+                .reduce((sum, u) => sum + getCharmUtxoAmount(u), 0);
             throw new Error(
-                `Insufficient charm balance. Need ${amountNeeded}, only have ${totalAmount}`
+                `Insufficient balance. Need ${amountNeeded}, max with ${MAX_INPUT_UTXOS} UTXOs: ${maxAmount}`
             );
         }
-
-        const change = totalAmount - amountNeeded;
-        const hasExactAmount = change === 0;
 
         return {
             selectedUtxos,
             totalAmount,
-            change,
-            hasExactAmount
+            change: totalAmount - amountNeeded,
+            hasExactAmount: totalAmount === amountNeeded
         };
     }
 
@@ -96,6 +99,33 @@ export class CharmUtxoSelector {
             (sum, utxo) => sum + getCharmUtxoAmount(utxo),
             0
         );
+    }
+
+    /**
+     * [RJJ-16] - Temporary 16 UTXO limitation
+     * Get maximum transferable amount considering the UTXO input limit
+     * @param {Array} charmUtxos - Array of charm UTXOs
+     * @param {string} appId - App ID to filter by
+     * @returns {Object} { maxAmount, utxoCount, isLimited, totalBalance, maxUtxos }
+     */
+    getMaxTransferableAmount(charmUtxos, appId) {
+        const sortedUtxos = this._getSortedUtxos(charmUtxos, appId);
+        
+        if (sortedUtxos.length === 0) {
+            return { maxAmount: 0, utxoCount: 0, isLimited: false, totalBalance: 0, maxUtxos: MAX_INPUT_UTXOS };
+        }
+
+        const totalBalance = sortedUtxos.reduce((sum, u) => sum + getCharmUtxoAmount(u), 0);
+        const limitedUtxos = sortedUtxos.slice(0, MAX_INPUT_UTXOS);
+        const maxAmount = limitedUtxos.reduce((sum, u) => sum + getCharmUtxoAmount(u), 0);
+
+        return {
+            maxAmount,
+            utxoCount: limitedUtxos.length,
+            isLimited: sortedUtxos.length > MAX_INPUT_UTXOS,
+            totalBalance,
+            maxUtxos: MAX_INPUT_UTXOS
+        };
     }
 }
 
