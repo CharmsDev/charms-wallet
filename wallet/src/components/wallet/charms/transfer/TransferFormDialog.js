@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useCharms } from '@/stores/charmsStore';
+import { charmUtxoSelector } from '@/services/charms/utils/charm-utxo-selector';
 
 /**
  * Step 1: Transfer Form
@@ -17,11 +18,29 @@ export default function TransferFormDialog({ charm, onNext, onClose }) {
     const isNFT = isCharmNFT(charm);
     const isToken = isCharmToken(charm);
 
-    // Get max available amount
-    // totalAmount and displayAmount are already in display units (e.g., 3300.5, not 330050000000)
-    const maxAmount = charm.totalAmount || charm.displayAmount || charm.amount || 0;
     const ticker = charm.ticker || charm.metadata?.ticker || '';
     const decimals = charm.decimals || 8;
+
+    // [RJJ-16] - Temporary 16 UTXO limitation: Calculate max transferable amount
+    const allCharmUtxos = charm.allUtxos || [charm];
+    const maxTransferInfo = useMemo(() => {
+        if (isNFT) {
+            return { maxAmount: 1, isLimited: false, totalBalance: 1, utxoCount: 1, maxUtxos: 16 };
+        }
+        
+        const result = charmUtxoSelector.getMaxTransferableAmount(allCharmUtxos, charm.appId);
+        const divisor = Math.pow(10, decimals);
+        
+        return {
+            maxAmount: result.maxAmount / divisor,
+            totalBalance: result.totalBalance / divisor,
+            isLimited: result.isLimited,
+            utxoCount: result.utxoCount,
+            maxUtxos: result.maxUtxos
+        };
+    }, [allCharmUtxos, charm.appId, isNFT, decimals]);
+
+    const maxAmount = maxTransferInfo.maxAmount;
 
     // Form validation
     const isAddressValid = destinationAddress.trim().length > 0;
@@ -164,8 +183,19 @@ export default function TransferFormDialog({ charm, onNext, onClose }) {
                                         Max
                                     </button>
                                 </div>
+                                {/* [RJJ-16] - Temporary: Show UTXO limitation warning */}
                                 <p className="mt-2 text-xs text-dark-400">
-                                    Available: {maxAmount} {ticker}
+                                    {maxTransferInfo.isLimited ? (
+                                        <>
+                                            Max per transfer: {maxAmount} {ticker} ({maxTransferInfo.maxUtxos} UTXOs)
+                                            <br />
+                                            <span className="text-orange-400">
+                                                Total balance: {maxTransferInfo.totalBalance} {ticker} (requires multiple transfers)
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>Available: {maxAmount} {ticker}</>
+                                    )}
                                 </p>
                             </div>
                         )}
