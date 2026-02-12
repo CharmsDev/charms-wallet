@@ -1,5 +1,6 @@
 import { UTXOMap, UTXO } from '@/types';
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
+import { StorageAdapter } from './storage-adapter';
 
 // Local storage keys
 export const STORAGE_KEYS = {
@@ -55,14 +56,14 @@ export interface TransactionEntry {
 }
 
 // Helper function to get the active blockchain and network
-const getActiveBlockchainAndNetwork = (): { blockchain: string, network: string } => {
-    const blockchain = localStorage.getItem(STORAGE_KEYS.ACTIVE_BLOCKCHAIN) || BLOCKCHAINS.BITCOIN;
+const getActiveBlockchainAndNetwork = async (): Promise<{ blockchain: string, network: string }> => {
+    const blockchain = await StorageAdapter.get(STORAGE_KEYS.ACTIVE_BLOCKCHAIN) || BLOCKCHAINS.BITCOIN;
     let network;
 
     if (blockchain === BLOCKCHAINS.BITCOIN) {
-        network = localStorage.getItem(STORAGE_KEYS.ACTIVE_NETWORK) || NETWORKS.BITCOIN.TESTNET;
+        network = await StorageAdapter.get(STORAGE_KEYS.ACTIVE_NETWORK) || NETWORKS.BITCOIN.TESTNET;
     } else if (blockchain === BLOCKCHAINS.CARDANO) {
-        network = localStorage.getItem(STORAGE_KEYS.ACTIVE_NETWORK) || NETWORKS.CARDANO.TESTNET;
+        network = await StorageAdapter.get(STORAGE_KEYS.ACTIVE_NETWORK) || NETWORKS.CARDANO.TESTNET;
     } else {
         network = NETWORKS.BITCOIN.TESTNET;
     }
@@ -71,9 +72,9 @@ const getActiveBlockchainAndNetwork = (): { blockchain: string, network: string 
 };
 
 // Helper function to get storage key with blockchain and network prefix
-const getStorageKey = (key: string, blockchain?: string, network?: string): string => {
+const getStorageKey = async (key: string, blockchain?: string, network?: string): Promise<string> => {
     if (!blockchain || !network) {
-        const active = getActiveBlockchainAndNetwork();
+        const active = await getActiveBlockchainAndNetwork();
         blockchain = blockchain || active.blockchain;
         network = network || active.network;
     }
@@ -82,44 +83,44 @@ const getStorageKey = (key: string, blockchain?: string, network?: string): stri
 
 // Seed phrase storage - seed phrase is shared across blockchains
 export const saveSeedPhrase = async (seedPhrase: string): Promise<void> => {
-    localStorage.setItem(STORAGE_KEYS.SEED_PHRASE, seedPhrase);
+    await StorageAdapter.set(STORAGE_KEYS.SEED_PHRASE, seedPhrase);
 };
 
 export const getSeedPhrase = async (): Promise<string | null> => {
-    return localStorage.getItem(STORAGE_KEYS.SEED_PHRASE);
+    return await StorageAdapter.get(STORAGE_KEYS.SEED_PHRASE);
 };
 
 export const clearSeedPhrase = async (): Promise<void> => {
-    localStorage.removeItem(STORAGE_KEYS.SEED_PHRASE);
+    await StorageAdapter.remove(STORAGE_KEYS.SEED_PHRASE);
 };
 
 // Wallet info storage
 export const saveWalletInfo = async (walletInfo: any, blockchain?: string, network?: string): Promise<void> => {
-    const storageKey = getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
-    localStorage.setItem(storageKey, JSON.stringify(walletInfo));
+    const storageKey = await getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
+    await StorageAdapter.set(storageKey, JSON.stringify(walletInfo));
 };
 
 export const getWalletInfo = async (blockchain?: string, network?: string): Promise<any | null> => {
-    const storageKey = getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
-    const stored = localStorage.getItem(storageKey);
-    return stored ? JSON.parse(stored) : null;
+    const storageKey = await getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
+    const data = await StorageAdapter.get(storageKey);
+    return data ? JSON.parse(data) : null;
 };
 
 export const clearWalletInfo = async (blockchain?: string, network?: string): Promise<void> => {
-    const storageKey = getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
-    localStorage.removeItem(storageKey);
+    const storageKey = await getStorageKey(STORAGE_KEYS.WALLET_INFO, blockchain, network);
+    await StorageAdapter.remove(storageKey);
 };
 
-// Address storage
+// Wallet addresses storage
 export const saveAddresses = async (addresses: AddressEntry[], blockchain?: string, network?: string): Promise<void> => {
-    const storageKey = getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
-    localStorage.setItem(storageKey, JSON.stringify(addresses));
+    const storageKey = await getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
+    await StorageAdapter.set(storageKey, JSON.stringify(addresses));
 };
 
 export const getAddresses = async (blockchain?: string, network?: string): Promise<AddressEntry[]> => {
-    const storageKey = getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
-    const stored = localStorage.getItem(storageKey);
-    return stored ? JSON.parse(stored) : [];
+    const storageKey = await getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
+    const data = await StorageAdapter.get(storageKey);
+    return data ? JSON.parse(data) : [];
 };
 
 export const addAddress = async (address: AddressEntry, blockchain?: string, network?: string): Promise<AddressEntry[]> => {
@@ -130,36 +131,36 @@ export const addAddress = async (address: AddressEntry, blockchain?: string, net
 };
 
 export const clearAddresses = async (blockchain?: string, network?: string): Promise<void> => {
-    const storageKey = getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
-    localStorage.removeItem(storageKey);
+    const storageKey = await getStorageKey(STORAGE_KEYS.WALLET_ADDRESSES, blockchain, network);
+    await StorageAdapter.remove(storageKey);
 };
 
 // UTXO storage
-export const saveUTXOs = async (utxoMap: UTXOMap, blockchain?: string, network?: string): Promise<void> => {
-    const storageKey = getStorageKey(STORAGE_KEYS.UTXOS, blockchain, network);
-    localStorage.setItem(storageKey, JSON.stringify(utxoMap));
+export const saveUTXOs = async (utxos: UTXOMap, blockchain?: string, network?: string): Promise<void> => {
+    const storageKey = await getStorageKey(STORAGE_KEYS.UTXOS, blockchain, network);
+    await StorageAdapter.set(storageKey, JSON.stringify(utxos));
 };
 
 export const getUTXOs = async (blockchain?: string, network?: string): Promise<UTXOMap> => {
-    const storageKey = getStorageKey(STORAGE_KEYS.UTXOS, blockchain, network);
-    const stored = localStorage.getItem(storageKey);
-    return stored ? JSON.parse(stored) : {};
+    const storageKey = await getStorageKey(STORAGE_KEYS.UTXOS, blockchain, network);
+    const data = await StorageAdapter.get(storageKey);
+    return data ? JSON.parse(data) : {};
 };
 
 export const clearUTXOs = async (blockchain?: string, network?: string): Promise<void> => {
-    const storageKey = getStorageKey(STORAGE_KEYS.UTXOS, blockchain, network);
-    localStorage.removeItem(storageKey);
+    const storageKey = await getStorageKey(STORAGE_KEYS.UTXOS, blockchain, network);
+    await StorageAdapter.remove(storageKey);
 };
 
 // Transaction storage
 export const saveTransactions = async (transactions: TransactionEntry[], blockchain?: string, network?: string): Promise<void> => {
-    const storageKey = getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
-    localStorage.setItem(storageKey, JSON.stringify(transactions));
+    const storageKey = await getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
+    await StorageAdapter.set(storageKey, JSON.stringify(transactions));
 };
 
 export const getTransactions = async (blockchain?: string, network?: string): Promise<TransactionEntry[]> => {
-    const storageKey = getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
-    const stored = localStorage.getItem(storageKey);
+    const storageKey = await getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
+    const stored = await StorageAdapter.get(storageKey);
     return stored ? JSON.parse(stored) : [];
 };
 
@@ -224,8 +225,8 @@ export const updateTransactionStatus = async (txid: string, status: TransactionE
 };
 
 export const clearTransactions = async (blockchain?: string, network?: string): Promise<void> => {
-    const storageKey = getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
-    localStorage.removeItem(storageKey);
+    const storageKey = await getStorageKey(STORAGE_KEYS.TRANSACTIONS, blockchain, network);
+    await StorageAdapter.remove(storageKey);
 };
 
 // Clear all wallet data for a specific blockchain and network
@@ -248,8 +249,8 @@ export const clearAllWalletData = async (): Promise<void> => {
     await clearBlockchainWalletData(BLOCKCHAINS.CARDANO, NETWORKS.CARDANO.MAINNET);
     await clearBlockchainWalletData(BLOCKCHAINS.CARDANO, NETWORKS.CARDANO.TESTNET);
     
-    // Clear all wallet-related keys from localStorage
-    const allKeys = Object.keys(localStorage);
+    // Clear all wallet-related keys from storage
+    const allKeys = await StorageAdapter.getAllKeys();
     const walletKeys = allKeys.filter(key => 
         key.includes('wallet') || 
         key.includes('utxo') || 
@@ -262,7 +263,9 @@ export const clearAllWalletData = async (): Promise<void> => {
         key.includes('charms')
     );
     
-    walletKeys.forEach(key => localStorage.removeItem(key));
+    for (const key of walletKeys) {
+        await StorageAdapter.remove(key);
+    }
 };
 
 // Charms storage functions
@@ -274,7 +277,7 @@ export const saveCharms = async (charms: any[], blockchain: string = BLOCKCHAINS
             timestamp: Date.now(),
             count: charms.length
         };
-        localStorage.setItem(key, JSON.stringify(charmsData));
+        await StorageAdapter.set(key, JSON.stringify(charmsData));
     } catch (error) {
         throw error;
     }
@@ -283,7 +286,7 @@ export const saveCharms = async (charms: any[], blockchain: string = BLOCKCHAINS
 export const getCharms = async (blockchain: string = BLOCKCHAINS.BITCOIN, network: string = NETWORKS.BITCOIN.TESTNET): Promise<any[]> => {
     try {
         const key = `${blockchain}_${network}_${STORAGE_KEYS.CHARMS}`;
-        const stored = localStorage.getItem(key);
+        const stored = await StorageAdapter.get(key);
         
         if (!stored) {
             return [];
@@ -327,7 +330,7 @@ export interface BalanceData {
     timestamp: number;
 }
 
-export const saveBalance = (
+export const saveBalance = async (
     blockchain: string, 
     network: string, 
     data: {
@@ -340,9 +343,9 @@ export const saveBalance = (
         runeCount: number;
         tokens?: TokenBalance[];
     }
-): void => {
+): Promise<void> => {
     try {
-        const stored = localStorage.getItem(STORAGE_KEYS.BALANCE);
+        const stored = await StorageAdapter.get(STORAGE_KEYS.BALANCE);
         const balances = stored ? JSON.parse(stored) : {};
         
         if (!balances[blockchain]) {
@@ -367,14 +370,14 @@ export const saveBalance = (
             timestamp: Date.now()
         };
         
-        localStorage.setItem(STORAGE_KEYS.BALANCE, JSON.stringify(balances));
+        await StorageAdapter.set(STORAGE_KEYS.BALANCE, JSON.stringify(balances));
     } catch (error) {
     }
 };
 
-export const getBalance = (blockchain: string, network: string): BalanceData | null => {
+export const getBalance = async (blockchain: string, network: string): Promise<BalanceData | null> => {
     try {
-        const stored = localStorage.getItem(STORAGE_KEYS.BALANCE);
+        const stored = await StorageAdapter.get(STORAGE_KEYS.BALANCE);
         
         if (!stored) {
             return null;
