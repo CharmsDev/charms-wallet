@@ -48,7 +48,6 @@ export function useExtensionWalletSync() {
                 network: activeNetwork,
                 fullScan: true,
                 skipCharms: false,
-                addressLimit: 12,
                 onUTXOProgress: (progress) => {
                     setSyncProgress({
                         phase: 'utxos',
@@ -101,7 +100,6 @@ export function useExtensionWalletSync() {
                 network: activeNetwork,
                 fullScan: true,
                 skipCharms: false,
-                addressLimit: 12,
                 onUTXOProgress: (progress) => {
                     setSyncProgress({
                         phase: 'utxos',
