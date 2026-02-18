@@ -162,11 +162,12 @@ export class UTXOFetcher {
             const currentUTXOs = await getUTXOs(blockchain, network);
             const utxoMap = {};
             let processedCount = 0;
-            // Use smaller batches when only mempool.space is available (no QuickNode)
-            // to avoid 429 rate limits from mempool.space
+            // Use smaller batches when only mempool.space is available
+            // to avoid 429 rate limits. Explorer Wallet API and QuickNode have no rate limits.
             const { quickNodeService } = await import('@/services/shared/quicknode-service');
-            const hasQuickNode = quickNodeService.isAvailable(network);
-            const batchSize = hasQuickNode ? 4 : 1;
+            const { explorerWalletService } = await import('@/services/shared/explorer-wallet-service');
+            const hasFastProvider = explorerWalletService.isAvailable(network) || quickNodeService.isAvailable(network);
+            const batchSize = hasFastProvider ? 4 : 1;
 
             // Process addresses in parallel batches
             for (let i = 0; i < filteredAddresses.length; i += batchSize) {
@@ -215,7 +216,7 @@ export class UTXOFetcher {
 
                 // Add delay between batches to respect rate limits
                 if (i + batchSize < filteredAddresses.length) {
-                    const delay = hasQuickNode ? 200 : 800;
+                    const delay = hasFastProvider ? 200 : 800;
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
