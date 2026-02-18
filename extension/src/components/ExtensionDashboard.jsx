@@ -45,7 +45,7 @@ export default function ExtensionDashboard() {
   const { charms, getTotalByAppId, groupTokensByAppId, getNFTs, isLoading: charmsLoading } = useCharms();
   const { totalBalance, pendingBalance, isLoading: utxosLoading, loadUTXOs } = useUTXOs();
   const { activeBlockchain, activeNetwork, saveNetwork, getAvailableNetworks } = useNetwork();
-  const { syncFullWallet, isSyncing, syncPhase, syncError } = useExtensionWalletSync();
+  const { syncFullWallet, syncUTXOs, isSyncing, syncPhase, syncError } = useExtensionWalletSync();
   const [activeScreen, setActiveScreen] = useState('home'); // 'home', 'assets', 'activity', 'settings'
   const [copied, setCopied] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -584,7 +584,7 @@ export default function ExtensionDashboard() {
 
       {/* ===== Send Screen Overlay ===== */}
       {showSend && (
-        <SendScreen onClose={() => setShowSend(false)} />
+        <SendScreen onClose={() => setShowSend(false)} syncUTXOs={syncUTXOs} />
       )}
 
       {/* ===== Receive Screen Overlay ===== */}
