@@ -4,6 +4,9 @@ import { getSeedPhrase, getAddresses } from '@/services/storage';
 import { BitcoinKeyDerivation } from './bitcoin-key-derivation';
 import { NETWORKS } from '@/stores/blockchainStore';
 
+// Absolute maximum fee in satoshis — safety net to prevent fund loss
+const MAX_FEE_SATS = 5000;
+
 // Map blockchainStore network id to a minimal scure/btc network object.
 // For Taproot and bech32 address decoding, bech32 HRP is sufficient.
 function mapScureNetwork(networkId) {
@@ -74,7 +77,7 @@ class BitcoinScureSigner {
                 
                 // Get addresses for the correct network
                 const blockchain = 'bitcoin';
-                const network = this.isMainnetNetwork ? 'mainnet' : 'testnet';
+                const network = this.isMainnetNetwork ? 'mainnet' : 'testnet4';
                 const addresses = await getAddresses(blockchain, network);
                 const addressInfo = addresses.find(addr => addr.address === utxo.address);
 
@@ -132,9 +135,22 @@ class BitcoinScureSigner {
             const outputSize = numOutputs * 43;
             
             const estimatedVSize = baseSize + inputSize + outputSize;
-            const estimatedFee = Math.ceil(estimatedVSize * feeRate);
+            let estimatedFee = Math.ceil(estimatedVSize * feeRate);
+
+            // SAFETY: hard cap on fee to prevent fund loss
+            if (estimatedFee > MAX_FEE_SATS) {
+                throw new Error(`Fee ${estimatedFee} sats exceeds maximum allowed (${MAX_FEE_SATS} sats). Aborting to prevent fund loss.`);
+            }
             
             const changeAmount = totalInputValue - amountInSatoshis - estimatedFee;
+
+            // SAFETY: verify change amount integrity
+            if (changeAmount < 0) {
+                throw new Error(`Insufficient funds: inputs (${totalInputValue}) < amount (${amountInSatoshis}) + fee (${estimatedFee}). Aborting.`);
+            }
+            if (totalInputValue !== amountInSatoshis + estimatedFee + changeAmount) {
+                throw new Error(`Balance mismatch: ${totalInputValue} ≠ ${amountInSatoshis} + ${estimatedFee} + ${changeAmount}. Aborting to prevent fund loss.`);
+            }
 
             if (changeAmount > 546) {
                 let changeAddress = transactionData.changeAddress;
@@ -142,7 +158,7 @@ class BitcoinScureSigner {
                 if (!changeAddress) {
                     // Get addresses for the correct network
                     const blockchain = 'bitcoin';
-                    const network = this.isMainnetNetwork ? 'mainnet' : 'testnet';
+                    const network = this.isMainnetNetwork ? 'mainnet' : 'testnet4';
                     const addresses = await getAddresses(blockchain, network);
                     changeAddress = addresses.find(addr => addr.isChange)?.address || addresses[0].address;
                 }
@@ -157,7 +173,7 @@ class BitcoinScureSigner {
 
             // Get addresses for the correct network
             const blockchain = 'bitcoin';
-            const network = this.isMainnetNetwork ? 'mainnet' : 'testnet';
+            const network = this.isMainnetNetwork ? 'mainnet' : 'testnet4';
             const addressesAll = await getAddresses(blockchain, network);
             const keyMap = new Map();
 

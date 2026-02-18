@@ -19,6 +19,7 @@ const formatSats = (n) => {
 };
 
 const QUICK_AMOUNTS = [3000, 10000, 50000, 100000];
+const MAX_FEE_SATS = 5000;
 
 // ─── Component ───────────────────────────────────────────────────────
 export default function SendScreen({ onClose }) {
@@ -154,6 +155,17 @@ export default function SendScreen({ onClose }) {
 
       if (!selectionResult.selectedUtxos || selectionResult.selectedUtxos.length === 0) {
         throw new Error('Insufficient funds for this transaction.');
+      }
+
+      // SAFETY: fee cap check
+      if (selectionResult.estimatedFee > MAX_FEE_SATS) {
+        throw new Error(`Fee ${selectionResult.estimatedFee} sats exceeds maximum allowed (${MAX_FEE_SATS} sats). Aborting.`);
+      }
+
+      // SAFETY: change integrity check
+      const expectedChange = selectionResult.totalSelected - (selectionResult.adjustedAmount || amountInSats) - selectionResult.estimatedFee;
+      if (expectedChange < 0) {
+        throw new Error(`Insufficient funds: inputs (${selectionResult.totalSelected}) < amount + fee. Aborting.`);
       }
 
       // 4. Create & sign transaction
