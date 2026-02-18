@@ -71,7 +71,7 @@ const useUTXOStore = create((set, get) => ({
             }
             
             // Load balance from cache if available (unified structure)
-            const storedBalance = getBalance(blockchain, network);
+            const storedBalance = await getBalance(blockchain, network);
             
             if (storedBalance) {
                 // Use new unified structure
