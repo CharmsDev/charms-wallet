@@ -19,6 +19,7 @@ export function useExtensionWalletSync() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [syncProgress, setSyncProgress] = useState({ phase: null, current: 0, total: 0 });
     const [syncError, setSyncError] = useState(null);
+    const [syncPhase, setSyncPhase] = useState(null); // 'utxos' | 'charms' | null
 
     const { refreshUTXOs } = useUTXOs();
     const addCharm = useCharmsStore(state => state.addCharm);
@@ -32,6 +33,7 @@ export function useExtensionWalletSync() {
 
         setIsSyncing(true);
         setSyncError(null);
+        setSyncPhase('utxos');
         setSyncProgress({ phase: 'utxos', current: 0, total: 0 });
 
         // Clear storage FIRST, then Zustand store — avoids race condition where
@@ -54,6 +56,10 @@ export function useExtensionWalletSync() {
                         total: progress.total || 0
                     });
                 },
+                onPhase1Complete: () => {
+                    // BTC balance is now updated in the store — switch phase indicator
+                    setSyncPhase('charms');
+                },
                 onCharmProgress: (current, total) => {
                     setSyncProgress({ phase: 'charms', current, total });
                 },
@@ -71,6 +77,7 @@ export function useExtensionWalletSync() {
             throw error;
         } finally {
             setIsSyncing(false);
+            setSyncPhase(null);
             setSyncProgress({ phase: null, current: 0, total: 0 });
         }
     }, [isSyncing, activeBlockchain, activeNetwork, refreshUTXOs, addCharm]);
@@ -157,6 +164,7 @@ export function useExtensionWalletSync() {
 
     return {
         isSyncing,
+        syncPhase,
         syncProgress,
         syncError,
         syncFullWallet,
