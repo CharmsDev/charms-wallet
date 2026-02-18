@@ -215,7 +215,7 @@ export class UTXOFetcher {
 
                 // Add delay between batches to respect rate limits
                 if (i + batchSize < filteredAddresses.length) {
-                    const delay = hasQuickNode ? 200 : 500;
+                    const delay = hasQuickNode ? 200 : 800;
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
