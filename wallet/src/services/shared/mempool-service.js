@@ -12,9 +12,9 @@ export class MempoolService {
         this.txHexCache = new Map(); // key: `${network}:${txid}` -> { value, expiry }
         this.txCacheTTL = 60 * 1000; // 60s TTL for tx hex
         this.inflight = new Map(); // key -> Promise
-        this.retryDelays = [500, 1000, 2000]; // backoff for 429/5xx
+        this.retryDelays = [2000, 5000]; // backoff for 429/5xx (2 retries with longer waits)
         this.lastRequestTime = 0; // Track last request time
-        this.minRequestInterval = 200; // Minimum 200ms between requests
+        this.minRequestInterval = 600; // Minimum 600ms between requests to avoid 429
     }
 
     // Create a timeout signal compatible with mobile browsers that may not support AbortSignal.timeout
