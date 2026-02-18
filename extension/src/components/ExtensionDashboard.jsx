@@ -43,7 +43,7 @@ export default function ExtensionDashboard() {
   const { hasWallet } = useWallet();
   const { addresses, loadAddresses, addAddress, loading: addressesLoading } = useAddresses();
   const { charms, getTotalByAppId, groupTokensByAppId, getNFTs, isLoading: charmsLoading } = useCharms();
-  const { totalBalance, pendingBalance, isLoading: utxosLoading } = useUTXOs();
+  const { totalBalance, pendingBalance, isLoading: utxosLoading, loadUTXOs } = useUTXOs();
   const { activeBlockchain, activeNetwork, saveNetwork, getAvailableNetworks } = useNetwork();
   const { syncFullWallet, isSyncing, syncError } = useExtensionWalletSync();
   const [activeScreen, setActiveScreen] = useState('home'); // 'home', 'assets', 'activity', 'settings'
@@ -51,6 +51,7 @@ export default function ExtensionDashboard() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false);
+  const [lastSynced, setLastSynced] = useState(null);
 
   // Send screen state
   const [showSend, setShowSend] = useState(false);
@@ -78,17 +79,19 @@ export default function ExtensionDashboard() {
       saveNetwork(newNetwork);
       await StorageAdapter.set('active_network', newNetwork);
 
-      // 2. Reload addresses for the new network
+      // 2. Reload addresses and UTXOs from cache for the new network
       await loadAddresses(activeBlockchain, newNetwork);
+      await loadUTXOs(activeBlockchain, newNetwork);
 
-      // 3. Sync will pick up new network from context automatically
-      await syncFullWallet();
+      // 3. Load last-synced timestamp for the new network
+      const ts = await StorageAdapter.get(`last_synced_${activeBlockchain}_${newNetwork}`);
+      setLastSynced(ts ? new Date(ts) : null);
     } catch (err) {
       console.warn('[Dashboard] Network switch error:', err.message);
     } finally {
       setIsSwitchingNetwork(false);
     }
-  }, [activeNetwork, activeBlockchain, isSwitchingNetwork, isSyncing, saveNetwork, loadAddresses, syncFullWallet]);
+  }, [activeNetwork, activeBlockchain, isSwitchingNetwork, isSyncing, saveNetwork, loadAddresses, loadUTXOs]);
 
   // Storage key for last receive index (per blockchain+network)
   const receiveIndexKey = useMemo(
@@ -172,14 +175,29 @@ export default function ExtensionDashboard() {
     }
   }, [receiveAddress]);
 
-  // Load addresses and sync wallet when component mounts or network changes
+  // Load cached data from storage on mount (NO auto-sync)
   useEffect(() => {
     if (hasWallet) {
       loadAddresses(activeBlockchain, activeNetwork);
-      // Auto-sync on first load to fetch UTXOs and charms
-      syncFullWallet().catch(err => console.warn('[Dashboard] Auto-sync error:', err.message));
+      loadUTXOs(activeBlockchain, activeNetwork);
+      // Load last-synced timestamp
+      StorageAdapter.get(`last_synced_${activeBlockchain}_${activeNetwork}`).then(ts => {
+        if (ts) setLastSynced(new Date(ts));
+      });
     }
-  }, [hasWallet, activeBlockchain, activeNetwork, loadAddresses]);
+  }, [hasWallet, activeBlockchain, activeNetwork, loadAddresses, loadUTXOs]);
+
+  // Manual sync handler (saves timestamp after completion)
+  const handleManualSync = useCallback(async () => {
+    try {
+      await syncFullWallet();
+      const now = new Date();
+      setLastSynced(now);
+      await StorageAdapter.set(`last_synced_${activeBlockchain}_${activeNetwork}`, now.toISOString());
+    } catch (err) {
+      console.warn('[Dashboard] Manual sync error:', err.message);
+    }
+  }, [syncFullWallet, activeBlockchain, activeNetwork]);
 
   // Reset wallet - clear all data and reload
   const handleResetWallet = async () => {
@@ -246,10 +264,10 @@ export default function ExtensionDashboard() {
             }`}>{networkLabel}</span>
           </div>
           <button
-            onClick={syncFullWallet}
+            onClick={handleManualSync}
             disabled={isSyncing}
             className="p-2 rounded-lg glass-effect hover:bg-dark-700 transition-colors"
-            title="Refresh"
+            title={lastSynced ? `Last synced: ${lastSynced.toLocaleTimeString()}` : 'Sync wallet'}
           >
             <svg
               className={`w-5 h-5 text-dark-300 ${isSyncing ? 'animate-spin' : ''}`}
