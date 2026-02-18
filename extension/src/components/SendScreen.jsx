@@ -252,9 +252,28 @@ export default function SendScreen({ onClose }) {
 
       if (!broadcastResult.success) throw new Error(broadcastResult.error || 'Broadcast failed');
 
-      // 3. Update UTXO state immediately
+      // 3. Update UTXO state immediately — add new outputs as pending UTXOs
       setStatusMessage('Updating wallet...');
-      await updateAfterTransaction(txData.selectedUtxos, {}, 'bitcoin', activeNetwork);
+      const newUtxos = {};
+      if (txData.decodedTx?.vout) {
+        const { getAddresses } = await import('@/services/storage');
+        const walletAddresses = await getAddresses('bitcoin', activeNetwork);
+        const walletAddrSet = new Set(walletAddresses.map(a => a.address));
+
+        txData.decodedTx.vout.forEach((out, vout) => {
+          const addr = out.scriptPubKey?.address;
+          if (addr && walletAddrSet.has(addr)) {
+            if (!newUtxos[addr]) newUtxos[addr] = [];
+            newUtxos[addr].push({
+              txid: broadcastResult.txid,
+              vout,
+              value: Math.round(out.value * 1e8),
+              status: { confirmed: false },
+            });
+          }
+        });
+      }
+      await updateAfterTransaction(txData.selectedUtxos, newUtxos, 'bitcoin', activeNetwork);
 
       setTxId(broadcastResult.txid);
       setStep(STEP.SUCCESS);
