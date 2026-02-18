@@ -6,6 +6,26 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 import { resolve } from 'path';
 import { copyFileSync, mkdirSync, existsSync } from 'fs';
 
+// Override WASM-based modules with extension-specific prover API versions
+function overrideWasmModules() {
+  const overrides = {
+    'charm-transaction-extractor': resolve(__dirname, './src/services/extension-charm-transaction-extractor.js'),
+  };
+  return {
+    name: 'override-wasm-modules',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (!importer) return null;
+      for (const [key, replacement] of Object.entries(overrides)) {
+        if (source.endsWith(key) || source.endsWith(key + '.js') || source.endsWith(key + '.ts')) {
+          return replacement;
+        }
+      }
+      return null;
+    },
+  };
+}
+
 // Copy static files to dist after build
 function copyStaticFiles() {
   return {
@@ -70,11 +90,13 @@ export default defineConfig(({ mode }) => {
   
   // Map VITE_* variables to NEXT_PUBLIC_* for wallet code compatibility
   const envDefines = {
-    'process.env.NEXT_PUBLIC_BITCOIN_NETWORK': JSON.stringify(env.VITE_BITCOIN_NETWORK || 'testnet4'),
-    'process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_TESTNET_URL': JSON.stringify(env.VITE_QUICKNODE_TESTNET_URL || ''),
-    'process.env.NEXT_PUBLIC_QUICKNODE_API_KEY': JSON.stringify(env.VITE_QUICKNODE_TESTNET_API_KEY || ''),
-    'process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_MAINNET_URL': JSON.stringify(env.VITE_QUICKNODE_MAINNET_URL || ''),
-    'process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_MAINNET_API_KEY': JSON.stringify(env.VITE_QUICKNODE_MAINNET_API_KEY || ''),
+    'process.env.NEXT_PUBLIC_BITCOIN_NETWORK': JSON.stringify(env.VITE_BITCOIN_NETWORK || 'mainnet'),
+    // QuickNode disabled for extension: Chrome extension origin not whitelisted → 401.
+    // All Bitcoin API calls go directly to mempool.space via fallback.
+    'process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_TESTNET_URL': JSON.stringify(''),
+    'process.env.NEXT_PUBLIC_QUICKNODE_API_KEY': JSON.stringify(''),
+    'process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_MAINNET_URL': JSON.stringify(''),
+    'process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_MAINNET_API_KEY': JSON.stringify(''),
     'process.env.NEXT_PUBLIC_CHARMS_API_URL': JSON.stringify(env.VITE_CHARMS_API_URL || 'https://api-t4.charms.dev'),
     'process.env.NEXT_PUBLIC_PROVER_TESTNET4_URL': JSON.stringify(env.VITE_PROVER_TESTNET4_URL || 'https://prove-t4.charms.dev'),
     'process.env.NEXT_PUBLIC_PROVER_MAINNET_URL': JSON.stringify(env.VITE_PROVER_MAINNET_URL || ''),
@@ -91,6 +113,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
+      overrideWasmModules(),
       wasm(),
       topLevelAwait(),
       react({

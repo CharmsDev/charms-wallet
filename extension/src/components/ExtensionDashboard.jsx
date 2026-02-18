@@ -1,12 +1,14 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useWallet } from '@/stores/walletStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useCharms } from '@/stores/charmsStore';
 import { useUTXOs } from '@/stores/utxoStore';
-import { useWalletSync } from '@/hooks/useWalletSync';
+import { useNetwork, NETWORKS } from '@/contexts/NetworkContext';
+import { useExtensionWalletSync } from '../hooks/useExtensionWalletSync';
 import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
 import { formatBTC } from '@/utils/formatters';
 import { clearAllWalletData } from '@/services/storage';
+import { StorageAdapter } from '../shared/storage-adapter';
 
 // Icons for bottom navigation
 const HomeIcon = ({ active }) => (
@@ -40,18 +42,50 @@ export default function ExtensionDashboard() {
   const { addresses, loadAddresses, loading: addressesLoading } = useAddresses();
   const { charms, getTotalByAppId, groupTokensByAppId, getNFTs, isLoading: charmsLoading } = useCharms();
   const { totalBalance, pendingBalance, isLoading: utxosLoading } = useUTXOs();
-  const { syncFullWallet, isSyncing, syncError } = useWalletSync();
+  const { activeBlockchain, activeNetwork, saveNetwork, getAvailableNetworks } = useNetwork();
+  const { syncFullWallet, isSyncing, syncError } = useExtensionWalletSync();
   const [activeScreen, setActiveScreen] = useState('home'); // 'home', 'assets', 'activity', 'settings'
   const [copied, setCopied] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false);
 
-  // Load addresses when component mounts or wallet becomes available
+  // Network display label
+  const networkLabel = useMemo(() => {
+    const nets = getAvailableNetworks();
+    const found = nets.find(n => n.id === activeNetwork);
+    return found ? found.name : activeNetwork;
+  }, [activeNetwork, getAvailableNetworks]);
+
+  // Handle network switch
+  const handleNetworkSwitch = useCallback(async (newNetwork) => {
+    if (newNetwork === activeNetwork || isSwitchingNetwork || isSyncing) return;
+    setIsSwitchingNetwork(true);
+    try {
+      // 1. Persist to context (localStorage) and chrome.storage.local
+      saveNetwork(newNetwork);
+      await StorageAdapter.set('active_network', newNetwork);
+
+      // 2. Reload addresses for the new network
+      await loadAddresses(activeBlockchain, newNetwork);
+
+      // 3. Sync will pick up new network from context automatically
+      await syncFullWallet();
+    } catch (err) {
+      console.warn('[Dashboard] Network switch error:', err.message);
+    } finally {
+      setIsSwitchingNetwork(false);
+    }
+  }, [activeNetwork, activeBlockchain, isSwitchingNetwork, isSyncing, saveNetwork, loadAddresses, syncFullWallet]);
+
+  // Load addresses and sync wallet when component mounts or network changes
   useEffect(() => {
     if (hasWallet) {
-      loadAddresses('bitcoin', 'testnet4');
+      loadAddresses(activeBlockchain, activeNetwork);
+      // Auto-sync on first load to fetch UTXOs and charms
+      syncFullWallet().catch(err => console.warn('[Dashboard] Auto-sync error:', err.message));
     }
-  }, [hasWallet, loadAddresses]);
+  }, [hasWallet, activeBlockchain, activeNetwork, loadAddresses]);
 
   // Reset wallet - clear all data and reload
   const handleResetWallet = async () => {
@@ -105,9 +139,17 @@ export default function ExtensionDashboard() {
           <span className="font-semibold gradient-text">Charms Wallet</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-dark-800 border border-dark-600">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-            <span className="text-xs text-dark-400">Testnet4</span>
+          <div className={`flex items-center gap-1 px-2 py-1 rounded-full border ${
+            activeNetwork === 'mainnet'
+              ? 'bg-orange-900/30 border-orange-600/50'
+              : 'bg-dark-800 border-dark-600'
+          }`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${
+              activeNetwork === 'mainnet' ? 'bg-orange-500' : 'bg-green-500'
+            }`} />
+            <span className={`text-xs ${
+              activeNetwork === 'mainnet' ? 'text-orange-400' : 'text-dark-400'
+            }`}>{networkLabel}</span>
           </div>
           <button
             onClick={syncFullWallet}
@@ -165,7 +207,7 @@ export default function ExtensionDashboard() {
                   <span className="text-xs text-dark-400">Bitcoin</span>
                 </div>
                 <div className="text-xl font-bold gradient-text">
-                  {utxosLoading ? '...' : formatBTC(totalBalance)}
+                  {isSyncing ? '--' : formatBTC(totalBalance)}
                 </div>
                 <div className="text-xs text-dark-500">BTC</div>
                 {pendingBalance > 0 && (
@@ -188,7 +230,7 @@ export default function ExtensionDashboard() {
                   <span className="text-xs text-dark-400">Bro Token</span>
                 </div>
                 <div className="text-xl font-bold text-purple-400">
-                  {charmsLoading ? '...' : broBalance.toFixed(2)}
+                  {isSyncing ? '--' : Number(broBalance || 0).toFixed(2)}
                 </div>
                 <div className="text-xs text-dark-500">$BRO</div>
               </div>
@@ -234,7 +276,7 @@ export default function ExtensionDashboard() {
                           </div>
                           <span className="text-sm text-white">{token.ticker || 'Token'}</span>
                         </div>
-                        <span className="text-sm text-dark-300">{token.totalAmount?.toFixed(2) || '0'}</span>
+                        <span className="text-sm text-dark-300">{isSyncing ? '--' : (Number(token.totalAmount || 0).toFixed(2))}</span>
                       </div>
                     ))}
                     {tokens.length + nfts.length > 3 && (
@@ -276,7 +318,7 @@ export default function ExtensionDashboard() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-bold text-white">{token.totalAmount?.toFixed(4) || '0'}</div>
+                      <div className="text-sm font-bold text-white">{Number(token.totalAmount || 0).toFixed(4)}</div>
                     </div>
                   </div>
                 ))}
@@ -326,14 +368,36 @@ export default function ExtensionDashboard() {
                 </div>
                 <span className="text-dark-500">→</span>
               </div>
-              <div className="card p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-dark-700 flex items-center justify-center">
-                    <span className="text-sm">🌐</span>
+              <div className="card p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-dark-700 flex items-center justify-center">
+                      <span className="text-sm">🌐</span>
+                    </div>
+                    <span className="text-sm text-white">Network</span>
                   </div>
-                  <span className="text-sm text-white">Network</span>
+                  {isSwitchingNetwork && (
+                    <div className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                  )}
                 </div>
-                <span className="text-xs text-dark-400">Testnet4</span>
+                <div className="flex gap-2">
+                  {getAvailableNetworks().map((net) => (
+                    <button
+                      key={net.id}
+                      onClick={() => handleNetworkSwitch(net.id)}
+                      disabled={isSwitchingNetwork || isSyncing}
+                      className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                        activeNetwork === net.id
+                          ? net.id === 'mainnet'
+                            ? 'bg-gradient-to-r from-bitcoin-500 to-orange-600 text-white shadow-lg'
+                            : 'bg-gradient-to-r from-primary-500 to-blue-500 text-white shadow-lg'
+                          : 'bg-dark-700 text-dark-400 hover:bg-dark-600 hover:text-dark-300'
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      {net.name}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="card p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">

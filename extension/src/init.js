@@ -14,6 +14,21 @@ export async function initializeExtension() {
     try {
         // Migrate from localStorage if this is first run
         await migrateFromLocalStorage();
+
+        // Sync network preferences from chrome.storage.local → localStorage
+        // so that NetworkContext (which reads localStorage) picks up the persisted values.
+        // The extension popup's localStorage is ephemeral, so we must restore on every open.
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+            const data = await new Promise(resolve =>
+                chrome.storage.local.get(['active_blockchain', 'active_network'], resolve)
+            );
+            if (data.active_blockchain) {
+                localStorage.setItem('active_blockchain', data.active_blockchain);
+            }
+            if (data.active_network) {
+                localStorage.setItem('active_network', data.active_network);
+            }
+        }
         
         initialized = true;
         console.log('Charms Wallet Extension initialized');
