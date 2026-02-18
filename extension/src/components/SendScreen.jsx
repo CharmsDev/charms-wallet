@@ -20,6 +20,7 @@ const formatSats = (n) => {
 
 const QUICK_AMOUNTS = [3000, 10000, 50000, 100000];
 const MAX_FEE_SATS = 5000;
+const MIN_FEE_RATE = 3; // Minimum sat/vB to ensure timely confirmation
 
 // ─── Component ───────────────────────────────────────────────────────
 export default function SendScreen({ onClose }) {
@@ -73,7 +74,7 @@ export default function SendScreen({ onClose }) {
       const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
       const feeEstimates = await bitcoinApiRouter.getFeeEstimates(activeNetwork);
       if (!feeEstimates.success) throw new Error('Failed to fetch fee estimates');
-      const currentFeeRate = feeEstimates.fees.halfHour;
+      const currentFeeRate = Math.max(feeEstimates.fees.halfHour, MIN_FEE_RATE);
       setFeeRate(currentFeeRate);
 
       const { utxoCalculations } = await import('@/services/utxo/utils/calculations');
@@ -110,7 +111,7 @@ export default function SendScreen({ onClose }) {
       const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
       const feeEstimates = await bitcoinApiRouter.getFeeEstimates(activeNetwork);
       if (!feeEstimates.success) throw new Error('Failed to fetch fee estimates');
-      const currentFeeRate = feeEstimates.fees.halfHour;
+      const currentFeeRate = Math.max(feeEstimates.fees.halfHour, MIN_FEE_RATE);
       setFeeRate(currentFeeRate);
 
       // 2. Get spendable UTXOs
