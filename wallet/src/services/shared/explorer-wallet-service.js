@@ -15,6 +15,12 @@ export class ExplorerWalletService {
         this.timeout = 15000; // 15s — scantxoutset can be slow for large addresses
         this.tipCache = { value: null, expiry: 0 };
         this.tipCacheTTL = 30 * 1000; // 30s TTL for chain tip
+
+        // Circuit breaker: disable after consecutive failures
+        this._consecutiveFailures = 0;
+        this._disabledUntil = 0;
+        this._failureThreshold = 2;    // trips after 2 consecutive failures
+        this._cooldownMs = 60 * 1000;  // 60s cooldown before retrying
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
@@ -35,7 +41,24 @@ export class ExplorerWalletService {
 
     isAvailable(_network) {
         const url = this._getBaseUrl();
-        return !!(url && url.trim() !== '');
+        if (!url || url.trim() === '') return false;
+        // Circuit breaker: temporarily disabled after consecutive failures
+        if (this._disabledUntil > Date.now()) {
+            return false;
+        }
+        return true;
+    }
+
+    _onSuccess() {
+        this._consecutiveFailures = 0;
+    }
+
+    _onFailure() {
+        this._consecutiveFailures++;
+        if (this._consecutiveFailures >= this._failureThreshold) {
+            this._disabledUntil = Date.now() + this._cooldownMs;
+            console.warn(`[ExplorerWallet] Circuit breaker tripped after ${this._consecutiveFailures} failures. Disabled for ${this._cooldownMs / 1000}s.`);
+        }
     }
 
     _createTimeoutSignal(ms) {
@@ -55,16 +78,25 @@ export class ExplorerWalletService {
 
         const url = `${baseUrl}${this._withNetwork(path, network)}`;
         const { timeout: customTimeout, network: _n, ...fetchOptions } = options;
-        const response = await fetch(url, {
-            signal: this._createTimeoutSignal(customTimeout || this.timeout),
-            ...fetchOptions,
-        });
+
+        let response;
+        try {
+            response = await fetch(url, {
+                signal: this._createTimeoutSignal(customTimeout || this.timeout),
+                ...fetchOptions,
+            });
+        } catch (fetchError) {
+            this._onFailure();
+            throw fetchError;
+        }
 
         if (!response.ok) {
             const body = await response.text().catch(() => '');
+            this._onFailure();
             throw new Error(`Explorer API ${response.status}: ${body}`);
         }
 
+        this._onSuccess();
         return response.json();
     }
 

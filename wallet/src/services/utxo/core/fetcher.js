@@ -162,18 +162,21 @@ export class UTXOFetcher {
             const currentUTXOs = await getUTXOs(blockchain, network);
             const utxoMap = {};
             let processedCount = 0;
-            // Use smaller batches when only mempool.space is available
-            // to avoid 429 rate limits. Explorer Wallet API and QuickNode have no rate limits.
+            // Import providers once — batch size is checked dynamically each iteration
+            // so the circuit breaker can downgrade mid-sync.
             const { quickNodeService } = await import('@/services/shared/quicknode-service');
             const { explorerWalletService } = await import('@/services/shared/explorer-wallet-service');
-            const hasFastProvider = explorerWalletService.isAvailable(network) || quickNodeService.isAvailable(network);
-            const batchSize = hasFastProvider ? 4 : 1;
 
-            // Process addresses in parallel batches
-            for (let i = 0; i < filteredAddresses.length; i += batchSize) {
+            // Process addresses in dynamic batches
+            let i = 0;
+            while (i < filteredAddresses.length) {
                 if (this.cancelRequested) {
                     break;
                 }
+
+                // Re-check every iteration: circuit breaker may have tripped
+                const hasFastProvider = explorerWalletService.isAvailable(network) || quickNodeService.isAvailable(network);
+                const batchSize = hasFastProvider ? 4 : 1;
 
                 const batch = filteredAddresses.slice(i, i + batchSize);
                 const batchPromises = batch.map(async (address) => {
@@ -214,8 +217,10 @@ export class UTXOFetcher {
                     await saveUTXOs(currentUTXOs, blockchain, network);
                 }, 0);
 
+                i += batchSize;
+
                 // Add delay between batches to respect rate limits
-                if (i + batchSize < filteredAddresses.length) {
+                if (i < filteredAddresses.length) {
                     const delay = hasFastProvider ? 200 : 800;
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
