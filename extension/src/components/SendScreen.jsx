@@ -23,8 +23,8 @@ const MAX_FEE_SATS = 5000;
 const MIN_FEE_RATE = 3; // Minimum sat/vB to ensure timely confirmation
 
 // ─── Component ───────────────────────────────────────────────────────
-export default function SendScreen({ onClose }) {
-  const { utxos, totalBalance, updateAfterTransaction, loadUTXOs, refreshSpecificAddresses } = useUTXOs();
+export default function SendScreen({ onClose, syncUTXOs }) {
+  const { utxos, totalBalance, updateAfterTransaction } = useUTXOs();
   const { activeBlockchain, activeNetwork } = useNetwork();
   const { charms } = useCharms();
 
@@ -278,19 +278,10 @@ export default function SendScreen({ onClose }) {
       setTxId(broadcastResult.txid);
       setStep(STEP.SUCCESS);
 
-      // 4. Background refresh (non-blocking)
-      (async () => {
-        try {
-          // Collect unique addresses involved
-          const involvedAddresses = [
-            ...new Set(txData.selectedUtxos.map(u => u.address).filter(Boolean))
-          ];
-          if (involvedAddresses.length > 0) {
-            await refreshSpecificAddresses(involvedAddresses, activeBlockchain, activeNetwork);
-          }
-          await loadUTXOs(activeBlockchain, activeNetwork);
-        } catch (_) { /* silent */ }
-      })();
+      // 4. Background BTC-only refresh from QuickNode (source of truth)
+      if (syncUTXOs) {
+        syncUTXOs().catch(() => { /* silent */ });
+      }
 
     } catch (err) {
       if (err.message?.includes('bad-txns-inputs-missingorspent') && txData?.selectedUtxos) {
@@ -301,7 +292,7 @@ export default function SendScreen({ onClose }) {
       }
       setStep(STEP.CONFIRM);
     }
-  }, [txData, activeNetwork, activeBlockchain, updateAfterTransaction, refreshSpecificAddresses, loadUTXOs]);
+  }, [txData, activeNetwork, activeBlockchain, updateAfterTransaction, syncUTXOs]);
 
   // ── Cancel (returns to form, except during/after broadcast) ──
   const handleCancel = useCallback(() => {
