@@ -301,7 +301,7 @@ export default function SendScreen({ onClose }) {
   // RENDER
   // ─────────────────────────────────────────────────────────────────────
   return (
-    <div className="absolute inset-0 z-50 flex flex-col bg-dark-950">
+    <div className="absolute inset-0 z-50 flex flex-col bg-dark-950 overflow-hidden">
       {/* Header */}
       <header className="glass-effect flex items-center justify-between px-4 py-3 border-b border-dark-700">
         {step !== STEP.SUCCESS && step !== STEP.BROADCASTING ? (
@@ -379,7 +379,7 @@ export default function SendScreen({ onClose }) {
                 min="546"
               />
               {/* Quick amounts + Max */}
-              <div className="mt-2 flex gap-1 justify-end">
+              <div className="mt-2 flex gap-1 justify-center">
                 {QUICK_AMOUNTS.map((q) => (
                   <button
                     key={q}
@@ -418,18 +418,6 @@ export default function SendScreen({ onClose }) {
               </div>
             )}
 
-            {/* Send Button */}
-            <button
-              onClick={handlePrepare}
-              disabled={!canSubmit}
-              className={`w-full py-3.5 rounded-xl text-sm font-semibold transition-all ${
-                canSubmit
-                  ? 'bg-gradient-to-r from-bitcoin-500 to-orange-600 text-white hover:shadow-lg hover:shadow-bitcoin-500/25'
-                  : 'bg-dark-700 text-dark-500 cursor-not-allowed'
-              }`}
-            >
-              Review Transaction
-            </button>
           </div>
         )}
 
@@ -645,6 +633,23 @@ export default function SendScreen({ onClose }) {
           </div>
         )}
       </div>
+
+      {/* Sticky bottom bar — FORM step only */}
+      {step === STEP.FORM && (
+        <div className="shrink-0 p-4 border-t border-dark-700 bg-dark-950">
+          <button
+            onClick={handlePrepare}
+            disabled={!canSubmit}
+            className={`w-full py-3.5 rounded-xl text-sm font-semibold transition-all ${
+              canSubmit
+                ? 'bg-gradient-to-r from-bitcoin-500 to-orange-600 text-white hover:shadow-lg hover:shadow-bitcoin-500/25'
+                : 'bg-dark-700 text-dark-500 cursor-not-allowed'
+            }`}
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }
