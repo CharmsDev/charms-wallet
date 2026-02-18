@@ -43,9 +43,8 @@ export default function SendScreen({ onClose }) {
 
   // ── Detail toggles ──
   const [showDecodedTx, setShowDecodedTx] = useState(false);
-  const [showUtxoList, setShowUtxoList] = useState(false);
+  const [showTxDetails, setShowTxDetails] = useState(false);
   const [showRawHex, setShowRawHex] = useState(false);
-  const [showOutputs, setShowOutputs] = useState(false);
 
   // ── Copied states ──
   const [copiedHex, setCopiedHex] = useState(false);
@@ -456,39 +455,54 @@ export default function SendScreen({ onClose }) {
               <p className="text-xs font-mono text-white break-all leading-relaxed">{txData.destinationAddress}</p>
             </div>
 
-            {/* ── Collapsible: Outputs ── */}
-            {txData.decodedTx?.vout?.length > 0 && (
-              <>
-                <button
-                  onClick={() => setShowOutputs(!showOutputs)}
-                  className="w-full flex items-center justify-between text-xs text-primary-400 hover:text-primary-300 transition-colors"
-                >
-                  <span>{showOutputs ? 'Hide' : 'Show'} Outputs ({txData.decodedTx.vout.length})</span>
-                  <svg className={`w-4 h-4 transition-transform ${showOutputs ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {showOutputs && (
-                  <div className="card divide-y divide-dark-700">
-                    {txData.decodedTx.vout.map((out, i) => {
-                      const addr = out.scriptPubKey?.address || 'Unknown';
-                      const valueSats = Math.round(out.value * 1e8);
-                      const isDest = addr === txData.destinationAddress;
-                      const label = isDest ? 'Destination' : 'Change';
-                      const labelColor = isDest ? 'text-primary-400' : 'text-green-400';
-                      return (
-                        <div key={i} className="px-3 py-2.5">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className={`text-[10px] font-medium uppercase tracking-wide ${labelColor}`}>{label}</span>
-                            <span className="text-xs font-bold text-white">{formatSats(valueSats)} <span className="text-[10px] font-normal text-dark-400">sats</span></span>
-                          </div>
-                          <p className="text-[10px] font-mono text-dark-300 break-all leading-relaxed">{addr}</p>
-                        </div>
-                      );
-                    })}
+            {/* ── Collapsible: Transaction Details (Inputs + Outputs + Fee) ── */}
+            <button
+              onClick={() => setShowTxDetails(!showTxDetails)}
+              className="w-full flex items-center justify-between text-xs text-primary-400 hover:text-primary-300 transition-colors"
+            >
+              <span>{showTxDetails ? 'Hide' : 'Show'} Transaction Details</span>
+              <svg className={`w-4 h-4 transition-transform ${showTxDetails ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {showTxDetails && (
+              <div className="card divide-y divide-dark-700">
+                {/* ── Inputs ── */}
+                {txData.selectedUtxos?.map((u, i) => (
+                  <div key={`in-${u.txid}:${u.vout}-${i}`} className="px-3 py-2.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-red-400">Input</span>
+                      <span className="text-xs font-bold text-white">{formatSats(u.value)} <span className="text-[10px] font-normal text-dark-400">sats</span></span>
+                    </div>
+                    <p className="text-[10px] font-mono text-dark-300 break-all leading-relaxed">{u.address}</p>
+                    <p className="text-[9px] font-mono text-dark-500 mt-0.5">{u.txid.slice(0, 16)}...:{u.vout}</p>
                   </div>
-                )}
-              </>
+                ))}
+
+                {/* ── Fee (separator row) ── */}
+                <div className="px-3 py-2 flex items-center justify-between bg-dark-800/50">
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-orange-400">Fee</span>
+                  <span className="text-xs font-bold text-orange-400">{formatSats(txData.estimatedFee)} <span className="text-[10px] font-normal text-dark-400">sats</span> <span className="text-[9px] text-dark-500">({txData.feeRate} sat/vB)</span></span>
+                </div>
+
+                {/* ── Outputs ── */}
+                {txData.decodedTx?.vout?.map((out, i) => {
+                  const addr = out.scriptPubKey?.address || 'Unknown';
+                  const valueSats = Math.round(out.value * 1e8);
+                  const isDest = addr === txData.destinationAddress;
+                  const label = isDest ? 'Output · Destination' : 'Output · Change';
+                  const labelColor = isDest ? 'text-primary-400' : 'text-green-400';
+                  return (
+                    <div key={`out-${i}`} className="px-3 py-2.5">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-[10px] font-medium uppercase tracking-wide ${labelColor}`}>{label}</span>
+                        <span className="text-xs font-bold text-white">{formatSats(valueSats)} <span className="text-[10px] font-normal text-dark-400">sats</span></span>
+                      </div>
+                      <p className="text-[10px] font-mono text-dark-300 break-all leading-relaxed">{addr}</p>
+                    </div>
+                  );
+                })}
+              </div>
             )}
 
             {/* ── Collapsible: Raw Hex ── */}
@@ -530,33 +544,6 @@ export default function SendScreen({ onClose }) {
                     <pre className="text-[10px] font-mono text-dark-300 break-all whitespace-pre-wrap max-h-48 overflow-auto leading-relaxed">
                       {JSON.stringify(txData.decodedTx, null, 2)}
                     </pre>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* ── Collapsible: UTXOs used ── */}
-            {txData.selectedUtxos?.length > 0 && (
-              <>
-                <button
-                  onClick={() => setShowUtxoList(!showUtxoList)}
-                  className="w-full flex items-center justify-between text-xs text-primary-400 hover:text-primary-300 transition-colors"
-                >
-                  <span>{showUtxoList ? 'Hide' : 'Show'} UTXOs ({txData.selectedUtxos.length})</span>
-                  <svg className={`w-4 h-4 transition-transform ${showUtxoList ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {showUtxoList && (
-                  <div className="card max-h-40 overflow-auto divide-y divide-dark-700">
-                    {txData.selectedUtxos.map((u, i) => (
-                      <div key={`${u.txid}:${u.vout}-${i}`} className="px-3 py-2 flex items-center justify-between">
-                        <span className="text-[10px] font-mono text-dark-400 truncate mr-2" title={`${u.txid}:${u.vout}`}>
-                          {u.txid.slice(0, 12)}...:{u.vout}
-                        </span>
-                        <span className="text-[10px] text-white whitespace-nowrap">{formatSats(u.value)} sats</span>
-                      </div>
-                    ))}
                   </div>
                 )}
               </>
