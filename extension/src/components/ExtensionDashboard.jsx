@@ -45,7 +45,7 @@ export default function ExtensionDashboard() {
   const { charms, getTotalByAppId, groupTokensByAppId, getNFTs, isLoading: charmsLoading } = useCharms();
   const { totalBalance, pendingBalance, isLoading: utxosLoading, loadUTXOs } = useUTXOs();
   const { activeBlockchain, activeNetwork, saveNetwork, getAvailableNetworks } = useNetwork();
-  const { syncFullWallet, isSyncing, syncError } = useExtensionWalletSync();
+  const { syncFullWallet, isSyncing, syncPhase, syncError } = useExtensionWalletSync();
   const [activeScreen, setActiveScreen] = useState('home'); // 'home', 'assets', 'activity', 'settings'
   const [copied, setCopied] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -263,21 +263,28 @@ export default function ExtensionDashboard() {
               activeNetwork === 'mainnet' ? 'text-orange-400' : 'text-dark-400'
             }`}>{networkLabel}</span>
           </div>
-          <button
-            onClick={handleManualSync}
-            disabled={isSyncing}
-            className="p-2 rounded-lg glass-effect hover:bg-dark-700 transition-colors"
-            title={lastSynced ? `Last synced: ${lastSynced.toLocaleTimeString()}` : 'Sync wallet'}
-          >
-            <svg
-              className={`w-5 h-5 text-dark-300 ${isSyncing ? 'animate-spin' : ''}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+          <div className="flex items-center gap-1.5">
+            {isSyncing && (
+              <span className="text-[10px] text-dark-400 whitespace-nowrap">
+                {syncPhase === 'utxos' ? 'BTC...' : syncPhase === 'charms' ? '$BRO...' : ''}
+              </span>
+            )}
+            <button
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className="p-2 rounded-lg glass-effect hover:bg-dark-700 transition-colors"
+              title={lastSynced ? `Last synced: ${lastSynced.toLocaleTimeString()}` : 'Sync wallet'}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-          </button>
+              <svg
+                className={`w-5 h-5 text-dark-300 ${isSyncing ? 'animate-spin' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -319,7 +326,7 @@ export default function ExtensionDashboard() {
                   <span className="text-xs text-dark-400">Bitcoin</span>
                 </div>
                 <div className="text-xl font-bold gradient-text">
-                  {isSyncing ? '--' : formatBTC(totalBalance)}
+                  {isSyncing && syncPhase === 'utxos' ? '--' : formatBTC(totalBalance)}
                 </div>
                 <div className="text-xs text-dark-500">BTC</div>
                 {pendingBalance > 0 && (
@@ -344,6 +351,9 @@ export default function ExtensionDashboard() {
                 <div className="text-xl font-bold text-purple-400">
                   {isSyncing ? '--' : Number(broBalance || 0).toFixed(2)}
                 </div>
+                {isSyncing && syncPhase === 'charms' && (
+                  <div className="text-[10px] text-purple-400/60 mt-0.5">updating...</div>
+                )}
                 <div className="text-xs text-dark-500">$BRO</div>
               </div>
             </div>

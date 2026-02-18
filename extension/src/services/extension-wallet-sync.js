@@ -28,7 +28,8 @@ export async function syncWalletExtension(options = {}) {
         onCharmProgress = null,
         onCharmFound = null,
         updateUTXOStore = null,
-        addressLimit = null
+        addressLimit = null,
+        onPhase1Complete = null
     } = options;
 
     const result = {
@@ -55,6 +56,25 @@ export async function syncWalletExtension(options = {}) {
         });
 
         result.utxosUpdated = utxoResult.utxosUpdated;
+
+        // ── Intermediate balance update (BTC ready) ──
+        const interimCharms = await getCharms(blockchain, network) || [];
+        const interimBalance = utxoService.calculateBalances(updatedUTXOs, interimCharms);
+
+        // Update UTXO store immediately so BTC balance shows
+        const { useUTXOStore } = await import('@/stores/utxoStore');
+        useUTXOStore.setState({
+            totalBalance: interimBalance.spendable,
+            pendingBalance: interimBalance.pending
+        });
+
+        if (onPhase1Complete) {
+            onPhase1Complete({
+                spendable: interimBalance.spendable,
+                pending: interimBalance.pending,
+                utxosUpdated: utxoResult.utxosUpdated
+            });
+        }
 
         // ============================================
         // PHASE 2: UPDATE CHARMS via external API
@@ -105,8 +125,7 @@ export async function syncWalletExtension(options = {}) {
             tokens: tokenBalances
         });
 
-        // Update UTXO store in memory
-        const { useUTXOStore } = await import('@/stores/utxoStore');
+        // Update UTXO store in memory (final, with charm-aware balances)
         useUTXOStore.setState({
             totalBalance: balanceData.spendable,
             pendingBalance: balanceData.pending
