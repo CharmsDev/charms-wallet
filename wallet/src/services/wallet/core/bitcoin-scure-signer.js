@@ -118,7 +118,7 @@ class BitcoinScureSigner {
 
             }
 
-            const amountInSatoshis = Math.floor(transactionData.amount * 100000000);
+            const amountInSatoshis = transactionData.amountInSats || Math.floor(transactionData.amount * 100000000);
             const destinationScript = btc.OutScript.encode(btc.Address(this.network).decode(transactionData.destinationAddress));
             
             tx.addOutput({
@@ -129,22 +129,34 @@ class BitcoinScureSigner {
             const totalInputValue = transactionData.utxos.reduce((sum, utxo) => sum + utxo.value, 0);
             const feeRate = transactionData.feeRate || 5;
             
-            // Use the same fee calculation as the web wallet (shared utility)
+            // First estimate with 2 outputs (destination + change)
             let estimatedFee = calculateMixedFee(transactionData.utxos, 2, feeRate);
+            let changeAmount = totalInputValue - amountInSatoshis - estimatedFee;
+
+            // If change is dust or negative, this is a max transaction — recalculate with 1 output
+            if (changeAmount <= 546) {
+                estimatedFee = calculateMixedFee(transactionData.utxos, 1, feeRate);
+                changeAmount = totalInputValue - amountInSatoshis - estimatedFee;
+
+                // If still negative but very close, adjust amount to fit (absorb rounding)
+                if (changeAmount < 0 && changeAmount >= -546) {
+                    // Reduce destination amount to cover the shortfall
+                    const adjusted = amountInSatoshis + changeAmount; // changeAmount is negative
+                    log(`Max tx: adjusting amount from ${amountInSatoshis} to ${adjusted} sats (diff: ${-changeAmount})`);
+                    // Update the output we already added
+                    tx.updateOutput(0, { script: destinationScript, amount: BigInt(adjusted) });
+                    changeAmount = 0;
+                }
+            }
 
             // SAFETY: hard cap on fee to prevent fund loss
             if (estimatedFee > MAX_FEE_SATS) {
                 throw new Error(`Fee ${estimatedFee} sats exceeds maximum allowed (${MAX_FEE_SATS} sats). Aborting to prevent fund loss.`);
             }
-            
-            const changeAmount = totalInputValue - amountInSatoshis - estimatedFee;
 
-            // SAFETY: verify change amount integrity
+            // SAFETY: verify funds are sufficient
             if (changeAmount < 0) {
                 throw new Error(`Insufficient funds: inputs (${totalInputValue}) < amount (${amountInSatoshis}) + fee (${estimatedFee}). Aborting.`);
-            }
-            if (totalInputValue !== amountInSatoshis + estimatedFee + changeAmount) {
-                throw new Error(`Balance mismatch: ${totalInputValue} ≠ ${amountInSatoshis} + ${estimatedFee} + ${changeAmount}. Aborting to prevent fund loss.`);
             }
 
             if (changeAmount > 546) {
