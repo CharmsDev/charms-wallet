@@ -191,10 +191,10 @@ export default function SendScreen({ onClose }) {
       } catch (_) { /* non-critical */ }
 
       const precalculated = {
-        selectedUtxos: selectionResult.selectedUtxos,
-        totalSelected: selectionResult.totalSelected,
-        estimatedFee: selectionResult.estimatedFee,
-        change: selectionResult.change,
+        selectedUtxos: result.selectedUtxos,
+        totalSelected: result.totalSelected,
+        estimatedFee: result.estimatedFee,
+        change: result.change,
         adjustedAmount: selectionResult.adjustedAmount || amountInSats,
         feeRate: currentFeeRate,
         destinationAddress,

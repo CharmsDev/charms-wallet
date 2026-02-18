@@ -89,8 +89,9 @@ export class BitcoinTransactionOrchestrator {
             txid: signingResult.txid,
             selectedUtxos: selectionResult.selectedUtxos,
             totalSelected: selectionResult.totalSelected,
-            estimatedFee: selectionResult.estimatedFee,
-            change: selectionResult.change,
+            estimatedFee: signingResult.estimatedFee ?? selectionResult.estimatedFee,
+            change: signingResult.changeAmount ?? selectionResult.change,
+            changeAddress: signingResult.changeAddress || null,
             transactionMetadata: transactionData
         };
     }
