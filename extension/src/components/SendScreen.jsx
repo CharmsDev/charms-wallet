@@ -303,22 +303,8 @@ export default function SendScreen({ onClose }) {
   return (
     <div className="absolute inset-0 z-50 flex flex-col bg-dark-950 overflow-hidden">
       {/* Header */}
-      <header className="glass-effect flex items-center justify-between px-4 py-3 border-b border-dark-700">
-        {step !== STEP.SUCCESS && step !== STEP.BROADCASTING ? (
-          <button
-            onClick={step === STEP.CONFIRM ? handleCancel : onClose}
-            className="flex items-center gap-1 text-dark-300 hover:text-white transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            <span className="text-sm">{step === STEP.CONFIRM ? 'Back' : 'Cancel'}</span>
-          </button>
-        ) : (
-          <div className="w-16" />
-        )}
+      <header className="glass-effect flex items-center justify-center px-4 py-3 border-b border-dark-700">
         <span className="font-semibold gradient-text">Send</span>
-        <div className="w-16" />
       </header>
 
       {/* Content */}
@@ -426,12 +412,6 @@ export default function SendScreen({ onClose }) {
           <div className="flex flex-col items-center justify-center py-16">
             <div className="w-12 h-12 border-3 border-primary-500 border-t-transparent rounded-full animate-spin mb-4" />
             <p className="text-sm text-dark-300 text-center">{statusMessage}</p>
-            <button
-              onClick={handleCancel}
-              className="mt-6 text-xs text-dark-500 hover:text-dark-300 transition-colors"
-            >
-              Cancel
-            </button>
           </div>
         )}
 
@@ -540,22 +520,6 @@ export default function SendScreen({ onClose }) {
                 <p className="text-red-400 text-xs">{error}</p>
               </div>
             )}
-
-            {/* Action buttons */}
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={handleCancel}
-                className="flex-1 py-3 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-dark-300 hover:bg-dark-700 hover:text-white transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleBroadcast}
-                className="flex-1 py-3 rounded-xl text-sm font-semibold bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:shadow-lg hover:shadow-green-500/25 transition-all"
-              >
-                Confirm & Send
-              </button>
-            </div>
           </div>
         )}
 
@@ -608,46 +572,69 @@ export default function SendScreen({ onClose }) {
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="w-full space-y-2">
-              {mempoolTxUrl && (
-                <a
-                  href={mempoolTxUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-primary-400 hover:bg-dark-700 transition-all flex items-center justify-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                  View on Mempool
-                </a>
-              )}
-              <button
-                onClick={handleClose}
-                className="w-full py-3 rounded-xl text-sm font-semibold bg-gradient-to-r from-primary-500 to-blue-500 text-white hover:shadow-lg transition-all"
+            {/* Mempool link */}
+            {mempoolTxUrl && (
+              <a
+                href={mempoolTxUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-primary-400 hover:bg-dark-700 transition-all flex items-center justify-center gap-2"
               >
-                Done
-              </button>
-            </div>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+                View on Mempool
+              </a>
+            )}
           </div>
         )}
       </div>
 
-      {/* Sticky bottom bar — FORM step only */}
-      {step === STEP.FORM && (
-        <div className="shrink-0 p-4 border-t border-dark-700 bg-dark-950">
-          <button
-            onClick={handlePrepare}
-            disabled={!canSubmit}
-            className={`w-full py-3.5 rounded-xl text-sm font-semibold transition-all ${
-              canSubmit
-                ? 'bg-gradient-to-r from-bitcoin-500 to-orange-600 text-white hover:shadow-lg hover:shadow-bitcoin-500/25'
-                : 'bg-dark-700 text-dark-500 cursor-not-allowed'
-            }`}
-          >
-            Next
-          </button>
+      {/* ═══════ Sticky bottom bar ═══════ */}
+      {step !== STEP.BROADCASTING && (
+        <div className="shrink-0 px-4 py-3 border-t border-dark-700 bg-dark-950">
+          <div className="flex gap-3">
+            {/* Cancel / Back — not shown on SUCCESS */}
+            {step !== STEP.SUCCESS && (
+              <button
+                onClick={step === STEP.FORM ? onClose : handleCancel}
+                className="flex-1 py-3 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-dark-300 hover:bg-dark-700 hover:text-white transition-all"
+              >
+                {step === STEP.CONFIRM ? 'Back' : 'Cancel'}
+              </button>
+            )}
+
+            {/* Primary action */}
+            {step === STEP.FORM && (
+              <button
+                onClick={handlePrepare}
+                disabled={!canSubmit}
+                className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all ${
+                  canSubmit
+                    ? 'bg-gradient-to-r from-bitcoin-500 to-orange-600 text-white hover:shadow-lg hover:shadow-bitcoin-500/25'
+                    : 'bg-dark-700 text-dark-500 cursor-not-allowed'
+                }`}
+              >
+                Next
+              </button>
+            )}
+            {step === STEP.CONFIRM && (
+              <button
+                onClick={handleBroadcast}
+                className="flex-1 py-3 rounded-xl text-sm font-semibold bg-gradient-to-r from-bitcoin-500 to-orange-600 text-white hover:shadow-lg hover:shadow-bitcoin-500/25 transition-all"
+              >
+                Confirm & Send
+              </button>
+            )}
+            {step === STEP.SUCCESS && (
+              <button
+                onClick={handleClose}
+                className="flex-1 py-3 rounded-xl text-sm font-semibold bg-gradient-to-r from-bitcoin-500 to-orange-600 text-white hover:shadow-lg hover:shadow-bitcoin-500/25 transition-all"
+              >
+                Done
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
