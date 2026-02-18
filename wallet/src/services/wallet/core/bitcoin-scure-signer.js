@@ -3,6 +3,7 @@ import { hex } from '@scure/base';
 import { getSeedPhrase, getAddresses } from '@/services/storage';
 import { BitcoinKeyDerivation } from './bitcoin-key-derivation';
 import { NETWORKS } from '@/stores/blockchainStore';
+import { calculateMixedFee } from '@/services/wallet/utils/fee';
 
 // Absolute maximum fee in satoshis — safety net to prevent fund loss
 const MAX_FEE_SATS = 5000;
@@ -128,14 +129,8 @@ class BitcoinScureSigner {
             const totalInputValue = transactionData.utxos.reduce((sum, utxo) => sum + utxo.value, 0);
             const feeRate = transactionData.feeRate || 5;
             
-            const numInputs = transactionData.utxos.length;
-            const numOutputs = 2;
-            const baseSize = 10;
-            const inputSize = numInputs * 58;
-            const outputSize = numOutputs * 43;
-            
-            const estimatedVSize = baseSize + inputSize + outputSize;
-            let estimatedFee = Math.ceil(estimatedVSize * feeRate);
+            // Use the same fee calculation as the web wallet (shared utility)
+            let estimatedFee = calculateMixedFee(transactionData.utxos, 2, feeRate);
 
             // SAFETY: hard cap on fee to prevent fund loss
             if (estimatedFee > MAX_FEE_SATS) {
@@ -232,7 +227,10 @@ class BitcoinScureSigner {
                 success: true,
                 txid: txId,
                 signedTxHex: txHex,
-                size: finalTxBytes.length
+                size: finalTxBytes.length,
+                estimatedFee,
+                changeAmount: changeAmount > 546 ? changeAmount : 0,
+                changeAddress: changeAmount > 546 ? (transactionData.changeAddress || null) : null
             };
 
         } catch (error) {
