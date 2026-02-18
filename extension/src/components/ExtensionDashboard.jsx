@@ -641,7 +641,7 @@ export default function ExtensionDashboard() {
             <button
               onClick={generateNextReceiveAddress}
               disabled={isGeneratingAddress}
-              className="w-full py-3 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-dark-300 hover:bg-dark-700 hover:text-white hover:border-dark-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-5"
+              className="w-full py-3 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-dark-300 hover:bg-dark-700 hover:text-white hover:border-dark-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-6"
             >
               {isGeneratingAddress ? (
                 <span className="flex items-center justify-center gap-2">
@@ -664,14 +664,9 @@ export default function ExtensionDashboard() {
                 <svg className="w-4 h-4 text-dark-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <div className="text-xs text-dark-400 leading-relaxed">
-                  <p className="mb-1">
-                    <span className="text-dark-300 font-medium">Taproot (P2TR)</span> is the most advanced Bitcoin address type, enabling lower fees and enhanced privacy.
-                  </p>
-                  <p>
-                    Each new address is derived from your seed phrase. Generating a new one does not invalidate previous addresses — all remain active.
-                  </p>
-                </div>
+                <p className="text-xs text-dark-400 leading-relaxed">
+                  New addresses are derived from your seed phrase. Previous addresses remain active.
+                </p>
               </div>
             </div>
           </div>
