@@ -162,7 +162,11 @@ export class UTXOFetcher {
             const currentUTXOs = await getUTXOs(blockchain, network);
             const utxoMap = {};
             let processedCount = 0;
-            const batchSize = 4; // Process 4 addresses in parallel (even numbers)
+            // Use smaller batches when only mempool.space is available (no QuickNode)
+            // to avoid 429 rate limits from mempool.space
+            const { quickNodeService } = await import('@/services/shared/quicknode-service');
+            const hasQuickNode = quickNodeService.isAvailable(network);
+            const batchSize = hasQuickNode ? 4 : 1;
 
             // Process addresses in parallel batches
             for (let i = 0; i < filteredAddresses.length; i += batchSize) {
@@ -209,9 +213,10 @@ export class UTXOFetcher {
                     await saveUTXOs(currentUTXOs, blockchain, network);
                 }, 0);
 
-                // Add 1 second delay between batches (for all providers)
+                // Add delay between batches to respect rate limits
                 if (i + batchSize < filteredAddresses.length) {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    const delay = hasQuickNode ? 200 : 500;
+                    await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
 
