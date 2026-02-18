@@ -350,7 +350,7 @@ export default function SendScreen({ onClose }) {
             </div>
 
             {/* Available Balance */}
-            <div className="card p-3 flex items-center justify-between">
+            <div className="flex items-center justify-between px-1">
               <span className="text-xs text-dark-400">Available Balance</span>
               <span className="text-sm font-bold gradient-text">{formatBTC(totalBalance)} BTC</span>
             </div>
@@ -379,12 +379,12 @@ export default function SendScreen({ onClose }) {
                 min="546"
               />
               {/* Quick amounts + Max */}
-              <div className="mt-2 flex gap-2 flex-wrap">
+              <div className="mt-2 flex gap-1 justify-end">
                 {QUICK_AMOUNTS.map((q) => (
                   <button
                     key={q}
                     onClick={() => setAmount(q.toString())}
-                    className="px-3 py-1.5 bg-dark-800 border border-dark-600 rounded-lg text-xs text-dark-300 hover:bg-dark-700 hover:text-white transition-colors"
+                    className="px-2.5 py-1.5 bg-dark-800 border border-dark-600 text-xs text-dark-300 hover:bg-dark-700 hover:text-white transition-colors"
                   >
                     {q.toLocaleString()}
                   </button>
@@ -392,7 +392,7 @@ export default function SendScreen({ onClose }) {
                 <button
                   onClick={handleMaxAmount}
                   disabled={isCalculatingMax}
-                  className="px-3 py-1.5 bg-bitcoin-600 hover:bg-bitcoin-500 border border-bitcoin-500 rounded-lg text-xs text-white font-medium transition-colors disabled:opacity-50 min-w-[48px] flex items-center justify-center"
+                  className="px-2.5 py-1.5 bg-bitcoin-600 hover:bg-bitcoin-500 border border-bitcoin-500 text-xs text-white font-medium transition-colors disabled:opacity-50 min-w-[42px] flex items-center justify-center"
                 >
                   {isCalculatingMax ? (
                     <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
