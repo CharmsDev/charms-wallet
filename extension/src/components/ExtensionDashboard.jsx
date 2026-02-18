@@ -10,6 +10,7 @@ import { formatBTC } from '@/utils/formatters';
 import { clearAllWalletData, getSeedPhrase } from '@/services/storage';
 import { generateTaprootAddress } from '@/utils/addressUtils';
 import { StorageAdapter } from '../shared/storage-adapter';
+import SendScreen from './SendScreen';
 
 // Icons for bottom navigation
 const HomeIcon = ({ active }) => (
@@ -50,6 +51,9 @@ export default function ExtensionDashboard() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false);
+
+  // Send screen state
+  const [showSend, setShowSend] = useState(false);
 
   // Receive screen state
   const [showReceive, setShowReceive] = useState(false);
@@ -328,7 +332,10 @@ export default function ExtensionDashboard() {
 
             {/* Action Buttons */}
             <div className="flex gap-3">
-              <button className="btn btn-bitcoin flex-1 py-3">
+              <button
+                onClick={() => setShowSend(true)}
+                className="btn btn-bitcoin flex-1 py-3"
+              >
                 <span className="mr-1">↗</span> Send
               </button>
               <button
@@ -546,6 +553,11 @@ export default function ExtensionDashboard() {
           </div>
         )}
       </div>
+
+      {/* ===== Send Screen Overlay ===== */}
+      {showSend && (
+        <SendScreen onClose={() => setShowSend(false)} />
+      )}
 
       {/* ===== Receive Screen Overlay ===== */}
       {showReceive && (
