@@ -19,20 +19,22 @@ export class ExplorerWalletService {
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
-    _getBaseUrl(network) {
-        const target = (network || '').toString().toLowerCase();
-        // Check network-specific URLs first, then fall back to generic
-        if (target === 'mainnet') {
-            return config.explorerWallet?.mainnetUrl || config.explorerWallet?.apiUrl || null;
-        }
-        if (target === 'testnet4') {
-            return config.explorerWallet?.testnet4Url || config.explorerWallet?.apiUrl || null;
-        }
+    _getBaseUrl() {
         return config.explorerWallet?.apiUrl || null;
     }
 
-    isAvailable(network) {
-        const url = this._getBaseUrl(network);
+    /**
+     * Append ?network=<network> (or &network=<network>) to a path.
+     * Every request MUST include this so the server knows which chain to query.
+     */
+    _withNetwork(path, network) {
+        const net = (network || 'mainnet').toString().toLowerCase();
+        const sep = path.includes('?') ? '&' : '?';
+        return `${path}${sep}network=${net}`;
+    }
+
+    isAvailable(_network) {
+        const url = this._getBaseUrl();
         return !!(url && url.trim() !== '');
     }
 
@@ -48,10 +50,10 @@ export class ExplorerWalletService {
     }
 
     async _makeRequest(path, options = {}, network = null) {
-        const baseUrl = this._getBaseUrl(network);
+        const baseUrl = this._getBaseUrl();
         if (!baseUrl) throw new Error('Explorer Wallet API not configured');
 
-        const url = `${baseUrl}${path}`;
+        const url = `${baseUrl}${this._withNetwork(path, network)}`;
         const { timeout: customTimeout, network: _n, ...fetchOptions } = options;
         const response = await fetch(url, {
             signal: this._createTimeoutSignal(customTimeout || this.timeout),
