@@ -44,6 +44,7 @@ export default function SendScreen({ onClose }) {
   const [showDecodedTx, setShowDecodedTx] = useState(false);
   const [showUtxoList, setShowUtxoList] = useState(false);
   const [showRawHex, setShowRawHex] = useState(false);
+  const [showOutputs, setShowOutputs] = useState(false);
 
   // ── Copied states ──
   const [copiedHex, setCopiedHex] = useState(false);
@@ -442,6 +443,41 @@ export default function SendScreen({ onClose }) {
               <div className="text-[10px] text-dark-500 uppercase tracking-wide mb-1">To</div>
               <p className="text-xs font-mono text-white break-all leading-relaxed">{txData.destinationAddress}</p>
             </div>
+
+            {/* ── Collapsible: Outputs ── */}
+            {txData.decodedTx?.vout?.length > 0 && (
+              <>
+                <button
+                  onClick={() => setShowOutputs(!showOutputs)}
+                  className="w-full flex items-center justify-between text-xs text-primary-400 hover:text-primary-300 transition-colors"
+                >
+                  <span>{showOutputs ? 'Hide' : 'Show'} Outputs ({txData.decodedTx.vout.length})</span>
+                  <svg className={`w-4 h-4 transition-transform ${showOutputs ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {showOutputs && (
+                  <div className="card divide-y divide-dark-700">
+                    {txData.decodedTx.vout.map((out, i) => {
+                      const addr = out.scriptPubKey?.address || 'Unknown';
+                      const valueSats = Math.round(out.value * 1e8);
+                      const isDest = addr === txData.destinationAddress;
+                      const label = isDest ? 'Destination' : 'Change';
+                      const labelColor = isDest ? 'text-primary-400' : 'text-green-400';
+                      return (
+                        <div key={i} className="px-3 py-2.5">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`text-[10px] font-medium uppercase tracking-wide ${labelColor}`}>{label}</span>
+                            <span className="text-xs font-bold text-white">{formatSats(valueSats)} <span className="text-[10px] font-normal text-dark-400">sats</span></span>
+                          </div>
+                          <p className="text-[10px] font-mono text-dark-300 break-all leading-relaxed">{addr}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
 
             {/* ── Collapsible: Raw Hex ── */}
             <button
