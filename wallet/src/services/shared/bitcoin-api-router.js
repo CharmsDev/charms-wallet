@@ -3,6 +3,7 @@
 import config from '@/config';
 import { quickNodeService } from './quicknode-service';
 import { mempoolService } from './mempool-service';
+import { explorerWalletService } from './explorer-wallet-service';
 import { NETWORKS } from '@/stores/blockchainStore';
 import {
     normalizeMempoolUTXOs,
@@ -12,7 +13,7 @@ import {
 } from './data-normalizers';
 
 /**
- * Bitcoin API Router - QuickNode first, mempool.space fallback
+ * Bitcoin API Router - Explorer Wallet API first, QuickNode second, mempool.space fallback
  */
 export class BitcoinApiRouter {
     constructor() {
@@ -31,15 +32,15 @@ export class BitcoinApiRouter {
     }
 
     /**
-     * Check if any API is available (QuickNode or mempool.space)
+     * Check if any API is available (Explorer Wallet, QuickNode, or mempool.space)
      */
     isAvailable(network) {
         const currentNetwork = this._getCurrentNetwork(network);
-        return quickNodeService.isAvailable(currentNetwork) || mempoolService.isAvailable(currentNetwork);
+        return explorerWalletService.isAvailable(currentNetwork) || quickNodeService.isAvailable(currentNetwork) || mempoolService.isAvailable(currentNetwork);
     }
 
     /**
-     * Try QuickNode first, fallback to mempool.space with normalization
+     * Try Explorer Wallet API first, then QuickNode, then mempool.space
      */
     async _tryWithFallback(operation, ...args) {
         // Extract network from last arg if present
@@ -49,10 +50,18 @@ export class BitcoinApiRouter {
         // Ensure downstream calls receive the resolved network
         const opArgs = [...args.slice(0, -1), network].filter((v) => v !== undefined);
 
-        // Check QuickNode availability
+        // Try Explorer Wallet API first (no rate limits, direct node RPC)
+        if (explorerWalletService.isAvailable(network) && typeof explorerWalletService[operation] === 'function') {
+            try {
+                const result = await explorerWalletService[operation](...opArgs);
+                return result;
+            } catch (error) {
+                console.warn(`[ApiRouter] Explorer Wallet failed for ${operation}:`, error.message);
+            }
+        }
+
+        // Try QuickNode if available
         const isQuickNodeAvailable = quickNodeService.isAvailable(network);
-        
-        // Try QuickNode first if available
         if (isQuickNodeAvailable) {
             try {
                 const result = await quickNodeService[operation](...opArgs);
@@ -265,8 +274,18 @@ export class BitcoinApiRouter {
      */
     async getFeeEstimates(network = null) {
         const targetNetwork = this._getCurrentNetwork(network);
+
+        // Try Explorer Wallet API first (no rate limits)
+        if (explorerWalletService.isAvailable(targetNetwork)) {
+            try {
+                const fees = await explorerWalletService.getFeeEstimates(targetNetwork);
+                return { success: true, source: 'explorer-wallet', fees };
+            } catch (error) {
+                console.warn('[ApiRouter] Explorer Wallet fee estimate failed:', error.message);
+            }
+        }
         
-        // Try QuickNode first if available
+        // Try QuickNode if available
         if (quickNodeService.isAvailable(targetNetwork)) {
             try {
                 const result = await quickNodeService.makeRequest('estimatesmartfee', [6], targetNetwork);
