@@ -7,7 +7,8 @@ import { useNetwork, NETWORKS } from '@/contexts/NetworkContext';
 import { useExtensionWalletSync } from '../hooks/useExtensionWalletSync';
 import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
 import { formatBTC } from '@/utils/formatters';
-import { clearAllWalletData } from '@/services/storage';
+import { clearAllWalletData, getSeedPhrase } from '@/services/storage';
+import { generateTaprootAddress } from '@/utils/addressUtils';
 import { StorageAdapter } from '../shared/storage-adapter';
 
 // Icons for bottom navigation
@@ -39,7 +40,7 @@ const SettingsIcon = ({ active }) => (
 // Extension Dashboard with bottom navigation
 export default function ExtensionDashboard() {
   const { hasWallet } = useWallet();
-  const { addresses, loadAddresses, loading: addressesLoading } = useAddresses();
+  const { addresses, loadAddresses, addAddress, loading: addressesLoading } = useAddresses();
   const { charms, getTotalByAppId, groupTokensByAppId, getNFTs, isLoading: charmsLoading } = useCharms();
   const { totalBalance, pendingBalance, isLoading: utxosLoading } = useUTXOs();
   const { activeBlockchain, activeNetwork, saveNetwork, getAvailableNetworks } = useNetwork();
@@ -49,6 +50,13 @@ export default function ExtensionDashboard() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false);
+
+  // Receive screen state
+  const [showReceive, setShowReceive] = useState(false);
+  const [receiveAddress, setReceiveAddress] = useState('');
+  const [receiveIndex, setReceiveIndex] = useState(0);
+  const [isGeneratingAddress, setIsGeneratingAddress] = useState(false);
+  const [receiveCopied, setReceiveCopied] = useState(false);
 
   // Network display label
   const networkLabel = useMemo(() => {
@@ -77,6 +85,88 @@ export default function ExtensionDashboard() {
       setIsSwitchingNetwork(false);
     }
   }, [activeNetwork, activeBlockchain, isSwitchingNetwork, isSyncing, saveNetwork, loadAddresses, syncFullWallet]);
+
+  // Storage key for last receive index (per blockchain+network)
+  const receiveIndexKey = useMemo(
+    () => `last_receive_index_${activeBlockchain}_${activeNetwork}`,
+    [activeBlockchain, activeNetwork]
+  );
+
+  // Open Receive screen: load last persisted index and its address
+  const openReceive = useCallback(async () => {
+    setShowReceive(true);
+    setReceiveCopied(false);
+    setIsGeneratingAddress(true);
+    try {
+      const seedPhrase = await getSeedPhrase();
+      if (!seedPhrase) throw new Error('No seed phrase');
+
+      // Load persisted index (default 0)
+      const stored = await StorageAdapter.get(receiveIndexKey);
+      const idx = stored != null ? Number(stored) : 0;
+      setReceiveIndex(idx);
+
+      const addr = await generateTaprootAddress(seedPhrase, idx, false);
+      setReceiveAddress(addr);
+
+      // Make sure this address exists in the addresses store
+      const existing = addresses.find(a => a.address === addr);
+      if (!existing && addAddress) {
+        await addAddress(
+          { address: addr, index: idx, isChange: false, created: new Date().toISOString(), blockchain: activeBlockchain },
+          activeBlockchain,
+          activeNetwork
+        );
+      }
+    } catch (err) {
+      console.error('[Receive] Error loading receive address:', err);
+    } finally {
+      setIsGeneratingAddress(false);
+    }
+  }, [receiveIndexKey, addresses, addAddress, activeBlockchain, activeNetwork]);
+
+  // Generate next receive address
+  const generateNextReceiveAddress = useCallback(async () => {
+    if (isGeneratingAddress) return;
+    setIsGeneratingAddress(true);
+    setReceiveCopied(false);
+    try {
+      const seedPhrase = await getSeedPhrase();
+      if (!seedPhrase) throw new Error('No seed phrase');
+
+      const nextIdx = receiveIndex + 1;
+      const addr = await generateTaprootAddress(seedPhrase, nextIdx, false);
+
+      // Persist the new index
+      await StorageAdapter.set(receiveIndexKey, nextIdx);
+      setReceiveIndex(nextIdx);
+      setReceiveAddress(addr);
+
+      // Ensure the new address is saved in the addresses store
+      const existingAddresses = addresses || [];
+      const alreadyExists = existingAddresses.find(a => a.address === addr);
+      if (!alreadyExists && addAddress) {
+        await addAddress(
+          { address: addr, index: nextIdx, isChange: false, created: new Date().toISOString(), blockchain: activeBlockchain },
+          activeBlockchain,
+          activeNetwork
+        );
+      }
+    } catch (err) {
+      console.error('[Receive] Error generating next address:', err);
+    } finally {
+      setIsGeneratingAddress(false);
+    }
+  }, [isGeneratingAddress, receiveIndex, receiveIndexKey, addresses, addAddress, activeBlockchain, activeNetwork]);
+
+  // Copy receive address
+  const copyReceiveAddress = useCallback(() => {
+    if (receiveAddress) {
+      navigator.clipboard.writeText(receiveAddress);
+      setReceiveCopied(true);
+      setTimeout(() => setReceiveCopied(false), 2500);
+    }
+  }, [receiveAddress]);
 
   // Load addresses and sync wallet when component mounts or network changes
   useEffect(() => {
@@ -241,7 +331,10 @@ export default function ExtensionDashboard() {
               <button className="btn btn-bitcoin flex-1 py-3">
                 <span className="mr-1">↗</span> Send
               </button>
-              <button className="btn btn-secondary flex-1 py-3">
+              <button
+                onClick={openReceive}
+                className="btn btn-secondary flex-1 py-3"
+              >
                 <span className="mr-1">↙</span> Receive
               </button>
             </div>
@@ -453,6 +546,137 @@ export default function ExtensionDashboard() {
           </div>
         )}
       </div>
+
+      {/* ===== Receive Screen Overlay ===== */}
+      {showReceive && (
+        <div className="absolute inset-0 z-50 flex flex-col bg-dark-950">
+          {/* Receive Header */}
+          <header className="glass-effect flex items-center justify-between px-4 py-3 border-b border-dark-700">
+            <button
+              onClick={() => setShowReceive(false)}
+              className="flex items-center gap-1 text-dark-300 hover:text-white transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              <span className="text-sm">Back</span>
+            </button>
+            <span className="font-semibold gradient-text">Receive</span>
+            <div className="w-16" />{/* spacer for centering */}
+          </header>
+
+          {/* Receive Content */}
+          <div className="flex-1 overflow-auto p-4 flex flex-col items-center">
+            {/* Icon */}
+            <div className="w-16 h-16 rounded-full bg-gradient-to-r from-primary-500 to-blue-500 flex items-center justify-center mb-4 mt-2">
+              <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+              </svg>
+            </div>
+
+            <h2 className="text-lg font-bold text-white mb-1">Your Receive Address</h2>
+            <p className="text-xs text-dark-400 text-center mb-5 px-4 leading-relaxed">
+              Send <span className="text-bitcoin-500 font-medium">Bitcoin</span>,{' '}
+              <span className="text-purple-400 font-medium">Charms</span>,{' '}
+              <span className="text-purple-400 font-medium">$BRO tokens</span>{' '}
+              or any other asset to this address.
+            </p>
+
+            {/* Address Card */}
+            <div className="w-full card p-4 mb-4">
+              {/* Address type badge */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-primary-500" />
+                  <span className="text-xs font-medium text-primary-400">Taproot (P2TR)</span>
+                </div>
+                <span className="text-xs text-dark-500">BIP-86 #{receiveIndex}</span>
+              </div>
+
+              {/* Full address display */}
+              {isGeneratingAddress ? (
+                <div className="flex items-center justify-center py-4">
+                  <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : (
+                <div
+                  onClick={copyReceiveAddress}
+                  className="cursor-pointer group"
+                >
+                  <p className="text-sm font-mono text-white break-all leading-relaxed group-hover:text-primary-300 transition-colors">
+                    {receiveAddress}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Copy Button */}
+            <button
+              onClick={copyReceiveAddress}
+              disabled={isGeneratingAddress || !receiveAddress}
+              className={`w-full py-3 rounded-xl text-sm font-semibold transition-all mb-3 ${
+                receiveCopied
+                  ? 'bg-green-600/20 border border-green-500/50 text-green-400'
+                  : 'bg-gradient-to-r from-primary-500 to-blue-500 text-white hover:shadow-lg hover:shadow-primary-500/25'
+              } disabled:opacity-50`}
+            >
+              {receiveCopied ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Copied to clipboard!
+                </span>
+              ) : (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                  </svg>
+                  Copy Address
+                </span>
+              )}
+            </button>
+
+            {/* Generate New Address Button */}
+            <button
+              onClick={generateNextReceiveAddress}
+              disabled={isGeneratingAddress}
+              className="w-full py-3 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-dark-300 hover:bg-dark-700 hover:text-white hover:border-dark-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-5"
+            >
+              {isGeneratingAddress ? (
+                <span className="flex items-center justify-center gap-2">
+                  <div className="w-4 h-4 border-2 border-dark-400 border-t-transparent rounded-full animate-spin" />
+                  Generating...
+                </span>
+              ) : (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Generate New Address
+                </span>
+              )}
+            </button>
+
+            {/* Info section */}
+            <div className="w-full card p-3 bg-dark-800/50">
+              <div className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-dark-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="text-xs text-dark-400 leading-relaxed">
+                  <p className="mb-1">
+                    <span className="text-dark-300 font-medium">Taproot (P2TR)</span> is the most advanced Bitcoin address type, enabling lower fees and enhanced privacy.
+                  </p>
+                  <p>
+                    Each new address is derived from your seed phrase. Generating a new one does not invalidate previous addresses — all remain active.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bottom Navigation */}
       <nav className="glass-effect border-t border-dark-700 px-2 py-1 safe-area-bottom">
