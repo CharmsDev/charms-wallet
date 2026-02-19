@@ -162,24 +162,49 @@ export class UTXOFetcher {
             const currentUTXOs = await getUTXOs(blockchain, network);
             const utxoMap = {};
             let processedCount = 0;
+            const _ts = () => new Date().toISOString().slice(11, 23);
+            const syncT0 = performance.now();
             // Import providers once — batch size is checked dynamically each iteration
             // so the circuit breaker can downgrade mid-sync.
             const { quickNodeService } = await import('@/services/shared/quicknode-service');
             const { explorerWalletService } = await import('@/services/shared/explorer-wallet-service');
 
-            // Process addresses in dynamic batches
+            const provExplorer = explorerWalletService.isAvailable(network);
+            const provQuickNode = quickNodeService.isAvailable(network);
+            console.log(`[${_ts()}] [UTXOSync] ▶ Starting sync: ${totalAddressCount} addresses, network=${network}`);
+            console.log(`[${_ts()}] [UTXOSync]   Providers: Explorer=${provExplorer}, QuickNode=${provQuickNode}, Fallback=mempool.space`);
+
+            // Process addresses in dynamic batches with gap limit
+            const GAP_LIMIT = 20; // Stop after 20 consecutive addresses with 0 UTXOs
+            let consecutiveEmpty = 0;
             let i = 0;
             while (i < filteredAddresses.length) {
                 if (this.cancelRequested) {
                     break;
                 }
 
+                // Gap limit: stop scanning if too many consecutive empty addresses
+                if (consecutiveEmpty >= GAP_LIMIT) {
+                    console.log(`[${_ts()}] [UTXOSync] Gap limit reached (${GAP_LIMIT} consecutive empty). Stopping scan at address ${i}/${filteredAddresses.length}.`);
+                    break;
+                }
+
                 // Re-check every iteration: circuit breaker may have tripped
-                const hasFastProvider = explorerWalletService.isAvailable(network) || quickNodeService.isAvailable(network);
+                const hasExplorer = explorerWalletService.isAvailable(network);
+                const hasQuickNode = quickNodeService.isAvailable(network);
+                const hasFastProvider = hasExplorer || hasQuickNode;
+                // Explorer & QuickNode: no rate limits → parallel batches
+                // mempool.space only: rate limited → sequential
                 const batchSize = hasFastProvider ? 4 : 1;
 
+                const batchNum = Math.floor(i / batchSize) + 1;
+                const totalBatches = Math.ceil(filteredAddresses.length / batchSize);
                 const batch = filteredAddresses.slice(i, i + batchSize);
+                console.log(`[${_ts()}] [UTXOSync] Batch ${batchNum}/${totalBatches} (size=${batch.length}): ${batch.map(a => a.slice(-8)).join(', ')}`);
+                const batchT0 = performance.now();
+
                 const batchPromises = batch.map(async (address) => {
+                    const addrT0 = performance.now();
                     try {
                         const utxos = await this.getAddressUTXOs(address, blockchain, network);
                         
@@ -193,14 +218,29 @@ export class UTXOFetcher {
                                 return true;
                             });
                         }
-                        
+                        const addrMs = (performance.now() - addrT0).toFixed(0);
+                        console.log(`[${_ts()}] [UTXOSync]   ✓ ...${address.slice(-8)}: ${validUtxos.length} UTXOs (${addrMs}ms)`);
                         return { address, utxos: validUtxos, success: true };
                     } catch (error) {
+                        const addrMs = (performance.now() - addrT0).toFixed(0);
+                        console.warn(`[${_ts()}] [UTXOSync]   ✗ ...${address.slice(-8)}: ${error.message} (${addrMs}ms)`);
                         return { address, utxos: [], success: false, error: error.message };
                     }
                 });
 
                 const batchResults = await Promise.all(batchPromises);
+                const batchMs = (performance.now() - batchT0).toFixed(0);
+                const batchUtxos = batchResults.reduce((s, r) => s + (r.utxos?.length || 0), 0);
+                console.log(`[${_ts()}] [UTXOSync] Batch ${batchNum} done: ${batchUtxos} UTXOs (${batchMs}ms)`);
+
+                // Update gap limit counter
+                for (const r of batchResults) {
+                    if (r.utxos && r.utxos.length > 0) {
+                        consecutiveEmpty = 0; // reset on any address with UTXOs
+                    } else {
+                        consecutiveEmpty++;
+                    }
+                }
 
                 // Process batch results using non-blocking method
                 processedCount = await this.processUTXOBatch(
@@ -221,7 +261,7 @@ export class UTXOFetcher {
 
                 // Add delay between batches to respect rate limits
                 if (i < filteredAddresses.length) {
-                    const delay = hasFastProvider ? 200 : 800;
+                    const delay = (hasExplorer || hasQuickNode) ? 200 : 800;
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
@@ -244,6 +284,9 @@ export class UTXOFetcher {
                 }, 100); // Small delay to ensure UTXO processing completes first
             }
 
+            const syncMs = ((performance.now() - syncT0) / 1000).toFixed(1);
+            const totalUtxos = Object.values(utxoMap).reduce((s, list) => s + list.length, 0);
+            console.log(`[${_ts()}] [UTXOSync] ■ Sync complete: ${totalUtxos} UTXOs across ${Object.keys(utxoMap).length} addresses in ${syncMs}s`);
             return utxoMap;
         } catch (error) {
             console.error('UTXO fetching failed:', error.message);
