@@ -23,6 +23,29 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 /**
+ * Wait for user response to sign request
+ */
+async function waitForSignResponse(requestId, timeout = 120000) {
+  const startTime = Date.now();
+  
+  while (Date.now() - startTime < timeout) {
+    const data = await chrome.storage.local.get(['signResponse']);
+    
+    if (data.signResponse && data.signResponse.requestId === requestId) {
+      const response = data.signResponse;
+      await chrome.storage.local.remove('signResponse');
+      return response;
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+  
+  // Timeout - cleanup
+  await chrome.storage.local.remove(['pendingSignRequest', 'signResponse']);
+  return null;
+}
+
+/**
  * Wait for user response to connection request
  */
 async function waitForConnectionResponse(requestId, timeout = 60000) {
@@ -49,16 +72,35 @@ async function waitForConnectionResponse(requestId, timeout = 60000) {
 async function getWalletData() {
   return new Promise((resolve) => {
     chrome.storage.local.get([
-      'bitcoin_testnet4_wallet_addresses',
-      'bitcoin_mainnet_wallet_addresses',
-      'bitcoin_testnet4_utxos',
-      'bitcoin_mainnet_utxos',
+      // Keys match storage-wrapper.js format: wallet_addresses_bitcoin_{network}
+      'wallet_addresses_bitcoin_testnet4',
+      'wallet_addresses_bitcoin_mainnet',
+      'wallet_utxos_bitcoin_testnet4',
+      'wallet_utxos_bitcoin_mainnet',
       'active_network',
       'seedPhrase'
     ], (data) => {
       resolve(data);
     });
   });
+}
+
+/**
+ * Safely parse addresses from storage — handles both JSON strings and already-parsed arrays
+ */
+function parseAddresses(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error('[parseAddresses] Failed to parse string:', e);
+      return [];
+    }
+  }
+  return [];
 }
 
 /**
@@ -105,19 +147,50 @@ async function handleWalletProviderRequest(request, sender) {
   try {
     switch (method) {
       case 'requestAccounts': {
-        // ALWAYS show approval popup (for demo purposes)
-        // Clear any existing connection to force popup
-        await chrome.storage.local.get([CONNECTED_SITES_KEY], async (data) => {
-          const sites = data[CONNECTED_SITES_KEY] || {};
-          delete sites[origin];
-          await chrome.storage.local.set({ [CONNECTED_SITES_KEY]: sites });
+        console.log('[requestAccounts] Starting connection flow for', origin);
+        
+        // Clear any existing connection to force approval popup
+        const existingSites = await new Promise(resolve => {
+          chrome.storage.local.get([CONNECTED_SITES_KEY], (data) => {
+            resolve(data[CONNECTED_SITES_KEY] || {});
+          });
+        });
+        delete existingSites[origin];
+        await new Promise(resolve => {
+          chrome.storage.local.set({ [CONNECTED_SITES_KEY]: existingSites }, resolve);
         });
         
-        // Check wallet exists
+        // Check wallet exists — try active network first, then fallback to other network
         const walletData = await getWalletData();
-        const network = walletData.active_network || 'testnet4';
-        const addressKey = `bitcoin_${network}_wallet_addresses`;
-        const addresses = walletData[addressKey] ? JSON.parse(walletData[addressKey]) : [];
+        let network = walletData.active_network || 'testnet4';
+        let addressKey = `wallet_addresses_bitcoin_${network}`;
+        
+        let addresses = parseAddresses(walletData[addressKey]);
+        
+        // If no addresses on active network, try the other network
+        if (addresses.length === 0) {
+          const fallbackNetwork = network === 'mainnet' ? 'testnet4' : 'mainnet';
+          const fallbackKey = `wallet_addresses_bitcoin_${fallbackNetwork}`;
+          addresses = parseAddresses(walletData[fallbackKey]);
+          if (addresses.length > 0) {
+            network = fallbackNetwork;
+            addressKey = fallbackKey;
+          }
+        }
+
+        // Last resort: scan all storage keys for address data
+        if (addresses.length === 0) {
+          const allStorage = await new Promise(resolve => {
+            chrome.storage.local.get(null, (data) => resolve(data));
+          });
+          for (const k of Object.keys(allStorage)) {
+            const parsed = parseAddresses(allStorage[k]);
+            if (parsed.length > 0 && parsed[0]?.address) {
+              addresses = parsed;
+              break;
+            }
+          }
+        }
         
         if (addresses.length === 0) {
           return { error: 'No wallet found. Please create or import a wallet first.' };
@@ -125,9 +198,12 @@ async function handleWalletProviderRequest(request, sender) {
         
         // Open approval popup
         const requestId = Date.now().toString();
-        await chrome.storage.local.set({
-          pendingConnectionRequest: { id: requestId, origin: origin }
+        await new Promise(resolve => {
+          chrome.storage.local.set({
+            pendingConnectionRequest: { id: requestId, origin: origin }
+          }, resolve);
         });
+        console.log('[requestAccounts] Pending request stored, opening popup. requestId:', requestId);
         
         // Open popup window for approval
         await chrome.windows.create({
@@ -137,22 +213,24 @@ async function handleWalletProviderRequest(request, sender) {
           height: 500,
           focused: true
         });
+        console.log('[requestAccounts] Popup opened, waiting for user response...');
         
         // Wait for user response (poll storage)
         const response = await waitForConnectionResponse(requestId, 60000);
+        console.log('[requestAccounts] Got response:', response);
         
         if (!response || !response.approved) {
+          console.log('[requestAccounts] User rejected or timeout');
           return { error: 'User rejected the connection request' };
         }
         
-        // Get the primary address
-        const primaryAddress = addresses[0]?.address || addresses[0];
-        const accountAddresses = [primaryAddress];
+        // Return ALL wallet addresses so dApps can scan balances across all of them
+        const accountAddresses = addresses.map(a => a?.address || a);
         
         // Save as connected site
         await saveConnectedSite(origin, accountAddresses);
         
-        console.log('Site connected:', origin, 'addresses:', accountAddresses);
+        console.log('[requestAccounts] Site connected:', origin, 'addresses:', accountAddresses);
         return { result: accountAddresses };
       }
 
@@ -168,8 +246,8 @@ async function handleWalletProviderRequest(request, sender) {
         
         const walletData = await getWalletData();
         const network = walletData.active_network || 'testnet4';
-        const addressKey = `bitcoin_${network}_wallet_addresses`;
-        const addresses = walletData[addressKey] ? JSON.parse(walletData[addressKey]) : [];
+        const addressKey = `wallet_addresses_bitcoin_${network}`;
+        const addresses = parseAddresses(walletData[addressKey]);
         
         if (addresses.length === 0 || !addresses[0]?.publicKey) {
           return { error: 'No public key available' };
@@ -186,7 +264,7 @@ async function handleWalletProviderRequest(request, sender) {
         
         const walletData = await getWalletData();
         const network = walletData.active_network || 'testnet4';
-        const utxoKey = `bitcoin_${network}_utxos`;
+        const utxoKey = `wallet_utxos_bitcoin_${network}`;
         const utxos = walletData[utxoKey] || [];
         
         // Calculate balance from UTXOs
@@ -234,13 +312,100 @@ async function handleWalletProviderRequest(request, sender) {
       }
 
       case 'signPsbt': {
-        // TODO: Implement PSBT signing with popup approval
-        return { error: 'PSBT signing not yet implemented' };
+        const isConnected = await isSiteConnected(origin);
+        if (!isConnected) {
+          return { error: 'Site not connected. Call requestAccounts first.' };
+        }
+
+        const { psbtHex, options } = params;
+        if (!psbtHex) {
+          return { error: 'Missing psbtHex parameter' };
+        }
+
+        console.log('[signPsbt] Opening approval popup for', origin);
+
+        // Store the sign request
+        const signRequestId = Date.now().toString();
+        await new Promise(resolve => {
+          chrome.storage.local.set({
+            pendingSignRequest: {
+              id: signRequestId,
+              origin,
+              psbtHex,
+              options: options || {},
+            }
+          }, resolve);
+        });
+
+        // Open the signing approval popup (Vite-built with crypto libs)
+        await chrome.windows.create({
+          url: chrome.runtime.getURL('approve-sign.html'),
+          type: 'popup',
+          width: 420,
+          height: 600,
+          focused: true
+        });
+
+        // Wait for user to approve and sign (up to 2 minutes)
+        const signResult = await waitForSignResponse(signRequestId, 120000);
+
+        if (!signResult || !signResult.approved) {
+          const errorMsg = signResult?.error || 'User rejected the signing request';
+          console.log('[signPsbt] Rejected:', errorMsg);
+          return { error: errorMsg };
+        }
+
+        console.log('[signPsbt] Signed successfully');
+        return { result: signResult.signedPsbtHex };
       }
 
       case 'signPsbts': {
-        // TODO: Implement multiple PSBT signing
-        return { error: 'Multiple PSBT signing not yet implemented' };
+        const isConnected = await isSiteConnected(origin);
+        if (!isConnected) {
+          return { error: 'Site not connected. Call requestAccounts first.' };
+        }
+
+        const { psbtHexs, options: psbtsOptions } = params;
+        if (!psbtHexs || !Array.isArray(psbtHexs)) {
+          return { error: 'Missing psbtHexs array parameter' };
+        }
+
+        // Sign each PSBT sequentially with approval
+        const signedResults = [];
+        for (let i = 0; i < psbtHexs.length; i++) {
+          const signRequestId = Date.now().toString();
+          const opts = Array.isArray(psbtsOptions) ? psbtsOptions[i] : psbtsOptions;
+
+          await new Promise(resolve => {
+            chrome.storage.local.set({
+              pendingSignRequest: {
+                id: signRequestId,
+                origin,
+                psbtHex: psbtHexs[i],
+                options: opts || {},
+                batchInfo: { current: i + 1, total: psbtHexs.length },
+              }
+            }, resolve);
+          });
+
+          await chrome.windows.create({
+            url: chrome.runtime.getURL('approve-sign.html'),
+            type: 'popup',
+            width: 420,
+            height: 600,
+            focused: true
+          });
+
+          const signResult = await waitForSignResponse(signRequestId, 120000);
+
+          if (!signResult || !signResult.approved) {
+            return { error: signResult?.error || `User rejected signing PSBT ${i + 1}/${psbtHexs.length}` };
+          }
+
+          signedResults.push(signResult.signedPsbtHex);
+        }
+
+        return { result: signedResults };
       }
 
       case 'pushTx': {
@@ -268,15 +433,16 @@ async function handleGetAccounts(origin) {
   
   const walletData = await getWalletData();
   const network = walletData.active_network || 'testnet4';
-  const addressKey = `bitcoin_${network}_wallet_addresses`;
-  const addresses = walletData[addressKey] ? JSON.parse(walletData[addressKey]) : [];
+  const addressKey = `wallet_addresses_bitcoin_${network}`;
+  const addresses = parseAddresses(walletData[addressKey]);
   
   if (addresses.length === 0) {
     return { result: [] };
   }
   
-  const primaryAddress = addresses[0]?.address || addresses[0];
-  return { result: [primaryAddress] };
+  // Return ALL addresses so dApps can scan balances across all of them
+  const accountAddresses = addresses.map(a => a?.address || a);
+  return { result: accountAddresses };
 }
 
 // Message handler for popup communication

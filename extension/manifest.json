@@ -26,6 +26,7 @@
     "https://*.quicknode.pro/*",
     "https://mempool.space/*",
     "https://charms-explorer-api.fly.dev/*",
+    "http://localhost:8000/*",
     "https://charms.sh/*",
     "https://api.coingecko.com/*"
   ],
