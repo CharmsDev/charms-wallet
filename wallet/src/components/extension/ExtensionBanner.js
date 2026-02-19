@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Chrome, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, Chrome, CheckCircle, AlertCircle, Download } from 'lucide-react';
 
 export default function ExtensionBanner() {
   const [isExtensionInstalled, setIsExtensionInstalled] = useState(false);
@@ -11,11 +11,9 @@ export default function ExtensionBanner() {
   const [extensionVersion, setExtensionVersion] = useState(null);
 
   useEffect(() => {
-    // Only show banner if URL has ?showBanner=true parameter
+    // Only show banner if URL has ?ext=true parameter
     const urlParams = new URLSearchParams(window.location.search);
-    const forceShowBanner = urlParams.get('showBanner') === 'true';
-    
-    if (!forceShowBanner) return;
+    if (urlParams.get('ext') !== 'true') return;
 
     // Check if banner was dismissed
     const dismissed = localStorage.getItem('extension_banner_dismissed');
@@ -123,12 +121,12 @@ export default function ExtensionBanner() {
               <p className="font-semibold">
                 {isExtensionInstalled 
                   ? 'Chrome Extension detected!' 
-                  : 'Charms Wallet available as extension!'}
+                  : 'Charms Wallet Extension (dev)'}
               </p>
               <p className="text-sm text-white/90">
                 {isExtensionInstalled
                   ? 'Export your wallet to the extension with one click'
-                  : 'Install the extension for faster access'}
+                  : 'Download and install as unpacked extension in Chrome'}
               </p>
             </div>
           </div>
@@ -160,12 +158,12 @@ export default function ExtensionBanner() {
                   </button>
                 ) : (
                   <a
-                    href="https://chromewebstore.google.com/detail/charms-wallet/YOUR_EXTENSION_ID"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-secondary bg-white text-primary-600 hover:bg-gray-100 px-4 py-2 text-sm font-medium rounded-lg transition-colors inline-block"
+                    href="/extension/charms-wallet-extension.zip"
+                    download="charms-wallet-extension.zip"
+                    className="btn btn-secondary bg-white text-primary-600 hover:bg-gray-100 px-4 py-2 text-sm font-medium rounded-lg transition-colors inline-flex items-center gap-2"
                   >
-                    Install
+                    <Download className="w-4 h-4" />
+                    Download Extension
                   </a>
                 )}
               </>
