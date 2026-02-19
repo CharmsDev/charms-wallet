@@ -73,6 +73,9 @@ function copyStaticFiles() {
         resolve(distDir, 'approve.js')
       );
       
+      // approve-sign.html is built by Vite as a second entry point
+      // (no manual copy needed — Vite outputs it to dist automatically)
+      
       // Copy icons
       ['icon16.png', 'icon48.png', 'icon128.png'].forEach(icon => {
         const src = resolve(__dirname, 'icons', icon);
@@ -146,6 +149,7 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         input: {
           popup: resolve(__dirname, 'popup.html'),
+          'approve-sign': resolve(__dirname, 'approve-sign.html'),
         },
         output: {
           entryFileNames: 'assets/[name].js',
