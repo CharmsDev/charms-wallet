@@ -12,7 +12,7 @@ import config from '@/config';
  */
 export class ExplorerWalletService {
     constructor() {
-        this.timeout = 15000; // 15s — scantxoutset can be slow for large addresses
+        this.timeout = 30000; // 30s — with parallel requests, server queues them; last in batch may wait
         this.tipCache = { value: null, expiry: 0 };
         this.tipCacheTTL = 30 * 1000; // 30s TTL for chain tip
 
@@ -72,12 +72,19 @@ export class ExplorerWalletService {
         return controller.signal;
     }
 
+    _ts() {
+        return new Date().toISOString().slice(11, 23);
+    }
+
     async _makeRequest(path, options = {}, network = null) {
         const baseUrl = this._getBaseUrl();
         if (!baseUrl) throw new Error('Explorer Wallet API not configured');
 
-        const url = `${baseUrl}${this._withNetwork(path, network)}`;
+        const fullPath = this._withNetwork(path, network);
+        const url = `${baseUrl}${fullPath}`;
         const { timeout: customTimeout, network: _n, ...fetchOptions } = options;
+        const t0 = performance.now();
+        console.log(`[${this._ts()}] [ExplorerAPI] → ${fetchOptions.method || 'GET'} ${fullPath}`);
 
         let response;
         try {
@@ -86,16 +93,21 @@ export class ExplorerWalletService {
                 ...fetchOptions,
             });
         } catch (fetchError) {
+            const ms = (performance.now() - t0).toFixed(0);
+            console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${fullPath} — ${fetchError.message} (${ms}ms)`);
             this._onFailure();
             throw fetchError;
         }
 
+        const ms = (performance.now() - t0).toFixed(0);
         if (!response.ok) {
             const body = await response.text().catch(() => '');
+            console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${fullPath} — ${response.status} (${ms}ms)`);
             this._onFailure();
             throw new Error(`Explorer API ${response.status}: ${body}`);
         }
 
+        console.log(`[${this._ts()}] [ExplorerAPI] ✓ ${fullPath} — ${response.status} (${ms}ms)`);
         this._onSuccess();
         return response.json();
     }
@@ -107,7 +119,7 @@ export class ExplorerWalletService {
         if (this.tipCache.value && this.tipCache.expiry > now) {
             return this.tipCache.value;
         }
-        const tip = await this._makeRequest('/wallet/tip', {}, network);
+        const tip = await this._makeRequest('/v1/wallet/tip', {}, network);
         this.tipCache = { value: tip, expiry: now + this.tipCacheTTL };
         return tip;
     }
@@ -124,7 +136,7 @@ export class ExplorerWalletService {
      */
     async getAddressUTXOs(address, network) {
         const [data, tip] = await Promise.all([
-            this._makeRequest(`/wallet/utxos/${address}`, {}, network),
+            this._makeRequest(`/v1/wallet/utxos/${address}`, {}, network),
             this.getTip(network),
         ]);
 
@@ -161,9 +173,9 @@ export class ExplorerWalletService {
     async getFeeEstimates(network) {
         // Fetch estimates for different target blocks
         const [fast, medium, slow] = await Promise.all([
-            this._makeRequest('/wallet/fee-estimate?blocks=1', {}, network).catch(() => null),
-            this._makeRequest('/wallet/fee-estimate?blocks=3', {}, network).catch(() => null),
-            this._makeRequest('/wallet/fee-estimate?blocks=6', {}, network).catch(() => null),
+            this._makeRequest('/v1/wallet/fee-estimate?blocks=1', {}, network).catch(() => null),
+            this._makeRequest('/v1/wallet/fee-estimate?blocks=3', {}, network).catch(() => null),
+            this._makeRequest('/v1/wallet/fee-estimate?blocks=6', {}, network).catch(() => null),
         ]);
 
         const toSatVb = (r) => {
@@ -193,7 +205,7 @@ export class ExplorerWalletService {
      * Normalises to the QuickNode-like format expected by the rest of the wallet.
      */
     async getTransaction(txid, network) {
-        const data = await this._makeRequest(`/wallet/tx/${txid}`, {}, network);
+        const data = await this._makeRequest(`/v1/wallet/tx/${txid}`, {}, network);
 
         // outputs[].value is in BTC (float) — convert to sats for the value field
         // but keep BTC string in the vout structure (matches QuickNode format)
@@ -238,7 +250,7 @@ export class ExplorerWalletService {
     // ── Transaction hex ──────────────────────────────────────────────────
 
     async getTransactionHex(txid, network) {
-        const data = await this._makeRequest(`/wallet/tx/${txid}`, {}, network);
+        const data = await this._makeRequest(`/v1/wallet/tx/${txid}`, {}, network);
         if (!data.hex) throw new Error('No hex in transaction response');
         return data.hex;
     }
@@ -246,7 +258,7 @@ export class ExplorerWalletService {
     // ── Broadcast ────────────────────────────────────────────────────────
 
     async broadcastTransaction(txHex, network) {
-        const data = await this._makeRequest('/wallet/broadcast', {
+        const data = await this._makeRequest('/v1/wallet/broadcast', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ raw_tx: txHex }),
@@ -254,6 +266,80 @@ export class ExplorerWalletService {
 
         if (data.error) throw new Error(data.error);
         return data.txid;
+    }
+
+    // ── Balance (indexed, instant) ──────────────────────────────────────
+
+    /**
+     * Get BTC balance for an address from the indexed DB.
+     * Returns { address, confirmed, unconfirmed, total, utxo_count } in sats.
+     */
+    async getBalance(address, network) {
+        return this._makeRequest(`/v1/wallet/balance/${address}`, {}, network);
+    }
+
+    /**
+     * Aggregate BTC balance across multiple addresses.
+     * Returns { confirmed, unconfirmed, total } in sats.
+     */
+    async getAggregateBalance(addresses, network) {
+        const results = await Promise.all(
+            addresses.map(addr =>
+                this.getBalance(addr, network).catch(() => ({ confirmed: 0, unconfirmed: 0, total: 0 }))
+            )
+        );
+        return {
+            confirmed: results.reduce((s, r) => s + (r.confirmed || 0), 0),
+            unconfirmed: results.reduce((s, r) => s + (r.unconfirmed || 0), 0),
+            total: results.reduce((s, r) => s + (r.total || 0), 0),
+        };
+    }
+
+    // ── Charm balances (indexed, instant) ─────────────────────────────────
+
+    /**
+     * Get charm/token balances for an address from the indexed DB.
+     * Returns { address, network, balances: [...], count }.
+     * Each balance has { appId, assetType, symbol, confirmed, unconfirmed, total, utxos }.
+     */
+    async getCharmBalances(address, network) {
+        return this._makeRequest(`/v1/wallet/charms/${address}`, {}, network);
+    }
+
+    /**
+     * Aggregate charm balances across multiple addresses.
+     * Merges by appId and collects all UTXOs.
+     * Returns array of { appId, assetType, symbol, confirmed, unconfirmed, total, utxos }.
+     */
+    async getAggregateCharmBalances(addresses, network) {
+        const results = await Promise.all(
+            addresses.map(addr =>
+                this.getCharmBalances(addr, network).catch(() => ({ balances: [] }))
+            )
+        );
+
+        const map = {};
+        for (const r of results) {
+            for (const b of (r.balances || [])) {
+                const key = b.appId || b.app_id;
+                if (!map[key]) {
+                    map[key] = {
+                        appId: key,
+                        assetType: b.assetType || b.asset_type || 'token',
+                        symbol: b.symbol || '',
+                        confirmed: 0,
+                        unconfirmed: 0,
+                        total: 0,
+                        utxos: [],
+                    };
+                }
+                map[key].confirmed += b.confirmed || 0;
+                map[key].unconfirmed += b.unconfirmed || 0;
+                map[key].total += b.total || 0;
+                map[key].utxos.push(...(b.utxos || []));
+            }
+        }
+        return Object.values(map);
     }
 
     // ── UTXO spent check ─────────────────────────────────────────────────
