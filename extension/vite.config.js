@@ -9,7 +9,7 @@ import { copyFileSync, mkdirSync, existsSync } from 'fs';
 // Override WASM-based modules with extension-specific prover API versions
 function overrideWasmModules() {
   const overrides = {
-    'charm-transaction-extractor': resolve(__dirname, './src/services/extension-charm-transaction-extractor.js'),
+    'charm-transaction-extractor': resolve(__dirname, './src/services/failover/charm-tx-extractor.js'),
   };
   return {
     name: 'override-wasm-modules',

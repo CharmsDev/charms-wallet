@@ -1,11 +1,12 @@
 /**
- * Extension Charm Transaction Extractor (Extension-only override)
+ * FAILOVER: Charm Transaction Extractor
  * 
- * Replaces wallet/src/services/transactions/charm-transaction-extractor.js
- * Uses the external prover verify API instead of charms-js WASM.
+ * Enriches transaction history with charm token data using the prover API.
+ * Used by TransactionRecorder when the Explorer API is unavailable.
  * 
- * This is used by TransactionRecorder to enrich transaction history
- * with charm token data.
+ * PRIMARY replacement: Explorer API GET /v1/wallet/charms/{address}
+ * 
+ * @see ./README.md for when this can be deleted
  */
 
 import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
@@ -18,7 +19,6 @@ const MEMPOOL_API = {
     mainnet: 'https://mempool.space/api',
 };
 
-// BRO Token hardcoded fallback (when API is not available)
 const BRO_TOKEN_FALLBACK = {
     name: 'Bro',
     ticker: '$BRO',
@@ -26,9 +26,6 @@ const BRO_TOKEN_FALLBACK = {
     decimals: 8
 };
 
-/**
- * Fetch transaction hex from mempool.space (no QuickNode dependency)
- */
 async function fetchTxHex(txid, network = 'mainnet') {
     const base = MEMPOOL_API[network] || MEMPOOL_API.mainnet;
     const url = `${base}/tx/${txid}/hex`;
@@ -37,14 +34,11 @@ async function fetchTxHex(txid, network = 'mainnet') {
         if (!response.ok) return null;
         return await response.text();
     } catch (error) {
-        console.warn(`[ExtCharmTxExtractor] Failed to fetch tx hex for ${txid}:`, error.message);
+        console.warn(`[FailoverCharmTxExtractor] Failed to fetch tx hex for ${txid}:`, error.message);
         return null;
     }
 }
 
-/**
- * Call the prover /spells/verify endpoint
- */
 async function verifySpell(txHex, network = 'mainnet') {
     try {
         const response = await fetch(VERIFY_ENDPOINT, {
@@ -61,31 +55,18 @@ async function verifySpell(txHex, network = 'mainnet') {
     }
 }
 
-/**
- * Extract charm token data from a transaction using the prover API.
- * Drop-in replacement for the WASM-based extractCharmTokenData.
- * 
- * @param {string} txid - Transaction ID
- * @param {string} network - Network (mainnet or testnet4)
- * @param {Array} myAddresses - Array of wallet addresses
- * @returns {Promise<Object|null>} Charm token data or null
- */
 export async function extractCharmTokenData(txid, network, myAddresses = []) {
     try {
-        // Fetch tx hex directly from mempool.space (bypasses QuickNode)
         const txHex = await fetchTxHex(txid, network);
         if (!txHex) return null;
 
-        // Verify via prover API instead of WASM
         const spellResult = await verifySpell(txHex, network);
         if (!spellResult) return null;
 
-        // Get the first charm
         const charm = spellResult.charms[0];
         const appId = charm.app_id || charm.appId;
         if (!appId) return null;
 
-        // Get token metadata
         let tokenName = 'Unknown Token';
         let tokenTicker = 'TOKEN';
         let tokenImage = null;
@@ -99,7 +80,6 @@ export async function extractCharmTokenData(txid, network, myAddresses = []) {
             tokenImage = BRO_TOKEN_FALLBACK.image;
         }
 
-        // Extract token amount from charm data
         let rawAmount = 0;
         if (typeof charm.data === 'number') {
             rawAmount = charm.data;
@@ -120,14 +100,11 @@ export async function extractCharmTokenData(txid, network, myAddresses = []) {
             charmData: charm
         };
     } catch (error) {
-        console.warn('[ExtCharmTxExtractor] Error:', error.message);
+        console.warn('[FailoverCharmTxExtractor] Error:', error.message);
         return null;
     }
 }
 
-/**
- * Extract charm token data for multiple transactions
- */
 export async function extractCharmTokenDataBatch(transactions, network, myAddresses = [], onProgress = null) {
     const results = new Map();
     
