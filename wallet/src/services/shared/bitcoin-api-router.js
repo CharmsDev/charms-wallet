@@ -64,14 +64,16 @@ export class BitcoinApiRouter {
         const isQuickNodeAvailable = quickNodeService.isAvailable(network);
         if (isQuickNodeAvailable) {
             try {
+                console.log(`[ApiRouter] Trying QuickNode for ${operation}`);
                 const result = await quickNodeService[operation](...opArgs);
                 return result;
             } catch (error) {
-                // Fallback to mempool.space on error
+                console.warn(`[ApiRouter] QuickNode failed for ${operation}:`, error.message);
             }
         }
 
         // Fallback to mempool.space
+        console.log(`[ApiRouter] Falling back to mempool.space for ${operation}`);
         return await this._callMempoolWithNormalization(operation, ...opArgs);
     }
 
