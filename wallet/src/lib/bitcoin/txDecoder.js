@@ -1,14 +1,33 @@
 import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
-import { getNetwork } from '@/utils/addressUtils';
 
 // Initialize the ECC library for bitcoinjs-lib
 bitcoin.initEccLib(ecc);
 
+const NETWORK_MAP = {
+    mainnet: bitcoin.networks.bitcoin,
+    testnet4: {
+        messagePrefix: '\x18Bitcoin Signed Message:\n',
+        bech32: 'tb',
+        bip32: { public: 0x043587cf, private: 0x04358394 },
+        pubKeyHash: 0x6f,
+        scriptHash: 0xc4,
+        wif: 0xef,
+    },
+    regtest: {
+        messagePrefix: '\x18Bitcoin Signed Message:\n',
+        bech32: 'bcrt',
+        bip32: { public: 0x043587cf, private: 0x04358394 },
+        pubKeyHash: 0x6f,
+        scriptHash: 0xc4,
+        wif: 0xef,
+    },
+};
+
 // Decode Bitcoin transaction hex in a format similar to bitcoin-cli decoderawtransaction
 export function decodeTx(txHex, network = 'testnet4') {
     try {
-        const bitcoinNetwork = getNetwork(network);
+        const bitcoinNetwork = NETWORK_MAP[network] || NETWORK_MAP.testnet4;
         const tx = bitcoin.Transaction.fromHex(txHex);
 
         const txid = tx.getId();

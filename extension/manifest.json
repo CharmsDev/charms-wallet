@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "Charms Wallet",
+  "version": "0.6.4",
+  "description": "Bitcoin wallet with Charms support for managing BTC, ordinals, runes, and charm tokens",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Charms Wallet"
+  },
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://*.quicknode.pro/*",
+    "https://mempool.space/*",
+    "https://charms-explorer-api.fly.dev/*",
+    "http://localhost:8000/*",
+    "https://charms.sh/*",
+    "https://api.coingecko.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://charms.sh/*",
+        "http://localhost:3000/*",
+        "http://localhost:15001/*",
+        "http://localhost:*/*"
+      ],
+      "js": ["content-script.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["inpage.js"],
+      "matches": [
+        "https://charms.sh/*",
+        "http://localhost:3000/*",
+        "http://localhost:15001/*",
+        "http://localhost:*/*"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

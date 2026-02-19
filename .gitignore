@@ -67,6 +67,10 @@ yarn-error.log*
 /webapp/tailwind/
 /webapp/postcss-cache/
 
+# Extension build artifacts
+/extension/dist/
+/wallet/public/extension/
+
 # Misc
 *.pem
 /_bkp

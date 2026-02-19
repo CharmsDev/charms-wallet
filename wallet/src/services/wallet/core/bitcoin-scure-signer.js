@@ -3,6 +3,10 @@ import { hex } from '@scure/base';
 import { getSeedPhrase, getAddresses } from '@/services/storage';
 import { BitcoinKeyDerivation } from './bitcoin-key-derivation';
 import { NETWORKS } from '@/stores/blockchainStore';
+import { calculateMixedFee } from '@/services/wallet/utils/fee';
+
+// Absolute maximum fee in satoshis — safety net to prevent fund loss
+const MAX_FEE_SATS = 5000;
 
 // Map blockchainStore network id to a minimal scure/btc network object.
 // For Taproot and bech32 address decoding, bech32 HRP is sufficient.
@@ -74,7 +78,7 @@ class BitcoinScureSigner {
                 
                 // Get addresses for the correct network
                 const blockchain = 'bitcoin';
-                const network = this.isMainnetNetwork ? 'mainnet' : 'testnet';
+                const network = this.isMainnetNetwork ? 'mainnet' : 'testnet4';
                 const addresses = await getAddresses(blockchain, network);
                 const addressInfo = addresses.find(addr => addr.address === utxo.address);
 
@@ -114,7 +118,7 @@ class BitcoinScureSigner {
 
             }
 
-            const amountInSatoshis = Math.floor(transactionData.amount * 100000000);
+            const amountInSatoshis = transactionData.amountInSats || Math.floor(transactionData.amount * 100000000);
             const destinationScript = btc.OutScript.encode(btc.Address(this.network).decode(transactionData.destinationAddress));
             
             tx.addOutput({
@@ -125,16 +129,35 @@ class BitcoinScureSigner {
             const totalInputValue = transactionData.utxos.reduce((sum, utxo) => sum + utxo.value, 0);
             const feeRate = transactionData.feeRate || 5;
             
-            const numInputs = transactionData.utxos.length;
-            const numOutputs = 2;
-            const baseSize = 10;
-            const inputSize = numInputs * 58;
-            const outputSize = numOutputs * 43;
-            
-            const estimatedVSize = baseSize + inputSize + outputSize;
-            const estimatedFee = Math.ceil(estimatedVSize * feeRate);
-            
-            const changeAmount = totalInputValue - amountInSatoshis - estimatedFee;
+            // First estimate with 2 outputs (destination + change)
+            let estimatedFee = calculateMixedFee(transactionData.utxos, 2, feeRate);
+            let changeAmount = totalInputValue - amountInSatoshis - estimatedFee;
+
+            // If change is dust or negative, this is a max transaction — recalculate with 1 output
+            if (changeAmount <= 546) {
+                estimatedFee = calculateMixedFee(transactionData.utxos, 1, feeRate);
+                changeAmount = totalInputValue - amountInSatoshis - estimatedFee;
+
+                // If still negative but very close, adjust amount to fit (absorb rounding)
+                if (changeAmount < 0 && changeAmount >= -546) {
+                    // Reduce destination amount to cover the shortfall
+                    const adjusted = amountInSatoshis + changeAmount; // changeAmount is negative
+                    log(`Max tx: adjusting amount from ${amountInSatoshis} to ${adjusted} sats (diff: ${-changeAmount})`);
+                    // Update the output we already added
+                    tx.updateOutput(0, { script: destinationScript, amount: BigInt(adjusted) });
+                    changeAmount = 0;
+                }
+            }
+
+            // SAFETY: hard cap on fee to prevent fund loss
+            if (estimatedFee > MAX_FEE_SATS) {
+                throw new Error(`Fee ${estimatedFee} sats exceeds maximum allowed (${MAX_FEE_SATS} sats). Aborting to prevent fund loss.`);
+            }
+
+            // SAFETY: verify funds are sufficient
+            if (changeAmount < 0) {
+                throw new Error(`Insufficient funds: inputs (${totalInputValue}) < amount (${amountInSatoshis}) + fee (${estimatedFee}). Aborting.`);
+            }
 
             if (changeAmount > 546) {
                 let changeAddress = transactionData.changeAddress;
@@ -142,7 +165,7 @@ class BitcoinScureSigner {
                 if (!changeAddress) {
                     // Get addresses for the correct network
                     const blockchain = 'bitcoin';
-                    const network = this.isMainnetNetwork ? 'mainnet' : 'testnet';
+                    const network = this.isMainnetNetwork ? 'mainnet' : 'testnet4';
                     const addresses = await getAddresses(blockchain, network);
                     changeAddress = addresses.find(addr => addr.isChange)?.address || addresses[0].address;
                 }
@@ -157,7 +180,7 @@ class BitcoinScureSigner {
 
             // Get addresses for the correct network
             const blockchain = 'bitcoin';
-            const network = this.isMainnetNetwork ? 'mainnet' : 'testnet';
+            const network = this.isMainnetNetwork ? 'mainnet' : 'testnet4';
             const addressesAll = await getAddresses(blockchain, network);
             const keyMap = new Map();
 
@@ -216,7 +239,10 @@ class BitcoinScureSigner {
                 success: true,
                 txid: txId,
                 signedTxHex: txHex,
-                size: finalTxBytes.length
+                size: finalTxBytes.length,
+                estimatedFee,
+                changeAmount: changeAmount > 546 ? changeAmount : 0,
+                changeAddress: changeAmount > 546 ? (transactionData.changeAddress || null) : null
             };
 
         } catch (error) {

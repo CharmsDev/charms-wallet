@@ -123,12 +123,12 @@ const useAddressesStore = create((set, get) => ({
         set({ addresses: newAddresses });
     },
 
-    // Generate all 512 addresses in background (non-blocking)
+    // Generate addresses in background (non-blocking)
     generateAllAddressesInBackground: async (seedPhrase, blockchain, network) => {
         const state = get();
 
-        // Don't start if already generating or if we already have many addresses
-        if (state.isGenerating || state.addresses.length >= 500) {
+        // Don't start if already generating or if we already have enough addresses (12 pairs = 24 addrs)
+        if (state.isGenerating || state.addresses.length >= 24) {
             return;
         }
 

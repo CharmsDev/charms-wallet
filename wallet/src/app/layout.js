@@ -5,6 +5,7 @@ import { NetworkProvider } from "@/contexts/NetworkContext";
 import { NavigationProvider } from "@/contexts/NavigationContext";
 import { UTXOProvider } from "@/stores/utxoStore";
 import { CharmsProvider } from "@/stores/charmsStore";
+import ExtensionBanner from "@/components/extension/ExtensionBanner";
 import Script from 'next/script';
 
 export const metadata = {
@@ -16,6 +17,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
+        <ExtensionBanner />
         <WalletProvider>
           <NetworkProvider>
             <NavigationProvider>

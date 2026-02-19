@@ -85,6 +85,12 @@ const config = {
         },
     },
 
+    // Charms Explorer Wallet API (direct Bitcoin node RPC, no rate limits)
+    // Single endpoint — network is passed as ?network=mainnet|testnet4 query param
+    explorerWallet: {
+        apiUrl: process.env.NEXT_PUBLIC_EXPLORER_WALLET_API_URL || null,
+    },
+
     // Cardano network configuration
     cardano: {
         network: process.env.NEXT_PUBLIC_CARDANO_NETWORK,

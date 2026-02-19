@@ -28,6 +28,7 @@
     "crypto-browserify": "^3.12.1",
     "crypto-js": "^4.2.0",
     "ecpair": "^3.0.0-rc.0",
+    "lucide-react": "^0.563.0",
     "micro-ordinals": "^0.3.0",
     "next": "15.2.0",
     "node-fetch": "^3.3.2",
