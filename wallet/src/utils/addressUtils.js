@@ -199,7 +199,7 @@ export function generateInitialBitcoinAddresses(seedPhrase, onProgress, onComple
     let i = 0;
     const addresses = [];
     const chunkSize = 10; // Process 10 indexes at a time
-    const totalPairs = 256; // This will generate 512 addresses total (256 external + 256 change)
+    const totalPairs = 12; // This will generate 24 addresses total (12 receive + 12 change)
 
     function generateChunk() {
         const limit = Math.min(i + chunkSize, totalPairs);
@@ -244,7 +244,7 @@ export function generateInitialBitcoinAddresses(seedPhrase, onProgress, onComple
 }
 
 // Optimized generator: precompute seed and HD nodes once, supports limiting pairs
-export function generateInitialBitcoinAddressesFast(seedPhrase, onProgress, onComplete, targetNetwork = null, totalPairs = 256) {
+export function generateInitialBitcoinAddressesFast(seedPhrase, onProgress, onComplete, targetNetwork = null, totalPairs = 12) {
     let i = 0;
     const addresses = [];
     const chunkSize = 32; // larger chunks for speed while keeping UI responsive

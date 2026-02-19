@@ -1,3 +1,5 @@
+import config from '@/config';
+
 // BRO Token hardcoded data for mocking
 const BRO_TOKEN_DATA = {
     name: "Bro",
@@ -18,8 +20,8 @@ export const getBroTokenAppId = () => BRO_TOKEN_APP_ID;
  */
 class CharmsExplorerAPI {
     constructor() {
-        this.baseUrl = "https://api.charms-explorer.com"; // TODO: Replace with actual API URL when available
-        this.isApiReady = false; // Set to true when real API is available
+        this.baseUrl = config.explorerWallet?.apiUrl || null;
+        this.isApiReady = !!this.baseUrl;
     }
 
     /**
@@ -40,8 +42,7 @@ class CharmsExplorerAPI {
                 return charmData;
             }
 
-            // TODO: Implement real API call when Charms Explorer API is ready
-            const response = await fetch(`${this.baseUrl}/reference-nft/${appId}`);
+            const response = await fetch(`${this.baseUrl}/v1/assets/reference-nft/${encodeURIComponent(appId)}`);
             
             if (!response.ok) {
                 return charmData;
@@ -129,8 +130,8 @@ class CharmsExplorerAPI {
      */
     async getTokenMetadata(appId) {
         try {
-            // Fetch from real Charms Explorer API
-            const response = await fetch(`https://api.charms-explorer.com/app/${appId}`);
+            if (!this.baseUrl) return null;
+            const response = await fetch(`${this.baseUrl}/v1/assets/${encodeURIComponent(appId)}`);
             
             if (!response.ok) {
                 return null;

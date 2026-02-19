@@ -1,0 +1,469 @@
+// Import polyfills first - MUST be before any other imports
+import './polyfills.js';
+
+/**
+ * PSBT Signing Approval Page
+ * 
+ * Entry point for the transaction signing popup.
+ * Loaded as a separate Vite entry point so it has access to all crypto libraries
+ * (bitcoinjs-lib, bip32, bip39, ecpair, tiny-secp256k1).
+ * 
+ * Flow:
+ * 1. background.js stores pendingSignRequest in chrome.storage.local
+ * 2. This popup reads the request, displays TX details
+ * 3. User approves → signs PSBT with derived private keys → stores result
+ * 4. background.js polls for signResponse → returns to content-script → inpage → dApp
+ */
+
+import React, { useState, useEffect } from 'react';
+import { createRoot } from 'react-dom/client';
+import * as bitcoin from 'bitcoinjs-lib';
+import * as ecc from 'tiny-secp256k1';
+import { ECPairFactory } from 'ecpair';
+import { BIP32Factory } from 'bip32';
+import * as bip39 from 'bip39';
+
+// Initialize crypto libraries
+bitcoin.initEccLib(ecc);
+const ECPair = ECPairFactory(ecc);
+const bip32 = BIP32Factory(ecc);
+
+/**
+ * Safely parse addresses from storage — handles both JSON strings and already-parsed arrays
+ */
+function safeParse(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  }
+  return [];
+}
+
+// Network configurations
+const MAINNET = bitcoin.networks.bitcoin;
+const TESTNET = {
+  messagePrefix: '\x18Bitcoin Signed Message:\n',
+  bech32: 'tb',
+  bip32: { public: 0x043587cf, private: 0x04358394 },
+  pubKeyHash: 0x6f,
+  scriptHash: 0xc4,
+  wif: 0xef,
+};
+
+function getNetworkConfig(networkName) {
+  return networkName === 'mainnet' ? MAINNET : TESTNET;
+}
+
+function getDerivationPath(networkName) {
+  return networkName === 'mainnet' ? "m/86'/0'/0'" : "m/86'/1'/0'";
+}
+
+/**
+ * Derive all key pairs from seed phrase for a given network.
+ * Returns a Map of address → { privateKey, publicKey, xOnlyPubKey, index, isChange }
+ */
+async function deriveKeyMap(seedPhrase, networkName, addresses) {
+  const network = getNetworkConfig(networkName);
+  const seed = await bip39.mnemonicToSeed(seedPhrase);
+  const root = bip32.fromSeed(seed, network);
+  const basePath = getDerivationPath(networkName);
+  const accountNode = root.derivePath(basePath);
+  const receiveChain = accountNode.derive(0);
+  const changeChain = accountNode.derive(1);
+
+  const keyMap = new Map();
+
+  // Derive keys for all known addresses
+  for (const addrObj of addresses) {
+    const addr = addrObj.address || addrObj;
+    const index = addrObj.index ?? 0;
+    const isChange = addrObj.isChange ?? false;
+    const chain = isChange ? changeChain : receiveChain;
+    const child = chain.derive(index);
+
+    const xOnlyPubKey = Buffer.from(child.publicKey.slice(1, 33));
+    const p2tr = bitcoin.payments.p2tr({ internalPubkey: xOnlyPubKey, network });
+
+    if (p2tr.address === addr) {
+      keyMap.set(addr, {
+        privateKey: child.privateKey,
+        publicKey: child.publicKey,
+        xOnlyPubKey,
+        index,
+        isChange,
+      });
+    }
+  }
+
+  return keyMap;
+}
+
+/**
+ * Sign a PSBT with the wallet's private keys.
+ * Mirrors UniSat's signPsbt behavior.
+ */
+async function signPsbtWithKeys(psbtHex, options, seedPhrase, networkName, addresses) {
+  const network = getNetworkConfig(networkName);
+  const keyMap = await deriveKeyMap(seedPhrase, networkName, addresses);
+  const psbt = bitcoin.Psbt.fromHex(psbtHex, { network });
+
+  const autoFinalized = options?.autoFinalized !== false;
+  const toSignInputs = options?.toSignInputs;
+
+  if (toSignInputs && toSignInputs.length > 0) {
+    // Sign only specified inputs
+    for (const inputSpec of toSignInputs) {
+      const { index, address } = inputSpec;
+      const keyInfo = address ? keyMap.get(address) : null;
+
+      if (!keyInfo) {
+        // Try to find key by matching the input's witnessUtxo scriptPubKey
+        let found = false;
+        for (const [addr, ki] of keyMap.entries()) {
+          try {
+            const p2tr = bitcoin.payments.p2tr({ internalPubkey: ki.xOnlyPubKey, network });
+            const inputData = psbt.data.inputs[index];
+            if (inputData?.witnessUtxo) {
+              const scriptHex = Buffer.from(inputData.witnessUtxo.script).toString('hex');
+              const p2trScriptHex = p2tr.output.toString('hex');
+              if (scriptHex === p2trScriptHex) {
+                signTaprootInput(psbt, index, ki, network);
+                found = true;
+                break;
+              }
+            }
+          } catch { /* continue */ }
+        }
+        if (!found) {
+          throw new Error(`No key found for input ${index} (address: ${address})`);
+        }
+      } else {
+        signTaprootInput(psbt, index, keyInfo, network);
+      }
+    }
+  } else {
+    // Sign all inputs we have keys for
+    for (let i = 0; i < psbt.inputCount; i++) {
+      const inputData = psbt.data.inputs[i];
+      if (!inputData?.witnessUtxo) continue;
+
+      const scriptHex = Buffer.from(inputData.witnessUtxo.script).toString('hex');
+
+      for (const [, keyInfo] of keyMap.entries()) {
+        try {
+          const p2tr = bitcoin.payments.p2tr({ internalPubkey: keyInfo.xOnlyPubKey, network });
+          if (p2tr.output.toString('hex') === scriptHex) {
+            signTaprootInput(psbt, i, keyInfo, network);
+            break;
+          }
+        } catch { /* continue */ }
+      }
+    }
+  }
+
+  if (autoFinalized) {
+    for (let i = 0; i < psbt.inputCount; i++) {
+      try {
+        psbt.finalizeInput(i);
+      } catch { /* skip inputs that can't be finalized */ }
+    }
+  }
+
+  return psbt.toHex();
+}
+
+/**
+ * Sign a single Taproot input with a tweaked private key.
+ */
+function signTaprootInput(psbt, inputIndex, keyInfo, network) {
+  const { privateKey, xOnlyPubKey } = keyInfo;
+
+  // Compute the Taproot tweak
+  const tweak = bitcoin.crypto.taggedHash('TapTweak', xOnlyPubKey);
+
+  // Negate private key if public key has odd Y coordinate
+  const isOddY = keyInfo.publicKey[0] === 0x03;
+  let keyForTweak = Buffer.from(privateKey);
+  if (isOddY) {
+    const negated = ecc.privateNegate(privateKey);
+    if (!negated) throw new Error('Failed to negate private key');
+    keyForTweak = Buffer.from(negated);
+  }
+
+  // Apply tweak
+  const tweakedKey = ecc.privateAdd(keyForTweak, tweak);
+  if (!tweakedKey) throw new Error('Tweak resulted in invalid private key');
+
+  // Create tweaked key pair for signing
+  const tweakedKeyPair = ECPair.fromPrivateKey(Buffer.from(tweakedKey), { network });
+  // Override the sign method to use Schnorr
+  tweakedKeyPair.sign = (hash) => Buffer.from(ecc.signSchnorr(hash, tweakedKey));
+
+  psbt.signInput(inputIndex, tweakedKeyPair);
+}
+
+// ============================================================
+// React UI Component
+// ============================================================
+
+function SignApproval() {
+  const [request, setRequest] = useState(null);
+  const [psbtInfo, setPsbtInfo] = useState(null);
+  const [signing, setSigning] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const data = await chrome.storage.local.get(['pendingSignRequest']);
+      const req = data.pendingSignRequest;
+      console.log('[approve-sign] Pending request:', req);
+
+      if (!req) {
+        setError('No pending sign request found');
+        return;
+      }
+      setRequest(req);
+
+      // Parse PSBT to show details
+      try {
+        const psbt = bitcoin.Psbt.fromHex(req.psbtHex);
+        const inputCount = psbt.inputCount;
+        const outputCount = psbt.txOutputs.length;
+
+        let totalOutput = 0n;
+        const outputs = psbt.txOutputs.map((out, i) => {
+          totalOutput += BigInt(out.value);
+          return {
+            index: i,
+            value: Number(out.value),
+            address: out.address || '(script)',
+          };
+        });
+
+        setPsbtInfo({ inputCount, outputCount, outputs, totalOutput: Number(totalOutput) });
+      } catch (e) {
+        console.warn('[approve-sign] Could not parse PSBT for display:', e);
+        setPsbtInfo({ inputCount: '?', outputCount: '?', outputs: [], totalOutput: 0 });
+      }
+    })();
+  }, []);
+
+  const handleCancel = async () => {
+    await chrome.storage.local.set({
+      signResponse: { approved: false, requestId: request.id, error: 'User rejected the signing request' }
+    });
+    await chrome.storage.local.remove('pendingSignRequest');
+    window.close();
+  };
+
+  const handleSign = async () => {
+    setSigning(true);
+    setError(null);
+
+    try {
+      // Get seed phrase and addresses from storage
+      const storageData = await chrome.storage.local.get([
+        'seedPhrase',
+        'active_network',
+        `wallet_addresses_bitcoin_mainnet`,
+        `wallet_addresses_bitcoin_testnet4`,
+      ]);
+
+      const seedPhrase = storageData.seedPhrase;
+      if (!seedPhrase) throw new Error('Seed phrase not found in wallet');
+
+      const networkName = storageData.active_network || 'testnet4';
+      const addressKey = `wallet_addresses_bitcoin_${networkName}`;
+      let addresses = safeParse(storageData[addressKey]);
+
+      // Also try the other network's addresses as fallback
+      if (addresses.length === 0) {
+        const fallbackNetwork = networkName === 'mainnet' ? 'testnet4' : 'mainnet';
+        const fallbackKey = `wallet_addresses_bitcoin_${fallbackNetwork}`;
+        addresses = safeParse(storageData[fallbackKey]);
+      }
+
+      if (addresses.length === 0) throw new Error('No wallet addresses found');
+
+      console.log('[approve-sign] Signing PSBT with', addresses.length, 'addresses on', networkName);
+
+      const signedPsbtHex = await signPsbtWithKeys(
+        request.psbtHex,
+        request.options,
+        seedPhrase,
+        networkName,
+        addresses
+      );
+
+      console.log('[approve-sign] PSBT signed successfully');
+
+      await chrome.storage.local.set({
+        signResponse: {
+          approved: true,
+          requestId: request.id,
+          signedPsbtHex,
+        }
+      });
+      await chrome.storage.local.remove('pendingSignRequest');
+      window.close();
+    } catch (err) {
+      console.error('[approve-sign] Signing error:', err);
+      setError(err.message);
+      setSigning(false);
+    }
+  };
+
+  if (!request) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <div style={styles.logo}>₿</div>
+          <div>
+            <div style={styles.title}>Charms Wallet</div>
+            <div style={styles.subtitle}>Sign Transaction</div>
+          </div>
+        </div>
+        {error ? (
+          <div style={styles.error}>{error}</div>
+        ) : (
+          <div style={styles.loading}>Loading...</div>
+        )}
+      </div>
+    );
+  }
+
+  const url = (() => {
+    try { return new URL(request.origin); } catch { return { hostname: 'Unknown', origin: request.origin }; }
+  })();
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <div style={styles.logo}>₿</div>
+        <div>
+          <div style={styles.title}>Charms Wallet</div>
+          <div style={styles.subtitle}>Sign Transaction</div>
+        </div>
+      </div>
+
+      <div style={styles.card}>
+        <div style={styles.siteInfo}>
+          <div style={styles.siteIcon}>🔏</div>
+          <div style={styles.siteName}>{url.hostname}</div>
+          <div style={styles.siteUrl}>{request.origin}</div>
+        </div>
+      </div>
+
+      <div style={styles.message}>This site wants you to sign a transaction</div>
+
+      {psbtInfo && (
+        <div style={styles.txDetails}>
+          <div style={styles.txRow}>
+            <span style={styles.txLabel}>Inputs</span>
+            <span style={styles.txValue}>{psbtInfo.inputCount}</span>
+          </div>
+          <div style={styles.txRow}>
+            <span style={styles.txLabel}>Outputs</span>
+            <span style={styles.txValue}>{psbtInfo.outputCount}</span>
+          </div>
+          <div style={styles.txRow}>
+            <span style={styles.txLabel}>Total Output</span>
+            <span style={styles.txValue}>{(psbtInfo.totalOutput / 100_000_000).toFixed(8)} BTC</span>
+          </div>
+          {psbtInfo.outputs.length > 0 && psbtInfo.outputs.length <= 6 && (
+            <div style={styles.outputList}>
+              {psbtInfo.outputs.map((out, i) => (
+                <div key={i} style={styles.outputItem}>
+                  <span style={styles.outputAddr}>{out.address.length > 20 ? out.address.slice(0, 10) + '...' + out.address.slice(-8) : out.address}</span>
+                  <span style={styles.outputValue}>{out.value.toLocaleString()} sats</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && <div style={styles.error}>{error}</div>}
+
+      <div style={styles.buttons}>
+        <button style={styles.btnCancel} onClick={handleCancel} disabled={signing}>
+          Cancel
+        </button>
+        <button style={signing ? styles.btnSignDisabled : styles.btnSign} onClick={handleSign} disabled={signing}>
+          {signing ? 'Signing...' : 'Sign'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Inline styles (same design language as approve.html)
+const styles = {
+  container: {
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+    color: 'white',
+    width: 360,
+    minHeight: 400,
+    padding: 20,
+  },
+  header: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 },
+  logo: {
+    width: 48, height: 48,
+    background: 'linear-gradient(135deg, #f7931a 0%, #ff6b00 100%)',
+    borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 24, fontWeight: 'bold',
+  },
+  title: { fontSize: 20, fontWeight: 600 },
+  subtitle: { fontSize: 12, color: '#888' },
+  card: {
+    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 12, padding: 16, marginBottom: 14,
+  },
+  siteInfo: { textAlign: 'center' },
+  siteIcon: {
+    width: 48, height: 48, background: 'rgba(255,255,255,0.1)', borderRadius: 12,
+    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32,
+    margin: '0 auto 8px',
+  },
+  siteName: { fontSize: 18, fontWeight: 600, marginBottom: 4 },
+  siteUrl: { fontSize: 14, color: '#f7931a' },
+  message: { textAlign: 'center', fontSize: 14, color: '#aaa', marginBottom: 14 },
+  txDetails: {
+    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 13,
+  },
+  txRow: { display: 'flex', justifyContent: 'space-between', padding: '4px 0' },
+  txLabel: { color: '#888' },
+  txValue: { color: '#fff', fontFamily: 'monospace' },
+  outputList: { marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8 },
+  outputItem: { display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 12 },
+  outputAddr: { color: '#888', fontFamily: 'monospace' },
+  outputValue: { color: '#ccc', fontFamily: 'monospace' },
+  error: {
+    background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)',
+    borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 13, color: '#ef4444',
+  },
+  loading: { textAlign: 'center', color: '#888', padding: 40 },
+  buttons: { display: 'flex', gap: 12 },
+  btnCancel: {
+    flex: 1, padding: 12, border: 'none', borderRadius: 10, fontSize: 16, fontWeight: 600,
+    cursor: 'pointer', background: 'rgba(255,255,255,0.1)', color: 'white',
+  },
+  btnSign: {
+    flex: 1, padding: 12, border: 'none', borderRadius: 10, fontSize: 16, fontWeight: 600,
+    cursor: 'pointer', background: 'linear-gradient(135deg, #f7931a 0%, #ff6b00 100%)', color: 'white',
+  },
+  btnSignDisabled: {
+    flex: 1, padding: 12, border: 'none', borderRadius: 10, fontSize: 16, fontWeight: 600,
+    cursor: 'not-allowed', background: '#555', color: '#999',
+  },
+};
+
+// Mount React app
+const root = createRoot(document.getElementById('root'));
+root.render(<SignApproval />);
