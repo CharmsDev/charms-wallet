@@ -49,7 +49,7 @@ export class WalletInitializationService {
             const { saveAddresses } = await import('@/services/storage');
 
             const networks = ['mainnet', 'testnet4'];
-            const pairsPerNetwork = 256; // 256 pairs (512 addrs) per network as requested
+            const pairsPerNetwork = 12; // 12 pairs (24 addrs: 12 receive + 12 change) per network
 
             for (const currentNetwork of networks) {
                 // Get the appropriate Bitcoin network object for address generation
