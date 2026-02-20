@@ -72,11 +72,11 @@ async function waitForConnectionResponse(requestId, timeout = 60000) {
 async function getWalletData() {
   return new Promise((resolve) => {
     chrome.storage.local.get([
-      // Keys match storage-wrapper.js format: wallet_addresses_bitcoin_{network}
-      'wallet_addresses_bitcoin_testnet4',
-      'wallet_addresses_bitcoin_mainnet',
-      'wallet_utxos_bitcoin_testnet4',
-      'wallet_utxos_bitcoin_mainnet',
+      // Keys match storage.ts getStorageKey format: {blockchain}_{network}_{key}
+      'bitcoin_testnet4_wallet_addresses',
+      'bitcoin_mainnet_wallet_addresses',
+      'bitcoin_testnet4_wallet_utxos',
+      'bitcoin_mainnet_wallet_utxos',
       'active_network',
       'seedPhrase'
     ], (data) => {
@@ -163,14 +163,14 @@ async function handleWalletProviderRequest(request, sender) {
         // Check wallet exists — try active network first, then fallback to other network
         const walletData = await getWalletData();
         let network = walletData.active_network || 'testnet4';
-        let addressKey = `wallet_addresses_bitcoin_${network}`;
+        let addressKey = `bitcoin_${network}_wallet_addresses`;
         
         let addresses = parseAddresses(walletData[addressKey]);
         
         // If no addresses on active network, try the other network
         if (addresses.length === 0) {
           const fallbackNetwork = network === 'mainnet' ? 'testnet4' : 'mainnet';
-          const fallbackKey = `wallet_addresses_bitcoin_${fallbackNetwork}`;
+          const fallbackKey = `bitcoin_${fallbackNetwork}_wallet_addresses`;
           addresses = parseAddresses(walletData[fallbackKey]);
           if (addresses.length > 0) {
             network = fallbackNetwork;
@@ -246,7 +246,7 @@ async function handleWalletProviderRequest(request, sender) {
         
         const walletData = await getWalletData();
         const network = walletData.active_network || 'testnet4';
-        const addressKey = `wallet_addresses_bitcoin_${network}`;
+        const addressKey = `bitcoin_${network}_wallet_addresses`;
         const addresses = parseAddresses(walletData[addressKey]);
         
         if (addresses.length === 0 || !addresses[0]?.publicKey) {
@@ -433,7 +433,7 @@ async function handleGetAccounts(origin) {
   
   const walletData = await getWalletData();
   const network = walletData.active_network || 'testnet4';
-  const addressKey = `wallet_addresses_bitcoin_${network}`;
+  const addressKey = `bitcoin_${network}_wallet_addresses`;
   const addresses = parseAddresses(walletData[addressKey]);
   
   if (addresses.length === 0) {
