@@ -88,7 +88,7 @@ function ExtensionContent() {
 
   const handleCreateWallet = async () => {
     try {
-      await initializeWalletComplete(null, false, 'bitcoin', 'testnet4');
+      await initializeWalletComplete(null, false, 'bitcoin', 'mainnet');
     } catch (err) {
       console.error('Failed to create wallet:', err);
     }
@@ -96,7 +96,7 @@ function ExtensionContent() {
 
   const handleImportWallet = async (inputSeedPhrase) => {
     try {
-      await initializeWalletComplete(inputSeedPhrase, true, 'bitcoin', 'testnet4');
+      await initializeWalletComplete(inputSeedPhrase, true, 'bitcoin', 'mainnet');
     } catch (err) {
       console.error('Failed to import wallet:', err);
     }
