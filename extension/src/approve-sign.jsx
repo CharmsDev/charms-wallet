@@ -178,44 +178,55 @@ async function signPsbtWithKeys(psbtHex, options, seedPhrase, networkName, addre
 /**
  * Sign a single Taproot input with a tweaked private key.
  *
- * Sets tapInternalKey on the PSBT input so that bitcoinjs-lib recognises it
- * as a key-path spend and stores the Schnorr signature as `tapKeySig`.
- * This is critical for both flows:
- *   - autoFinalized=true  → finalizeInput reads tapKeySig to build the witness
- *   - autoFinalized=false → Cast extracts tapKeySig directly from the PSBT data
+ * BIP341 key-path signing:
+ *   1. If the internal public key has odd Y → negate the private key first.
+ *   2. Compute tweak = taggedHash('TapTweak', xOnlyPubKey).
+ *   3. tweakedPriv = (possibly-negated) privKey + tweak.
+ *   4. If the resulting tweaked public key has odd Y → negate tweakedPriv
+ *      (BIP340 Schnorr always assumes even-Y public key).
+ *   5. Provide a signer whose publicKey x-only matches the output key.
  */
 function signTaprootInput(psbt, inputIndex, keyInfo, network) {
   const { privateKey, xOnlyPubKey } = keyInfo;
 
-  // Ensure tapInternalKey is set so bitcoinjs-lib treats this as Taproot
+  // Ensure tapInternalKey is set so bitcoinjs-lib routes to Taproot signing
   if (!psbt.data.inputs[inputIndex].tapInternalKey) {
     psbt.updateInput(inputIndex, { tapInternalKey: xOnlyPubKey });
   }
 
-  // Compute the Taproot tweak
-  const tweak = bitcoin.crypto.taggedHash('TapTweak', xOnlyPubKey);
-
-  // Negate private key if public key has odd Y coordinate
+  // Step 1: Negate private key if the full internal public key has odd Y
   const isOddY = keyInfo.publicKey[0] === 0x03;
-  let keyForTweak = Buffer.from(privateKey);
+  let privKey = Buffer.from(privateKey);
   if (isOddY) {
     const negated = ecc.privateNegate(privateKey);
     if (!negated) throw new Error('Failed to negate private key');
-    keyForTweak = Buffer.from(negated);
+    privKey = Buffer.from(negated);
   }
 
-  // Apply tweak
-  const tweakedKey = ecc.privateAdd(keyForTweak, tweak);
-  if (!tweakedKey) throw new Error('Tweak resulted in invalid private key');
+  // Step 2: Compute tweak (key-path-only, no script tree)
+  const tweak = bitcoin.crypto.taggedHash('TapTweak', xOnlyPubKey);
 
-  // Build a signer that implements the Taproot signing interface
+  // Step 3: Apply tweak to get tweaked private key
+  let tweakedPriv = ecc.privateAdd(privKey, tweak);
+  if (!tweakedPriv) throw new Error('Tweak resulted in invalid private key');
+
+  // Step 4: If the tweaked public key has odd Y, negate the tweaked private key
+  // (BIP340 Schnorr verification always lifts x to even-Y point)
+  const tweakedPub = ecc.pointFromScalar(tweakedPriv);
+  if (tweakedPub[0] === 0x03) {
+    tweakedPriv = ecc.privateNegate(tweakedPriv);
+  }
+
+  // Step 5: Build signer with the correct tweaked public key
+  const finalPub = Buffer.from(ecc.pointFromScalar(tweakedPriv));
+
   const tweakedSigner = {
-    publicKey: Buffer.from(ecc.pointFromScalar(tweakedKey)),
+    publicKey: finalPub,
     sign(hash) {
-      return Buffer.from(ecc.signSchnorr(hash, tweakedKey));
+      return Buffer.from(ecc.signSchnorr(hash, tweakedPriv));
     },
     signSchnorr(hash) {
-      return Buffer.from(ecc.signSchnorr(hash, tweakedKey));
+      return Buffer.from(ecc.signSchnorr(hash, tweakedPriv));
     },
   };
 
