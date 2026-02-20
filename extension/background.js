@@ -3,8 +3,26 @@
 
 console.log('Charms Wallet background service worker loaded');
 
-// Storage keys for connected sites
-const CONNECTED_SITES_KEY = 'connected_sites';
+// ─── Storage Keys (must match wallet/src/services/storage-keys.js) ───
+const SK = {
+  SEED_PHRASE:        'wallet:seed_phrase',
+  ACTIVE_BLOCKCHAIN:  'wallet:active_blockchain',
+  ACTIVE_NETWORK:     'wallet:active_network',
+  BALANCE:            'wallet:balance',
+};
+const EXT = {
+  CONNECTED_SITES:     'ext:connected_sites',
+  PENDING_CONNECTION:  'ext:pending_connection',
+  CONNECTION_RESPONSE: 'ext:connection_response',
+  PENDING_SIGN:        'ext:pending_sign',
+  SIGN_RESPONSE:       'ext:sign_response',
+};
+function addressesKey(blockchain, network) {
+  return `wallet:${blockchain}:${network}:addresses`;
+}
+function utxosKey(blockchain, network) {
+  return `wallet:${blockchain}:${network}:utxos`;
+}
 
 // Listen for extension installation
 chrome.runtime.onInstalled.addListener((details) => {
@@ -13,9 +31,9 @@ chrome.runtime.onInstalled.addListener((details) => {
     console.log('First time installation - Charms Wallet v0.6.3');
     // Set default values
     chrome.storage.local.set({
-      'active_blockchain': 'bitcoin',
-      'active_network': 'testnet4',
-      [CONNECTED_SITES_KEY]: {}
+      [SK.ACTIVE_BLOCKCHAIN]: 'bitcoin',
+      [SK.ACTIVE_NETWORK]: 'mainnet',
+      [EXT.CONNECTED_SITES]: {}
     });
   } else if (details.reason === 'update') {
     console.log('Extension updated to v0.6.3');
@@ -29,11 +47,11 @@ async function waitForSignResponse(requestId, timeout = 120000) {
   const startTime = Date.now();
   
   while (Date.now() - startTime < timeout) {
-    const data = await chrome.storage.local.get(['signResponse']);
+    const data = await chrome.storage.local.get([EXT.SIGN_RESPONSE]);
     
-    if (data.signResponse && data.signResponse.requestId === requestId) {
-      const response = data.signResponse;
-      await chrome.storage.local.remove('signResponse');
+    if (data[EXT.SIGN_RESPONSE] && data[EXT.SIGN_RESPONSE].requestId === requestId) {
+      const response = data[EXT.SIGN_RESPONSE];
+      await chrome.storage.local.remove(EXT.SIGN_RESPONSE);
       return response;
     }
     
@@ -41,7 +59,7 @@ async function waitForSignResponse(requestId, timeout = 120000) {
   }
   
   // Timeout - cleanup
-  await chrome.storage.local.remove(['pendingSignRequest', 'signResponse']);
+  await chrome.storage.local.remove([EXT.PENDING_SIGN, EXT.SIGN_RESPONSE]);
   return null;
 }
 
@@ -52,11 +70,11 @@ async function waitForConnectionResponse(requestId, timeout = 60000) {
   const startTime = Date.now();
   
   while (Date.now() - startTime < timeout) {
-    const data = await chrome.storage.local.get(['connectionResponse']);
+    const data = await chrome.storage.local.get([EXT.CONNECTION_RESPONSE]);
     
-    if (data.connectionResponse && data.connectionResponse.requestId === requestId) {
-      const response = data.connectionResponse;
-      await chrome.storage.local.remove('connectionResponse');
+    if (data[EXT.CONNECTION_RESPONSE] && data[EXT.CONNECTION_RESPONSE].requestId === requestId) {
+      const response = data[EXT.CONNECTION_RESPONSE];
+      await chrome.storage.local.remove(EXT.CONNECTION_RESPONSE);
       return response;
     }
     
@@ -65,20 +83,19 @@ async function waitForConnectionResponse(requestId, timeout = 60000) {
   }
   
   // Timeout - cleanup
-  await chrome.storage.local.remove(['pendingConnectionRequest', 'connectionResponse']);
+  await chrome.storage.local.remove([EXT.PENDING_CONNECTION, EXT.CONNECTION_RESPONSE]);
   return null;
 }
 
 async function getWalletData() {
   return new Promise((resolve) => {
     chrome.storage.local.get([
-      // Keys match storage.ts getStorageKey format: {blockchain}_{network}_{key}
-      'bitcoin_testnet4_wallet_addresses',
-      'bitcoin_mainnet_wallet_addresses',
-      'bitcoin_testnet4_wallet_utxos',
-      'bitcoin_mainnet_wallet_utxos',
-      'active_network',
-      'seedPhrase'
+      addressesKey('bitcoin', 'testnet4'),
+      addressesKey('bitcoin', 'mainnet'),
+      utxosKey('bitcoin', 'testnet4'),
+      utxosKey('bitcoin', 'mainnet'),
+      SK.ACTIVE_NETWORK,
+      SK.SEED_PHRASE
     ], (data) => {
       resolve(data);
     });
@@ -108,8 +125,8 @@ function parseAddresses(raw) {
  */
 async function getConnectedSites() {
   return new Promise((resolve) => {
-    chrome.storage.local.get([CONNECTED_SITES_KEY], (data) => {
-      resolve(data[CONNECTED_SITES_KEY] || {});
+    chrome.storage.local.get([EXT.CONNECTED_SITES], (data) => {
+      resolve(data[EXT.CONNECTED_SITES] || {});
     });
   });
 }
@@ -124,7 +141,7 @@ async function saveConnectedSite(origin, addresses) {
     connectedAt: Date.now()
   };
   return new Promise((resolve) => {
-    chrome.storage.local.set({ [CONNECTED_SITES_KEY]: sites }, resolve);
+    chrome.storage.local.set({ [EXT.CONNECTED_SITES]: sites }, resolve);
   });
 }
 
@@ -151,30 +168,30 @@ async function handleWalletProviderRequest(request, sender) {
         
         // Clear any existing connection to force approval popup
         const existingSites = await new Promise(resolve => {
-          chrome.storage.local.get([CONNECTED_SITES_KEY], (data) => {
-            resolve(data[CONNECTED_SITES_KEY] || {});
+          chrome.storage.local.get([EXT.CONNECTED_SITES], (data) => {
+            resolve(data[EXT.CONNECTED_SITES] || {});
           });
         });
         delete existingSites[origin];
         await new Promise(resolve => {
-          chrome.storage.local.set({ [CONNECTED_SITES_KEY]: existingSites }, resolve);
+          chrome.storage.local.set({ [EXT.CONNECTED_SITES]: existingSites }, resolve);
         });
         
         // Check wallet exists — try active network first, then fallback to other network
         const walletData = await getWalletData();
-        let network = walletData.active_network || 'testnet4';
-        let addressKey = `bitcoin_${network}_wallet_addresses`;
+        let network = walletData[SK.ACTIVE_NETWORK] || 'mainnet';
+        let addrKey = addressesKey('bitcoin', network);
         
-        let addresses = parseAddresses(walletData[addressKey]);
+        let addresses = parseAddresses(walletData[addrKey]);
         
         // If no addresses on active network, try the other network
         if (addresses.length === 0) {
           const fallbackNetwork = network === 'mainnet' ? 'testnet4' : 'mainnet';
-          const fallbackKey = `bitcoin_${fallbackNetwork}_wallet_addresses`;
+          const fallbackKey = addressesKey('bitcoin', fallbackNetwork);
           addresses = parseAddresses(walletData[fallbackKey]);
           if (addresses.length > 0) {
             network = fallbackNetwork;
-            addressKey = fallbackKey;
+            addrKey = fallbackKey;
           }
         }
 
@@ -200,7 +217,7 @@ async function handleWalletProviderRequest(request, sender) {
         const requestId = Date.now().toString();
         await new Promise(resolve => {
           chrome.storage.local.set({
-            pendingConnectionRequest: { id: requestId, origin: origin }
+            [EXT.PENDING_CONNECTION]: { id: requestId, origin: origin }
           }, resolve);
         });
         console.log('[requestAccounts] Pending request stored, opening popup. requestId:', requestId);
@@ -245,9 +262,9 @@ async function handleWalletProviderRequest(request, sender) {
         }
         
         const walletData = await getWalletData();
-        const network = walletData.active_network || 'testnet4';
-        const addressKey = `bitcoin_${network}_wallet_addresses`;
-        const addresses = parseAddresses(walletData[addressKey]);
+        const network = walletData[SK.ACTIVE_NETWORK] || 'mainnet';
+        const addrKey = addressesKey('bitcoin', network);
+        const addresses = parseAddresses(walletData[addrKey]);
         
         if (addresses.length === 0 || !addresses[0]?.publicKey) {
           return { error: 'No public key available' };
@@ -263,9 +280,9 @@ async function handleWalletProviderRequest(request, sender) {
         }
         
         const walletData = await getWalletData();
-        const network = walletData.active_network || 'testnet4';
-        const utxoKey = `wallet_utxos_bitcoin_${network}`;
-        const utxos = walletData[utxoKey] || [];
+        const network = walletData[SK.ACTIVE_NETWORK] || 'mainnet';
+        const uKey = utxosKey('bitcoin', network);
+        const utxos = walletData[uKey] || [];
         
         // Calculate balance from UTXOs
         let confirmed = 0;
@@ -291,7 +308,7 @@ async function handleWalletProviderRequest(request, sender) {
 
       case 'getNetwork': {
         const walletData = await getWalletData();
-        const network = walletData.active_network || 'testnet4';
+        const network = walletData[SK.ACTIVE_NETWORK] || 'mainnet';
         // Map to UniSat-compatible network names
         const networkMap = {
           'mainnet': 'livenet',
@@ -328,7 +345,7 @@ async function handleWalletProviderRequest(request, sender) {
         const signRequestId = Date.now().toString();
         await new Promise(resolve => {
           chrome.storage.local.set({
-            pendingSignRequest: {
+            [EXT.PENDING_SIGN]: {
               id: signRequestId,
               origin,
               psbtHex,
@@ -378,7 +395,7 @@ async function handleWalletProviderRequest(request, sender) {
 
           await new Promise(resolve => {
             chrome.storage.local.set({
-              pendingSignRequest: {
+              [EXT.PENDING_SIGN]: {
                 id: signRequestId,
                 origin,
                 psbtHex: psbtHexs[i],
@@ -432,9 +449,9 @@ async function handleGetAccounts(origin) {
   }
   
   const walletData = await getWalletData();
-  const network = walletData.active_network || 'testnet4';
-  const addressKey = `bitcoin_${network}_wallet_addresses`;
-  const addresses = parseAddresses(walletData[addressKey]);
+  const network = walletData[SK.ACTIVE_NETWORK] || 'mainnet';
+  const addrKey = addressesKey('bitcoin', network);
+  const addresses = parseAddresses(walletData[addrKey]);
   
   if (addresses.length === 0) {
     return { result: [] };

@@ -216,10 +216,17 @@ function SignApproval() {
   const [signing, setSigning] = useState(false);
   const [error, setError] = useState(null);
 
+  // Storage keys (must match background.js / storage-keys.js)
+  const EXT_PENDING_SIGN = 'ext:pending_sign';
+  const EXT_SIGN_RESPONSE = 'ext:sign_response';
+  const SK_SEED_PHRASE = 'wallet:seed_phrase';
+  const SK_ACTIVE_NETWORK = 'wallet:active_network';
+  const addrKey = (bc, net) => `wallet:${bc}:${net}:addresses`;
+
   useEffect(() => {
     (async () => {
-      const data = await chrome.storage.local.get(['pendingSignRequest']);
-      const req = data.pendingSignRequest;
+      const data = await chrome.storage.local.get([EXT_PENDING_SIGN]);
+      const req = data[EXT_PENDING_SIGN];
       console.log('[approve-sign] Pending request:', req);
 
       if (!req) {
@@ -254,9 +261,9 @@ function SignApproval() {
 
   const handleCancel = async () => {
     await chrome.storage.local.set({
-      signResponse: { approved: false, requestId: request.id, error: 'User rejected the signing request' }
+      [EXT_SIGN_RESPONSE]: { approved: false, requestId: request.id, error: 'User rejected the signing request' }
     });
-    await chrome.storage.local.remove('pendingSignRequest');
+    await chrome.storage.local.remove(EXT_PENDING_SIGN);
     window.close();
   };
 
@@ -266,25 +273,27 @@ function SignApproval() {
 
     try {
       // Get seed phrase and addresses from storage
+      const mainnetKey = addrKey('bitcoin', 'mainnet');
+      const testnetKey = addrKey('bitcoin', 'testnet4');
       const storageData = await chrome.storage.local.get([
-        'seedPhrase',
-        'active_network',
-        'bitcoin_mainnet_wallet_addresses',
-        'bitcoin_testnet4_wallet_addresses',
+        SK_SEED_PHRASE,
+        SK_ACTIVE_NETWORK,
+        mainnetKey,
+        testnetKey,
       ]);
 
-      const seedPhrase = storageData.seedPhrase;
+      const seedPhrase = storageData[SK_SEED_PHRASE];
       if (!seedPhrase) throw new Error('Seed phrase not found in wallet');
 
-      const networkName = storageData.active_network || 'testnet4';
-      const addressKey = `bitcoin_${networkName}_wallet_addresses`;
-      let addresses = safeParse(storageData[addressKey]);
+      const networkName = storageData[SK_ACTIVE_NETWORK] || 'mainnet';
+      const activeAddrKey = addrKey('bitcoin', networkName);
+      let addresses = safeParse(storageData[activeAddrKey]);
 
       // Also try the other network's addresses as fallback
       if (addresses.length === 0) {
         const fallbackNetwork = networkName === 'mainnet' ? 'testnet4' : 'mainnet';
-        const fallbackKey = `bitcoin_${fallbackNetwork}_wallet_addresses`;
-        addresses = safeParse(storageData[fallbackKey]);
+        const fallbackAddrKey = addrKey('bitcoin', fallbackNetwork);
+        addresses = safeParse(storageData[fallbackAddrKey]);
       }
 
       if (addresses.length === 0) throw new Error('No wallet addresses found');
@@ -302,13 +311,13 @@ function SignApproval() {
       console.log('[approve-sign] PSBT signed successfully');
 
       await chrome.storage.local.set({
-        signResponse: {
+        [EXT_SIGN_RESPONSE]: {
           approved: true,
           requestId: request.id,
           signedPsbtHex,
         }
       });
-      await chrome.storage.local.remove('pendingSignRequest');
+      await chrome.storage.local.remove(EXT_PENDING_SIGN);
       window.close();
     } catch (err) {
       console.error('[approve-sign] Signing error:', err);

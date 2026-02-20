@@ -10,6 +10,7 @@ import { formatBTC } from '@/utils/formatters';
 import { clearAllWalletData, getSeedPhrase } from '@/services/storage';
 import { generateTaprootAddress } from '@/utils/addressUtils';
 import { StorageAdapter } from '../shared/storage-adapter';
+import { GLOBAL_KEYS } from '@/services/storage-keys';
 import SendScreen from './SendScreen';
 
 // Icons for bottom navigation
@@ -77,7 +78,7 @@ export default function ExtensionDashboard() {
     try {
       // 1. Persist to context (localStorage) and chrome.storage.local
       saveNetwork(newNetwork);
-      await StorageAdapter.set('active_network', newNetwork);
+      await StorageAdapter.set(GLOBAL_KEYS.ACTIVE_NETWORK, newNetwork);
 
       // 2. Reload addresses and UTXOs from cache for the new network
       await loadAddresses(activeBlockchain, newNetwork);
