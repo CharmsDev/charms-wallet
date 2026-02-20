@@ -269,21 +269,21 @@ function SignApproval() {
       const storageData = await chrome.storage.local.get([
         'seedPhrase',
         'active_network',
-        `wallet_addresses_bitcoin_mainnet`,
-        `wallet_addresses_bitcoin_testnet4`,
+        'bitcoin_mainnet_wallet_addresses',
+        'bitcoin_testnet4_wallet_addresses',
       ]);
 
       const seedPhrase = storageData.seedPhrase;
       if (!seedPhrase) throw new Error('Seed phrase not found in wallet');
 
       const networkName = storageData.active_network || 'testnet4';
-      const addressKey = `wallet_addresses_bitcoin_${networkName}`;
+      const addressKey = `bitcoin_${networkName}_wallet_addresses`;
       let addresses = safeParse(storageData[addressKey]);
 
       // Also try the other network's addresses as fallback
       if (addresses.length === 0) {
         const fallbackNetwork = networkName === 'mainnet' ? 'testnet4' : 'mainnet';
-        const fallbackKey = `wallet_addresses_bitcoin_${fallbackNetwork}`;
+        const fallbackKey = `bitcoin_${fallbackNetwork}_wallet_addresses`;
         addresses = safeParse(storageData[fallbackKey]);
       }
 
