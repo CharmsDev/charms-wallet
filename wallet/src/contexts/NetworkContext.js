@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect } from 'react';
-import { GLOBAL_KEYS } from '@/services/storage-keys';
+import { GLOBAL_KEYS, chainPrefix } from '@/services/storage-keys';
 
 // Define supported blockchains and networks
 export const BLOCKCHAINS = {
@@ -114,7 +114,7 @@ export function NetworkProvider({ children }) {
         return false;
     };
     const isTestnet = () => !isMainnet();
-    const getStorageKeyPrefix = () => `${activeBlockchain}_${activeNetwork}`;
+    const getStorageKeyPrefix = () => chainPrefix(activeBlockchain, activeNetwork);
 
     // Context value - single source of truth
     const value = {

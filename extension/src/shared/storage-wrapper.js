@@ -1,6 +1,8 @@
 /**
- * Storage wrapper that adapts wallet's storage.ts to use StorageAdapter
- * This allows the extension to use chrome.storage.local instead of localStorage
+ * Storage Wrapper
+ *
+ * Convenience functions for the extension to read/write wallet data
+ * via chrome.storage.local (through StorageAdapter).
  */
 import { StorageAdapter } from './storage-adapter';
 import {
@@ -12,108 +14,68 @@ import {
     isWalletKey,
 } from '@/services/storage-keys';
 
-// Re-export for backward compatibility
-export const STORAGE_KEYS = GLOBAL_KEYS;
-
-// Override wallet storage functions to use StorageAdapter
+// ─── Seed phrase ─────────────────────────────────────────────────────
 export async function getSeedPhrase() {
     return await StorageAdapter.get(GLOBAL_KEYS.SEED_PHRASE);
 }
-
 export async function setSeedPhrase(seedPhrase) {
     await StorageAdapter.set(GLOBAL_KEYS.SEED_PHRASE, seedPhrase);
 }
-
 export async function clearSeedPhrase() {
     await StorageAdapter.remove(GLOBAL_KEYS.SEED_PHRASE);
 }
 
+// ─── Per-chain data ──────────────────────────────────────────────────
 export async function getWalletAddresses(blockchain, network) {
-    const key = addressesKey(blockchain, network);
-    const data = await StorageAdapter.get(key);
+    const data = await StorageAdapter.get(addressesKey(blockchain, network));
     return data ? JSON.parse(data) : [];
 }
-
 export async function saveWalletAddresses(blockchain, network, addresses) {
-    const key = addressesKey(blockchain, network);
-    await StorageAdapter.set(key, JSON.stringify(addresses));
+    await StorageAdapter.set(addressesKey(blockchain, network), JSON.stringify(addresses));
 }
 
 export async function getUTXOs(blockchain, network) {
-    const key = utxosKey(blockchain, network);
-    const data = await StorageAdapter.get(key);
+    const data = await StorageAdapter.get(utxosKey(blockchain, network));
     return data ? JSON.parse(data) : {};
 }
-
 export async function saveUTXOs(blockchain, network, utxos) {
-    const key = utxosKey(blockchain, network);
-    await StorageAdapter.set(key, JSON.stringify(utxos));
+    await StorageAdapter.set(utxosKey(blockchain, network), JSON.stringify(utxos));
 }
 
 export async function getTransactions(blockchain, network) {
-    const key = transactionsKey(blockchain, network);
-    const data = await StorageAdapter.get(key);
+    const data = await StorageAdapter.get(transactionsKey(blockchain, network));
     return data ? JSON.parse(data) : [];
 }
-
 export async function saveTransactions(blockchain, network, transactions) {
-    const key = transactionsKey(blockchain, network);
-    await StorageAdapter.set(key, JSON.stringify(transactions));
+    await StorageAdapter.set(transactionsKey(blockchain, network), JSON.stringify(transactions));
 }
 
 export async function getCharms(blockchain, network) {
-    const key = charmsKey(blockchain, network);
-    const data = await StorageAdapter.get(key);
+    const data = await StorageAdapter.get(charmsKey(blockchain, network));
     return data ? JSON.parse(data) : [];
 }
-
 export async function saveCharms(blockchain, network, charms) {
-    const key = charmsKey(blockchain, network);
-    await StorageAdapter.set(key, JSON.stringify(charms));
+    await StorageAdapter.set(charmsKey(blockchain, network), JSON.stringify(charms));
 }
 
+// ─── Active blockchain / network ─────────────────────────────────────
 export async function getActiveBlockchain() {
-    const blockchain = await StorageAdapter.get(GLOBAL_KEYS.ACTIVE_BLOCKCHAIN);
-    return blockchain || 'bitcoin';
+    return (await StorageAdapter.get(GLOBAL_KEYS.ACTIVE_BLOCKCHAIN)) || 'bitcoin';
 }
-
 export async function setActiveBlockchain(blockchain) {
     await StorageAdapter.set(GLOBAL_KEYS.ACTIVE_BLOCKCHAIN, blockchain);
 }
-
 export async function getActiveNetwork() {
-    const network = await StorageAdapter.get(GLOBAL_KEYS.ACTIVE_NETWORK);
-    return network || 'testnet4';
+    return (await StorageAdapter.get(GLOBAL_KEYS.ACTIVE_NETWORK)) || 'mainnet';
 }
-
 export async function setActiveNetwork(network) {
     await StorageAdapter.set(GLOBAL_KEYS.ACTIVE_NETWORK, network);
 }
 
+// ─── Clear all ───────────────────────────────────────────────────────
 export async function clearAllWalletData() {
     const keys = await StorageAdapter.getAllKeys();
-    const walletKeys = keys.filter(key => isWalletKey(key));
-    
-    for (const key of walletKeys) {
+    for (const key of keys.filter(isWalletKey)) {
         await StorageAdapter.remove(key);
-    }
-}
-
-// Utility to migrate from localStorage to chrome.storage if needed
-export async function migrateFromLocalStorage() {
-    if (typeof window === 'undefined' || !window.localStorage) {
-        return;
-    }
-
-    // Migrate all wallet-prefixed keys
-    for (let i = window.localStorage.length - 1; i >= 0; i--) {
-        const key = window.localStorage.key(i);
-        if (key && isWalletKey(key)) {
-            const value = window.localStorage.getItem(key);
-            if (value) {
-                await StorageAdapter.set(key, value);
-                window.localStorage.removeItem(key);
-            }
-        }
     }
 }

@@ -3,16 +3,15 @@ import './polyfills.js';
 
 /**
  * PSBT Signing Approval Page
- * 
- * Entry point for the transaction signing popup.
- * Loaded as a separate Vite entry point so it has access to all crypto libraries
+ *
+ * Separate Vite entry point with full crypto libraries
  * (bitcoinjs-lib, bip32, bip39, ecpair, tiny-secp256k1).
- * 
+ *
  * Flow:
- * 1. background.js stores pendingSignRequest in chrome.storage.local
+ * 1. background.js stores ext:pending_sign in chrome.storage.local
  * 2. This popup reads the request, displays TX details
- * 3. User approves → signs PSBT with derived private keys → stores result
- * 4. background.js polls for signResponse → returns to content-script → inpage → dApp
+ * 3. User approves → signs PSBT with derived private keys → stores ext:sign_response
+ * 4. background.js polls for ext:sign_response → returns signed hex to dApp
  */
 
 import React, { useState, useEffect } from 'react';
@@ -210,18 +209,18 @@ function signTaprootInput(psbt, inputIndex, keyInfo, network) {
 // React UI Component
 // ============================================================
 
+// Storage keys (must match background.js / storage-keys.js)
+const EXT_PENDING_SIGN = 'ext:pending_sign';
+const EXT_SIGN_RESPONSE = 'ext:sign_response';
+const SK_SEED_PHRASE = 'wallet:seed_phrase';
+const SK_ACTIVE_NETWORK = 'wallet:active_network';
+const addrKey = (bc, net) => `wallet:${bc}:${net}:addresses`;
+
 function SignApproval() {
   const [request, setRequest] = useState(null);
   const [psbtInfo, setPsbtInfo] = useState(null);
   const [signing, setSigning] = useState(false);
   const [error, setError] = useState(null);
-
-  // Storage keys (must match background.js / storage-keys.js)
-  const EXT_PENDING_SIGN = 'ext:pending_sign';
-  const EXT_SIGN_RESPONSE = 'ext:sign_response';
-  const SK_SEED_PHRASE = 'wallet:seed_phrase';
-  const SK_ACTIVE_NETWORK = 'wallet:active_network';
-  const addrKey = (bc, net) => `wallet:${bc}:${net}:addresses`;
 
   useEffect(() => {
     (async () => {
