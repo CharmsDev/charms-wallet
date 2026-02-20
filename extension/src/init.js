@@ -3,6 +3,7 @@
  * Sets up storage adapter and performs any necessary migrations
  */
 import { migrateFromLocalStorage } from './shared/storage-wrapper';
+import { GLOBAL_KEYS } from '@/services/storage-keys';
 
 let initialized = false;
 
@@ -20,13 +21,13 @@ export async function initializeExtension() {
         // The extension popup's localStorage is ephemeral, so we must restore on every open.
         if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
             const data = await new Promise(resolve =>
-                chrome.storage.local.get(['active_blockchain', 'active_network'], resolve)
+                chrome.storage.local.get([GLOBAL_KEYS.ACTIVE_BLOCKCHAIN, GLOBAL_KEYS.ACTIVE_NETWORK], resolve)
             );
-            if (data.active_blockchain) {
-                localStorage.setItem('active_blockchain', data.active_blockchain);
+            if (data[GLOBAL_KEYS.ACTIVE_BLOCKCHAIN]) {
+                localStorage.setItem(GLOBAL_KEYS.ACTIVE_BLOCKCHAIN, data[GLOBAL_KEYS.ACTIVE_BLOCKCHAIN]);
             }
-            if (data.active_network) {
-                localStorage.setItem('active_network', data.active_network);
+            if (data[GLOBAL_KEYS.ACTIVE_NETWORK]) {
+                localStorage.setItem(GLOBAL_KEYS.ACTIVE_NETWORK, data[GLOBAL_KEYS.ACTIVE_NETWORK]);
             }
         }
         

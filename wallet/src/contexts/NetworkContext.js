@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect } from 'react';
+import { GLOBAL_KEYS } from '@/services/storage-keys';
 
 // Define supported blockchains and networks
 export const BLOCKCHAINS = {
@@ -17,12 +18,6 @@ export const NETWORKS = {
         MAINNET: 'mainnet',
         TESTNET: 'preprod'
     }
-};
-
-// Local storage keys
-const STORAGE_KEYS = {
-    ACTIVE_BLOCKCHAIN: 'active_blockchain',
-    ACTIVE_NETWORK: 'active_network'
 };
 
 // Create network context
@@ -46,8 +41,8 @@ export function NetworkProvider({ children }) {
     // Load saved preferences on mount
     useEffect(() => {
         const loadSavedPreferences = () => {
-            const savedBlockchain = localStorage.getItem(STORAGE_KEYS.ACTIVE_BLOCKCHAIN);
-            const savedNetwork = localStorage.getItem(STORAGE_KEYS.ACTIVE_NETWORK);
+            const savedBlockchain = localStorage.getItem(GLOBAL_KEYS.ACTIVE_BLOCKCHAIN);
+            const savedNetwork = localStorage.getItem(GLOBAL_KEYS.ACTIVE_NETWORK);
 
             if (savedBlockchain) {
                 setActiveBlockchain(savedBlockchain);
@@ -72,22 +67,22 @@ export function NetworkProvider({ children }) {
 
     // Save blockchain selection to localStorage
     const saveBlockchain = (blockchain) => {
-        localStorage.setItem(STORAGE_KEYS.ACTIVE_BLOCKCHAIN, blockchain);
+        localStorage.setItem(GLOBAL_KEYS.ACTIVE_BLOCKCHAIN, blockchain);
         setActiveBlockchain(blockchain);
 
         // Update network to match the blockchain's default mainnet
         if (blockchain === BLOCKCHAINS.BITCOIN) {
             setActiveNetwork(NETWORKS.BITCOIN.MAINNET);
-            localStorage.setItem(STORAGE_KEYS.ACTIVE_NETWORK, NETWORKS.BITCOIN.MAINNET);
+            localStorage.setItem(GLOBAL_KEYS.ACTIVE_NETWORK, NETWORKS.BITCOIN.MAINNET);
         } else if (blockchain === BLOCKCHAINS.CARDANO) {
             setActiveNetwork(NETWORKS.CARDANO.MAINNET);
-            localStorage.setItem(STORAGE_KEYS.ACTIVE_NETWORK, NETWORKS.CARDANO.MAINNET);
+            localStorage.setItem(GLOBAL_KEYS.ACTIVE_NETWORK, NETWORKS.CARDANO.MAINNET);
         }
     };
 
     // Save network selection to localStorage
     const saveNetwork = (network) => {
-        localStorage.setItem(STORAGE_KEYS.ACTIVE_NETWORK, network);
+        localStorage.setItem(GLOBAL_KEYS.ACTIVE_NETWORK, network);
         setActiveNetwork(network);
     };
 
