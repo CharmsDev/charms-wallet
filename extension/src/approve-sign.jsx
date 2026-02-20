@@ -177,9 +177,20 @@ async function signPsbtWithKeys(psbtHex, options, seedPhrase, networkName, addre
 
 /**
  * Sign a single Taproot input with a tweaked private key.
+ *
+ * Sets tapInternalKey on the PSBT input so that bitcoinjs-lib recognises it
+ * as a key-path spend and stores the Schnorr signature as `tapKeySig`.
+ * This is critical for both flows:
+ *   - autoFinalized=true  → finalizeInput reads tapKeySig to build the witness
+ *   - autoFinalized=false → Cast extracts tapKeySig directly from the PSBT data
  */
 function signTaprootInput(psbt, inputIndex, keyInfo, network) {
   const { privateKey, xOnlyPubKey } = keyInfo;
+
+  // Ensure tapInternalKey is set so bitcoinjs-lib treats this as Taproot
+  if (!psbt.data.inputs[inputIndex].tapInternalKey) {
+    psbt.updateInput(inputIndex, { tapInternalKey: xOnlyPubKey });
+  }
 
   // Compute the Taproot tweak
   const tweak = bitcoin.crypto.taggedHash('TapTweak', xOnlyPubKey);
@@ -197,12 +208,18 @@ function signTaprootInput(psbt, inputIndex, keyInfo, network) {
   const tweakedKey = ecc.privateAdd(keyForTweak, tweak);
   if (!tweakedKey) throw new Error('Tweak resulted in invalid private key');
 
-  // Create tweaked key pair for signing
-  const tweakedKeyPair = ECPair.fromPrivateKey(Buffer.from(tweakedKey), { network });
-  // Override the sign method to use Schnorr
-  tweakedKeyPair.sign = (hash) => Buffer.from(ecc.signSchnorr(hash, tweakedKey));
+  // Build a signer that implements the Taproot signing interface
+  const tweakedSigner = {
+    publicKey: Buffer.from(ecc.pointFromScalar(tweakedKey)),
+    sign(hash) {
+      return Buffer.from(ecc.signSchnorr(hash, tweakedKey));
+    },
+    signSchnorr(hash) {
+      return Buffer.from(ecc.signSchnorr(hash, tweakedKey));
+    },
+  };
 
-  psbt.signInput(inputIndex, tweakedKeyPair);
+  psbt.signInput(inputIndex, tweakedSigner);
 }
 
 // ============================================================
