@@ -195,20 +195,6 @@ async function handleWalletProviderRequest(request, sender) {
           }
         }
 
-        // Last resort: scan all storage keys for address data
-        if (addresses.length === 0) {
-          const allStorage = await new Promise(resolve => {
-            chrome.storage.local.get(null, (data) => resolve(data));
-          });
-          for (const k of Object.keys(allStorage)) {
-            const parsed = parseAddresses(allStorage[k]);
-            if (parsed.length > 0 && parsed[0]?.address) {
-              addresses = parsed;
-              break;
-            }
-          }
-        }
-        
         if (addresses.length === 0) {
           return { error: 'No wallet found. Please create or import a wallet first.' };
         }
@@ -529,7 +515,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const data = request.data;
       
       // Validate data
-      if (!data || !data.seedPhrase) {
+      if (!data || !data[SK.SEED_PHRASE]) {
         sendResponse({ success: false, error: 'No seed phrase provided' });
         return true;
       }
@@ -560,24 +546,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // Keep service worker alive
-let keepAliveInterval;
-
-function startKeepAlive() {
-  keepAliveInterval = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => {
-      // Just to keep the service worker alive
-    });
-  }, 20000); // Every 20 seconds
-}
-
-function stopKeepAlive() {
-  if (keepAliveInterval) {
-    clearInterval(keepAliveInterval);
-  }
-}
-
-// Start keep-alive on load
-startKeepAlive();
+setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20000);
 
 // Listen for connections from popup
 chrome.runtime.onConnect.addListener((port) => {

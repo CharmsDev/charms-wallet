@@ -5,27 +5,9 @@ import {
     GLOBAL_KEYS,
     DATA_TYPES,
     chainKey,
-    addressesKey,
-    utxosKey,
-    transactionsKey,
     charmsKey,
-    infoKey,
-    chainPrefix,
     isWalletKey,
 } from './storage-keys';
-
-// Re-export for backward compatibility (consumers that import STORAGE_KEYS)
-export const STORAGE_KEYS = {
-    SEED_PHRASE: GLOBAL_KEYS.SEED_PHRASE,
-    WALLET_INFO: DATA_TYPES.INFO,
-    WALLET_ADDRESSES: DATA_TYPES.ADDRESSES,
-    UTXOS: DATA_TYPES.UTXOS,
-    TRANSACTIONS: DATA_TYPES.TRANSACTIONS,
-    CHARMS: DATA_TYPES.CHARMS,
-    BALANCE: GLOBAL_KEYS.BALANCE,
-    ACTIVE_BLOCKCHAIN: GLOBAL_KEYS.ACTIVE_BLOCKCHAIN,
-    ACTIVE_NETWORK: GLOBAL_KEYS.ACTIVE_NETWORK
-};
 
 export interface AddressEntry {
     address: string;
@@ -73,11 +55,11 @@ const getActiveBlockchainAndNetwork = async (): Promise<{ blockchain: string, ne
     let network;
 
     if (blockchain === BLOCKCHAINS.BITCOIN) {
-        network = await StorageAdapter.get(GLOBAL_KEYS.ACTIVE_NETWORK) || NETWORKS.BITCOIN.TESTNET;
+        network = await StorageAdapter.get(GLOBAL_KEYS.ACTIVE_NETWORK) || NETWORKS.BITCOIN.MAINNET;
     } else if (blockchain === BLOCKCHAINS.CARDANO) {
-        network = await StorageAdapter.get(GLOBAL_KEYS.ACTIVE_NETWORK) || NETWORKS.CARDANO.TESTNET;
+        network = await StorageAdapter.get(GLOBAL_KEYS.ACTIVE_NETWORK) || NETWORKS.CARDANO.MAINNET;
     } else {
-        network = NETWORKS.BITCOIN.TESTNET;
+        network = NETWORKS.BITCOIN.MAINNET;
     }
 
     return { blockchain, network };
@@ -271,38 +253,28 @@ export const clearAllWalletData = async (): Promise<void> => {
 };
 
 // Charms storage functions
-export const saveCharms = async (charms: any[], blockchain: string = BLOCKCHAINS.BITCOIN, network: string = NETWORKS.BITCOIN.TESTNET): Promise<void> => {
-    try {
-        const key = charmsKey(blockchain, network);
-        const charmsData = {
-            charms,
-            timestamp: Date.now(),
-            count: charms.length
-        };
-        await StorageAdapter.set(key, JSON.stringify(charmsData));
-    } catch (error) {
-        throw error;
-    }
+export const saveCharms = async (charms: any[], blockchain: string = BLOCKCHAINS.BITCOIN, network: string = NETWORKS.BITCOIN.MAINNET): Promise<void> => {
+    const key = charmsKey(blockchain, network);
+    await StorageAdapter.set(key, JSON.stringify({
+        charms,
+        timestamp: Date.now(),
+        count: charms.length
+    }));
 };
 
-export const getCharms = async (blockchain: string = BLOCKCHAINS.BITCOIN, network: string = NETWORKS.BITCOIN.TESTNET): Promise<any[]> => {
+export const getCharms = async (blockchain: string = BLOCKCHAINS.BITCOIN, network: string = NETWORKS.BITCOIN.MAINNET): Promise<any[]> => {
     try {
         const key = charmsKey(blockchain, network);
         const stored = await StorageAdapter.get(key);
-        
-        if (!stored) {
-            return [];
-        }
-
+        if (!stored) return [];
         const charmsData = JSON.parse(stored);
         return charmsData.charms || [];
-    } catch (error) {
+    } catch {
         return [];
     }
 };
 
-// Balance storage - centralized balance storage with extended stats
-// Single localStorage key: "balance" contains all balances for all networks
+// Balance storage — single key contains all balances for all networks
 export interface TokenBalance {
     appId: string;
     ticker: string;
@@ -373,23 +345,16 @@ export const saveBalance = async (
         };
         
         await StorageAdapter.set(GLOBAL_KEYS.BALANCE, JSON.stringify(balances));
-    } catch (error) {
-    }
+    } catch { /* non-critical */ }
 };
 
 export const getBalance = async (blockchain: string, network: string): Promise<BalanceData | null> => {
     try {
         const stored = await StorageAdapter.get(GLOBAL_KEYS.BALANCE);
-        
-        if (!stored) {
-            return null;
-        }
-        
+        if (!stored) return null;
         const balances = JSON.parse(stored);
-        const result = balances[blockchain]?.[network] || null;
-        
-        return result;
-    } catch (error) {
+        return balances[blockchain]?.[network] || null;
+    } catch {
         return null;
     }
 };
