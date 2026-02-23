@@ -10,8 +10,14 @@ export default function Footer() {
             <footer className="glass-effect border-t border-dark-700/50 mt-auto">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
                     <div className="flex justify-between items-center">
-                        <div className="text-sm text-dark-300">
-                            2025 Charms Wallet. All rights reserved.
+                        <div className="flex items-center gap-4 text-sm text-dark-300">
+                            <span>2025 Charms Wallet. All rights reserved.</span>
+                            <a
+                                href="/privacy"
+                                className="text-dark-400 hover:text-bitcoin-400 transition-colors"
+                            >
+                                Privacy Policy
+                            </a>
                         </div>
                         <div className="flex items-center gap-3 text-sm text-dark-300">
                             <span className="bitcoin-glow-text text-bitcoin-400">Version {packageJson.version}</span>
