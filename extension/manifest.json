@@ -17,15 +17,11 @@
     },
     "default_title": "Charms Wallet"
   },
-  "permissions": ["storage", "unlimitedStorage", "activeTab"],
+  "permissions": ["storage"],
   "host_permissions": [
-    "https://*.quicknode.pro/*",
     "https://mempool.space/*",
-    "https://charms-explorer-api.fly.dev/*",
-    "https://explorer-api.charms.dev/*",
     "https://charms.sh/*",
-    "https://*.charms.dev/*",
-    "https://api.coingecko.com/*"
+    "https://*.charms.dev/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -41,10 +37,7 @@
   "web_accessible_resources": [
     {
       "resources": ["inpage.js"],
-      "matches": [
-        "https://charms.sh/*",
-        "https://*.charms.dev/*"
-      ]
+      "matches": ["https://charms.sh/*", "https://*.charms.dev/*"]
     }
   ],
   "content_security_policy": {
