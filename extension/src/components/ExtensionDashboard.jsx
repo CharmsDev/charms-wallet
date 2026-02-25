@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useWallet } from '@/stores/walletStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useCharms } from '@/stores/charmsStore';
@@ -51,6 +51,9 @@ export default function ExtensionDashboard() {
   const [copied, setCopied] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [showSeedPhrase, setShowSeedPhrase] = useState(false);
+  const [seedPhraseWords, setSeedPhraseWords] = useState([]);
+  const [seedCopied, setSeedCopied] = useState(false);
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false);
   const [lastSynced, setLastSynced] = useState(null);
 
@@ -114,7 +117,8 @@ export default function ExtensionDashboard() {
       const idx = stored != null ? Number(stored) : 0;
       setReceiveIndex(idx);
 
-      const addr = await generateTaprootAddress(seedPhrase, idx, false);
+      const networkObj = activeNetwork === 'mainnet' ? { messagePrefix: '\x18Bitcoin Signed Message:\n', bech32: 'bc', bip32: { public: 0x0488b21e, private: 0x0488ade4 }, pubKeyHash: 0x00, scriptHash: 0x05, wif: 0x80 } : null;
+      const addr = await generateTaprootAddress(seedPhrase, idx, false, networkObj);
       setReceiveAddress(addr);
 
       // Make sure this address exists in the addresses store
@@ -143,7 +147,8 @@ export default function ExtensionDashboard() {
       if (!seedPhrase) throw new Error('No seed phrase');
 
       const nextIdx = receiveIndex + 1;
-      const addr = await generateTaprootAddress(seedPhrase, nextIdx, false);
+      const networkObj = activeNetwork === 'mainnet' ? { messagePrefix: '\x18Bitcoin Signed Message:\n', bech32: 'bc', bip32: { public: 0x0488b21e, private: 0x0488ade4 }, pubKeyHash: 0x00, scriptHash: 0x05, wif: 0x80 } : null;
+      const addr = await generateTaprootAddress(seedPhrase, nextIdx, false, networkObj);
 
       // Persist the new index
       await StorageAdapter.set(receiveIndexKey, nextIdx);
@@ -246,9 +251,7 @@ export default function ExtensionDashboard() {
       {/* Header */}
       <header className="glass-effect flex items-center justify-between px-4 py-3 border-b border-dark-700">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-r from-bitcoin-500 to-orange-600 flex items-center justify-center bitcoin-glow">
-            <span className="text-sm font-bold text-white">₿</span>
-          </div>
+          <img src="./logo.png" alt="Charms" className="w-8 h-8 object-contain" />
           <span className="font-semibold gradient-text">Charms Wallet</span>
         </div>
         <div className="flex items-center gap-2">
@@ -349,11 +352,11 @@ export default function ExtensionDashboard() {
                   </div>
                   <span className="text-xs text-dark-400">Bro Token</span>
                 </div>
-                <div className="text-xl font-bold text-purple-400">
+                <div className="text-xl font-bold text-bitcoin-400">
                   {isSyncing ? '--' : Number(broBalance || 0).toFixed(2)}
                 </div>
                 {isSyncing && syncPhase === 'charms' && (
-                  <div className="text-[10px] text-purple-400/60 mt-0.5">updating...</div>
+                  <div className="text-[10px] text-bitcoin-400/60 mt-0.5">updating...</div>
                 )}
                 <div className="text-xs text-dark-500">$BRO</div>
               </div>
@@ -438,8 +441,14 @@ export default function ExtensionDashboard() {
                 {tokens.map((token, idx) => (
                   <div key={idx} className="card p-3 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
-                        <span className="text-sm font-bold text-white">T</span>
+                      <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center bg-dark-700">
+                        {token.image_url ? (
+                          <img src={token.image_url} alt={token.ticker || 'Token'} className="w-full h-full object-cover" />
+                        ) : token.ticker === '$BRO' || token.ticker === 'BRO' ? (
+                          <img src="https://bro.charms.dev/assets/bro-token-DsXLIv23.jpg" alt="BRO" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-sm font-bold text-white">{(token.ticker || 'T')[0]}</span>
+                        )}
                       </div>
                       <div>
                         <div className="text-sm font-medium text-white">{token.ticker || 'Token'}</div>
@@ -488,15 +497,55 @@ export default function ExtensionDashboard() {
           <div className="p-4">
             <h2 className="text-lg font-bold gradient-text mb-4">Settings</h2>
             <div className="space-y-2">
-              <div className="card p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-dark-700 flex items-center justify-center">
-                    <span className="text-sm">🔐</span>
+              {!showSeedPhrase ? (
+                <button
+                  className="w-full card p-4 flex items-center justify-between hover:border-primary-500/50 transition-colors"
+                  onClick={async () => {
+                    const sp = await getSeedPhrase();
+                    if (sp) {
+                      setSeedPhraseWords(sp.trim().split(/\s+/));
+                      setShowSeedPhrase(true);
+                    }
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-dark-700 flex items-center justify-center">
+                      <span className="text-sm">🔐</span>
+                    </div>
+                    <span className="text-sm text-white">Export Seed Phrase</span>
                   </div>
-                  <span className="text-sm text-white">Export Seed Phrase</span>
+                  <span className="text-dark-500">→</span>
+                </button>
+              ) : (
+                <div className="card p-4 border-yellow-500/30 bg-yellow-900/10">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-medium text-yellow-400">⚠️ Keep this secret</span>
+                    <button onClick={() => { setShowSeedPhrase(false); setSeedCopied(false); }} className="text-xs text-dark-400 hover:text-white">Hide</button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 mb-3">
+                    {seedPhraseWords.map((word, i) => (
+                      <div key={i} className="bg-dark-800 rounded px-2 py-1 text-xs">
+                        <span className="text-dark-500 mr-1">{i + 1}.</span>
+                        <span className="text-white font-mono">{word}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(seedPhraseWords.join(' '));
+                      setSeedCopied(true);
+                      setTimeout(() => setSeedCopied(false), 2500);
+                    }}
+                    className={`w-full py-2 rounded-lg text-xs font-medium transition-all ${
+                      seedCopied
+                        ? 'bg-green-600/20 border border-green-500/50 text-green-400'
+                        : 'bg-dark-700 border border-dark-600 text-dark-300 hover:bg-dark-600 hover:text-white'
+                    }`}
+                  >
+                    {seedCopied ? '✓ Copied to clipboard!' : 'Copy seed phrase'}
+                  </button>
                 </div>
-                <span className="text-dark-500">→</span>
-              </div>
+              )}
               <div className="card p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">

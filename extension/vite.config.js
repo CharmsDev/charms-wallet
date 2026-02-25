@@ -83,6 +83,12 @@ function copyStaticFiles() {
           copyFileSync(src, resolve(iconsDir, icon));
         }
       });
+
+      // Copy Charms logo
+      const logoSrc = resolve(__dirname, 'logo.png');
+      if (existsSync(logoSrc)) {
+        copyFileSync(logoSrc, resolve(distDir, 'logo.png'));
+      }
     }
   };
 }
