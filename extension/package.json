@@ -8,6 +8,8 @@
     "build": "vite build",
     "build:prod": "vite build --mode production",
     "build:dev": "vite build --mode development",
+    "manifest:dev": "cp manifest.dev.json dist/manifest.json && echo 'dist/manifest.json → DEV (localhost enabled)'",
+    "manifest:prod": "cp manifest.json dist/manifest.json && echo 'dist/manifest.json → PROD (production only)'",
     "preview": "vite preview"
   },
   "dependencies": {

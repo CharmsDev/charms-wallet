@@ -268,6 +268,35 @@ export class ExplorerWalletService {
         return data.txid;
     }
 
+    // ── UTXOs (indexed, instant) ─────────────────────────────────────────
+
+    /**
+     * Get UTXOs for an address from the indexed DB.
+     * Returns { utxos: [{ txid, vout, value, address, confirmations }] }.
+     */
+    async getUTXOs(address, network) {
+        return this._makeRequest(`/v1/wallet/utxos/${address}`, {}, network);
+    }
+
+    /**
+     * Aggregate UTXOs across multiple addresses.
+     * Returns flat array of { txid, vout, value, address, confirmations }.
+     * Throws if ALL requests fail (mirrors getAggregateBalance sentinel logic).
+     */
+    async getAggregateUTXOs(addresses, network) {
+        const SENTINEL = Symbol('error');
+        const results = await Promise.all(
+            addresses.map(addr =>
+                this.getUTXOs(addr, network).catch(() => SENTINEL)
+            )
+        );
+        const succeeded = results.filter(r => r !== SENTINEL);
+        if (succeeded.length === 0) {
+            throw new Error('Explorer API unavailable: all UTXO requests failed');
+        }
+        return succeeded.flatMap(r => r.utxos || []);
+    }
+
     // ── Balance (indexed, instant) ──────────────────────────────────────
 
     /**
