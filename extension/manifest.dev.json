@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Charms Wallet",
+  "name": "Charms Wallet (dev)",
   "version": "0.6.4",
   "description": "Bitcoin wallet with Charms support for managing BTC, ordinals, runes, and charm tokens",
   "icons": {
@@ -15,13 +15,15 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
-    "default_title": "Charms Wallet"
+    "default_title": "Charms Wallet (dev)"
   },
   "permissions": ["storage"],
   "host_permissions": [
     "https://mempool.space/*",
     "https://charms.sh/*",
-    "https://*.charms.dev/*"
+    "https://*.charms.dev/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -29,7 +31,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://charms.sh/*", "https://*.charms.dev/*"],
+      "matches": ["https://charms.sh/*", "https://*.charms.dev/*", "http://localhost/*", "http://127.0.0.1/*"],
       "js": ["content-script.js"],
       "run_at": "document_start"
     }
@@ -37,7 +39,7 @@
   "web_accessible_resources": [
     {
       "resources": ["inpage.js"],
-      "matches": ["https://charms.sh/*", "https://*.charms.dev/*"]
+      "matches": ["https://charms.sh/*", "https://*.charms.dev/*", "http://localhost/*", "http://127.0.0.1/*"]
     }
   ],
   "content_security_policy": {
