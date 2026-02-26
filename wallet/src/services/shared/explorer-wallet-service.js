@@ -283,15 +283,20 @@ export class ExplorerWalletService {
      * Returns { confirmed, unconfirmed, total } in sats.
      */
     async getAggregateBalance(addresses, network) {
+        const SENTINEL = Symbol('error');
         const results = await Promise.all(
             addresses.map(addr =>
-                this.getBalance(addr, network).catch(() => ({ confirmed: 0, unconfirmed: 0, total: 0 }))
+                this.getBalance(addr, network).catch(() => SENTINEL)
             )
         );
+        const succeeded = results.filter(r => r !== SENTINEL);
+        if (succeeded.length === 0) {
+            throw new Error('Explorer API unavailable: all balance requests failed');
+        }
         return {
-            confirmed: results.reduce((s, r) => s + (r.confirmed || 0), 0),
-            unconfirmed: results.reduce((s, r) => s + (r.unconfirmed || 0), 0),
-            total: results.reduce((s, r) => s + (r.total || 0), 0),
+            confirmed: succeeded.reduce((s, r) => s + (r.confirmed || 0), 0),
+            unconfirmed: succeeded.reduce((s, r) => s + (r.unconfirmed || 0), 0),
+            total: succeeded.reduce((s, r) => s + (r.total || 0), 0),
         };
     }
 
@@ -312,11 +317,17 @@ export class ExplorerWalletService {
      * Returns array of { appId, assetType, symbol, confirmed, unconfirmed, total, utxos }.
      */
     async getAggregateCharmBalances(addresses, network) {
-        const results = await Promise.all(
+        const SENTINEL = Symbol('error');
+        const raw = await Promise.all(
             addresses.map(addr =>
-                this.getCharmBalances(addr, network).catch(() => ({ balances: [] }))
+                this.getCharmBalances(addr, network).catch(() => SENTINEL)
             )
         );
+        const succeeded = raw.filter(r => r !== SENTINEL);
+        if (succeeded.length === 0) {
+            throw new Error('Explorer API unavailable: all charm requests failed');
+        }
+        const results = succeeded;
 
         const map = {};
         for (const r of results) {

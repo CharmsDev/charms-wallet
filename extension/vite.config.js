@@ -89,6 +89,12 @@ function copyStaticFiles() {
       if (existsSync(logoSrc)) {
         copyFileSync(logoSrc, resolve(distDir, 'logo.png'));
       }
+
+      // Copy toad-token.wasm for BRO token transfers
+      const tokenWasmSrc = resolve(__dirname, 'toad-token.wasm');
+      if (existsSync(tokenWasmSrc)) {
+        copyFileSync(tokenWasmSrc, resolve(distDir, 'toad-token.wasm'));
+      }
     }
   };
 }

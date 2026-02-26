@@ -16,23 +16,27 @@ const useAddressesStore = create((set, get) => ({
 
     // Simplified address loader
     loadAddresses: async (blockchain, network) => {
-        const state = get();
+        const networkKey = `${blockchain}-${network}`;
 
         // Check if network has changed - if so, clear existing addresses and reinitialize
-        const networkKey = `${blockchain}-${network}`;
+        const state = get();
         if (state.currentNetwork && state.currentNetwork !== networkKey) {
             set({
                 addresses: [],
                 initialized: false,
+                currentNetwork: networkKey,
                 error: null
             });
+        } else {
+            // Update current network (no change needed to other fields)
+            set({ currentNetwork: networkKey });
         }
 
-        // Update current network
-        set({ currentNetwork: networkKey });
+        // Re-read state AFTER any resets above (avoid stale closure)
+        const freshState = get();
 
         // Prevent multiple loads for same network
-        if (state.loading || (state.initialized && state.currentNetwork === networkKey)) {
+        if (freshState.loading || freshState.initialized) {
             return;
         }
 

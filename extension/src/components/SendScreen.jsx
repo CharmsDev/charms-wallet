@@ -3,6 +3,7 @@ import { useUTXOs } from '@/stores/utxoStore';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCharms } from '@/stores/charmsStore';
 import { formatBTC } from '@/utils/formatters';
+import SendCharmScreen from './SendCharmScreen';
 
 // ─── Steps ───────────────────────────────────────────────────────────
 const STEP = {
@@ -323,6 +324,11 @@ export default function SendScreen({ onClose, syncUTXOs }) {
   // ─────────────────────────────────────────────────────────────────────
   // RENDER
   // ─────────────────────────────────────────────────────────────────────
+  // If BRO tab selected, delegate entirely to SendCharmScreen
+  if (selectedAsset === 'bro') {
+    return <SendCharmScreen onClose={onClose} syncAfterSend={syncUTXOs} />;
+  }
+
   return (
     <div className="absolute inset-0 z-50 flex flex-col bg-dark-950 overflow-hidden">
       {/* Header */}
@@ -350,11 +356,13 @@ export default function SendScreen({ onClose, syncUTXOs }) {
               </button>
               <button
                 onClick={() => setSelectedAsset('bro')}
-                disabled
-                className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-dark-500 cursor-not-allowed opacity-50"
-                title="Coming soon"
+                className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                  selectedAsset === 'bro'
+                    ? 'bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg'
+                    : 'bg-dark-800 border border-dark-600 text-dark-400 hover:text-dark-300'
+                }`}
               >
-                $BRO (soon)
+                $BRO
               </button>
             </div>
 

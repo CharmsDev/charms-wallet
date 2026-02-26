@@ -21,7 +21,9 @@
   "host_permissions": [
     "https://mempool.space/*",
     "https://charms.sh/*",
-    "https://*.charms.dev/*"
+    "https://*.charms.dev/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -29,7 +31,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://charms.sh/*", "https://*.charms.dev/*"],
+      "matches": ["https://charms.sh/*", "https://*.charms.dev/*", "http://localhost/*", "http://127.0.0.1/*"],
       "js": ["content-script.js"],
       "run_at": "document_start"
     }
@@ -37,7 +39,7 @@
   "web_accessible_resources": [
     {
       "resources": ["inpage.js"],
-      "matches": ["https://charms.sh/*", "https://*.charms.dev/*"]
+      "matches": ["https://charms.sh/*", "https://*.charms.dev/*", "http://localhost/*", "http://127.0.0.1/*"]
     }
   ],
   "content_security_policy": {
