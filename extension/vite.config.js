@@ -27,7 +27,7 @@ function overrideWasmModules() {
 }
 
 // Copy static files to dist after build
-function copyStaticFiles() {
+function copyStaticFiles(isDev = false) {
   return {
     name: 'copy-static-files',
     closeBundle() {
@@ -39,11 +39,12 @@ function copyStaticFiles() {
         mkdirSync(iconsDir, { recursive: true });
       }
       
-      // Copy manifest.json
-      copyFileSync(
-        resolve(__dirname, 'manifest.json'),
-        resolve(distDir, 'manifest.json')
-      );
+      // Copy the appropriate manifest: dev build uses manifest.dev.json (includes localhost),
+      // production build uses manifest.json (production domains only).
+      const manifestSrc = isDev
+        ? resolve(__dirname, 'manifest.dev.json')
+        : resolve(__dirname, 'manifest.json');
+      copyFileSync(manifestSrc, resolve(distDir, 'manifest.json'));
       
       // Copy background.js
       copyFileSync(
@@ -100,6 +101,7 @@ function copyStaticFiles() {
 }
 
 export default defineConfig(({ mode }) => {
+  const isDev = mode === 'development';
   // Load env file from extension directory
   const env = loadEnv(mode, __dirname, 'VITE_');
   
@@ -145,7 +147,7 @@ export default defineConfig(({ mode }) => {
         include: ['../wallet/src/**'],
         presets: [['@babel/preset-react', { runtime: 'automatic' }]],
       }),
-      copyStaticFiles()
+      copyStaticFiles(isDev)
     ],
     resolve: {
       alias: {
