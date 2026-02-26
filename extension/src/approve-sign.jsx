@@ -113,11 +113,19 @@ async function signPsbtWithKeys(psbtHex, options, seedPhrase, networkName, addre
   const autoFinalized = options?.autoFinalized !== false;
   const toSignInputs = options?.toSignInputs;
 
+  console.log('[approve-sign] keyMap addresses:', Array.from(keyMap.keys()));
+  console.log('[approve-sign] toSignInputs:', JSON.stringify(toSignInputs));
+  console.log('[approve-sign] autoFinalized:', autoFinalized);
+  console.log('[approve-sign] inputCount:', psbt.inputCount);
+
+  let signedCount = 0;
+
   if (toSignInputs && toSignInputs.length > 0) {
     // Sign only specified inputs
     for (const inputSpec of toSignInputs) {
       const { index, address } = inputSpec;
       const keyInfo = address ? keyMap.get(address) : null;
+      console.log(`[approve-sign] toSign input ${index}, address=${address}, keyFound=${!!keyInfo}`);
 
       if (!keyInfo) {
         // Try to find key by matching the input's witnessUtxo scriptPubKey
@@ -129,9 +137,11 @@ async function signPsbtWithKeys(psbtHex, options, seedPhrase, networkName, addre
             if (inputData?.witnessUtxo) {
               const scriptHex = Buffer.from(inputData.witnessUtxo.script).toString('hex');
               const p2trScriptHex = p2tr.output.toString('hex');
+              console.log(`[approve-sign] fallback match: addr=${addr}, script=${scriptHex.slice(0,20)}..., p2tr=${p2trScriptHex.slice(0,20)}..., match=${scriptHex === p2trScriptHex}`);
               if (scriptHex === p2trScriptHex) {
                 signTaprootInput(psbt, index, ki, network);
                 found = true;
+                signedCount++;
                 break;
               }
             }
@@ -142,21 +152,29 @@ async function signPsbtWithKeys(psbtHex, options, seedPhrase, networkName, addre
         }
       } else {
         signTaprootInput(psbt, index, keyInfo, network);
+        signedCount++;
       }
     }
   } else {
     // Sign all inputs we have keys for
     for (let i = 0; i < psbt.inputCount; i++) {
       const inputData = psbt.data.inputs[i];
-      if (!inputData?.witnessUtxo) continue;
+      if (!inputData?.witnessUtxo) {
+        console.log(`[approve-sign] input ${i}: no witnessUtxo, skipping`);
+        continue;
+      }
 
       const scriptHex = Buffer.from(inputData.witnessUtxo.script).toString('hex');
+      console.log(`[approve-sign] input ${i}: scriptPubKey=${scriptHex}`);
 
-      for (const [, keyInfo] of keyMap.entries()) {
+      for (const [addr, keyInfo] of keyMap.entries()) {
         try {
           const p2tr = bitcoin.payments.p2tr({ internalPubkey: keyInfo.xOnlyPubKey, network });
-          if (p2tr.output.toString('hex') === scriptHex) {
+          const p2trScriptHex = p2tr.output.toString('hex');
+          if (p2trScriptHex === scriptHex) {
+            console.log(`[approve-sign] input ${i}: MATCHED addr=${addr}`);
             signTaprootInput(psbt, i, keyInfo, network);
+            signedCount++;
             break;
           }
         } catch { /* continue */ }
@@ -164,11 +182,16 @@ async function signPsbtWithKeys(psbtHex, options, seedPhrase, networkName, addre
     }
   }
 
+  console.log(`[approve-sign] Signed ${signedCount} inputs out of ${psbt.inputCount}`);
+
   if (autoFinalized) {
     for (let i = 0; i < psbt.inputCount; i++) {
       try {
         psbt.finalizeInput(i);
-      } catch { /* skip inputs that can't be finalized */ }
+        console.log(`[approve-sign] finalizeInput(${i}): OK`);
+      } catch (e) {
+        console.warn(`[approve-sign] finalizeInput(${i}): FAILED -`, e.message);
+      }
     }
   }
 
@@ -192,18 +215,39 @@ async function signPsbtWithKeys(psbtHex, options, seedPhrase, networkName, addre
 function signTaprootInput(psbt, inputIndex, keyInfo, network) {
   const { privateKey, xOnlyPubKey } = keyInfo;
 
+  console.log(`[signTaprootInput] input=${inputIndex}`);
+  console.log(`[signTaprootInput] pubkey prefix=0x${keyInfo.publicKey[0].toString(16)}, xOnly=${Buffer.from(xOnlyPubKey).toString('hex').slice(0,16)}...`);
+
   // Ensure tapInternalKey is set
-  if (!psbt.data.inputs[inputIndex].tapInternalKey) {
+  const existingTIK = psbt.data.inputs[inputIndex].tapInternalKey;
+  if (existingTIK) {
+    console.log(`[signTaprootInput] tapInternalKey already set: ${Buffer.from(existingTIK).toString('hex').slice(0,16)}...`);
+    console.log(`[signTaprootInput] matches our xOnly: ${Buffer.from(existingTIK).toString('hex') === Buffer.from(xOnlyPubKey).toString('hex')}`);
+  } else {
     psbt.updateInput(inputIndex, { tapInternalKey: xOnlyPubKey });
+    console.log(`[signTaprootInput] set tapInternalKey to our xOnly`);
   }
 
   // Step 1: Negate private key if the full internal public key has odd Y
   const isOddY = keyInfo.publicKey[0] === 0x03;
+  console.log(`[signTaprootInput] isOddY=${isOddY}`);
   const tweakedPrivateKey = ecc.privateAdd(
     isOddY ? ecc.privateNegate(privateKey) : privateKey,
     bitcoin.crypto.taggedHash('TapTweak', xOnlyPubKey)
   );
   if (!tweakedPrivateKey) throw new Error('Tweak resulted in invalid private key');
+
+  // Verify: tweaked pub should match the output key in the scriptPubKey
+  const tweakedPub = ecc.pointFromScalar(tweakedPrivateKey);
+  const tweakedXOnly = Buffer.from(tweakedPub.slice(1, 33)).toString('hex');
+  const scriptPubKey = Buffer.from(psbt.data.inputs[inputIndex].witnessUtxo.script).toString('hex');
+  const outputKeyFromScript = scriptPubKey.slice(4); // skip 5120
+  console.log(`[signTaprootInput] tweakedXOnly=${tweakedXOnly.slice(0,16)}...`);
+  console.log(`[signTaprootInput] outputKey   =${outputKeyFromScript.slice(0,16)}...`);
+  console.log(`[signTaprootInput] MATCH=${tweakedXOnly === outputKeyFromScript}`);
+  if (tweakedXOnly !== outputKeyFromScript) {
+    console.error(`[signTaprootInput] ⚠️ MISMATCH! Tweaked key does not match output key. Signature will be invalid.`);
+  }
 
   // Step 2: Collect prevOutScripts and values for ALL inputs (required by BIP341)
   const prevOutScripts = [];
