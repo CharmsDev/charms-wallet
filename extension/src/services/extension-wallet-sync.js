@@ -74,10 +74,36 @@ function toCharmObj(utxo, balanceEntry) {
  * Returns { balanceResult, charms, tokenBalances } or throws on failure.
  */
 async function fetchFromExplorerAPI(explorerService, addressList, network, skipCharms) {
-    const [balanceResult, charmBalances] = await Promise.all([
-        explorerService.getAggregateBalance(addressList, network),
+    // Fetch UTXOs and charm balances in parallel.
+    // BTC balance is calculated locally from the UTXO list (same approach as Cast),
+    // which is more reliable than the /balance endpoint that can return stale data.
+    const [utxos, charmBalances] = await Promise.all([
+        explorerService.getAggregateUTXOs(addressList, network),
         skipCharms ? [] : explorerService.getAggregateCharmBalances(addressList, network),
     ]);
+
+    // Calculate BTC balance locally from UTXO list (mirrors Cast's btcBalanceSats calculation)
+    const charmUtxoKeys = new Set();
+    if (!skipCharms && Array.isArray(charmBalances)) {
+        for (const balance of charmBalances) {
+            for (const utxo of (balance.utxos || [])) {
+                charmUtxoKeys.add(`${utxo.txid}:${utxo.vout}`);
+            }
+        }
+    }
+
+    let confirmed = 0;
+    let unconfirmed = 0;
+    for (const utxo of utxos) {
+        const sats = utxo.value || 0;
+        const isConfirmed = (utxo.confirmations || 0) >= 1;
+        if (isConfirmed) {
+            confirmed += sats;
+        } else {
+            unconfirmed += sats;
+        }
+    }
+    const balanceResult = { confirmed, unconfirmed, total: confirmed + unconfirmed };
 
     // Normalize charms
     const charms = [];
@@ -101,7 +127,7 @@ async function fetchFromExplorerAPI(explorerService, addressList, network, skipC
         amount: b.total || 0,
     }));
 
-    return { balanceResult, charms, tokenBalances };
+    return { balanceResult, charms, tokenBalances, utxos };
 }
 
 /**
