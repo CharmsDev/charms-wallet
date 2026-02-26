@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Charms Wallet",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Bitcoin wallet with Charms support for managing BTC, ordinals, runes, and charm tokens",
   "icons": {
     "16": "icons/icon16.png",
