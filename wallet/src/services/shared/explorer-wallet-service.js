@@ -421,7 +421,8 @@ export class ExplorerWalletService {
                 map[key].confirmed += b.confirmed || 0;
                 map[key].unconfirmed += b.unconfirmed || 0;
                 map[key].total += b.total || 0;
-                map[key].utxos.push(...(b.utxos || []));
+                // Inject appId onto each UTXO so consumers (toCharmObj) can read utxo.appId
+                map[key].utxos.push(...(b.utxos || []).map(u => ({ appId: key, ...u })));
             }
         }
         return Object.values(map);
