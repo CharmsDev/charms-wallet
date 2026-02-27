@@ -2,6 +2,42 @@
 
 import config from '@/config';
 
+// In Chrome extension popup context, fetch() cannot resolve external DNS.
+// Route all requests through the background service worker instead.
+const _isExtensionPopup = typeof chrome !== 'undefined'
+    && typeof chrome.runtime?.sendMessage === 'function'
+    && typeof window !== 'undefined';
+
+async function _extensionFetch(url, options = {}) {
+    return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+            {
+                type: 'API_REQUEST',
+                url,
+                method: options.method || 'GET',
+                headers: options.headers || {},
+                body: options.body,
+            },
+            (response) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+                if (response && response.success) {
+                    resolve(response.data);
+                } else if (response && response.status) {
+                    // HTTP error (non-2xx) — throw with status so caller can handle
+                    const err = new Error(`Explorer API ${response.status}: ${JSON.stringify(response.data || response.error || '')}`);
+                    err.status = response.status;
+                    reject(err);
+                } else {
+                    reject(new Error(response?.error || 'API request failed'));
+                }
+            }
+        );
+    });
+}
+
 /**
  * Charms Explorer Wallet API Service
  * Direct Bitcoin node RPC via the Charms Explorer API.
@@ -86,30 +122,39 @@ export class ExplorerWalletService {
         const t0 = performance.now();
         console.log(`[${this._ts()}] [ExplorerAPI] → ${fetchOptions.method || 'GET'} ${fullPath}`);
 
-        let response;
         try {
-            response = await fetch(url, {
+            // In extension popup, route through background service worker (popup can't resolve DNS)
+            if (_isExtensionPopup) {
+                const data = await _extensionFetch(url, fetchOptions);
+                const ms = (performance.now() - t0).toFixed(0);
+                console.log(`[${this._ts()}] [ExplorerAPI] ✓ ${fullPath} — via background (${ms}ms)`);
+                this._onSuccess();
+                return data;
+            }
+
+            // Direct fetch for non-extension context (Next.js webapp)
+            const response = await fetch(url, {
                 signal: this._createTimeoutSignal(customTimeout || this.timeout),
                 ...fetchOptions,
             });
-        } catch (fetchError) {
+
             const ms = (performance.now() - t0).toFixed(0);
-            console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${fullPath} — ${fetchError.message} (${ms}ms)`);
-            this._onFailure();
-            throw fetchError;
-        }
+            if (!response.ok) {
+                const body = await response.text().catch(() => '');
+                console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${fullPath} — ${response.status} (${ms}ms)`);
+                this._onFailure();
+                throw new Error(`Explorer API ${response.status}: ${body}`);
+            }
 
-        const ms = (performance.now() - t0).toFixed(0);
-        if (!response.ok) {
-            const body = await response.text().catch(() => '');
-            console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${fullPath} — ${response.status} (${ms}ms)`);
+            console.log(`[${this._ts()}] [ExplorerAPI] ✓ ${fullPath} — ${response.status} (${ms}ms)`);
+            this._onSuccess();
+            return response.json();
+        } catch (err) {
+            const ms = (performance.now() - t0).toFixed(0);
+            console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${fullPath} — ${err.message} (${ms}ms)`);
             this._onFailure();
-            throw new Error(`Explorer API ${response.status}: ${body}`);
+            throw err;
         }
-
-        console.log(`[${this._ts()}] [ExplorerAPI] ✓ ${fullPath} — ${response.status} (${ms}ms)`);
-        this._onSuccess();
-        return response.json();
     }
 
     // ── Chain tip (cached) ───────────────────────────────────────────────

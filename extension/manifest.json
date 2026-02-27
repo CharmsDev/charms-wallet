@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Charms Wallet",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "Bitcoin wallet with Charms support for managing BTC, ordinals, runes, and charm tokens",
   "icons": {
     "16": "icons/icon16.png",
@@ -29,7 +29,10 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://charms.sh/*", "https://*.charms.dev/*"],
+      "matches": [
+        "https://charms.sh/*",
+        "https://*.charms.dev/*"
+      ],
       "js": ["content-script.js"],
       "run_at": "document_start"
     }
@@ -37,7 +40,10 @@
   "web_accessible_resources": [
     {
       "resources": ["inpage.js"],
-      "matches": ["https://charms.sh/*", "https://*.charms.dev/*"]
+      "matches": [
+        "https://charms.sh/*",
+        "https://*.charms.dev/*"
+      ]
     }
   ],
   "content_security_policy": {

@@ -226,6 +226,7 @@ export async function syncWalletExtension(options = {}) {
             .map(a => a.address);
 
         console.log(`[${_ts()}] [ExtWalletSync] Explorer=${explorerAvailable}, addresses=${addressList.length}`);
+        if (addressList.length > 0) console.log(`[${_ts()}] [ExtWalletSync] First address:`, addressList[0]);
 
         // ============================================
         // PRIMARY: Explorer indexed API (instant)
@@ -239,6 +240,8 @@ export async function syncWalletExtension(options = {}) {
 
                 const ms = (performance.now() - t0).toFixed(0);
                 console.log(`[${_ts()}] [ExtWalletSync] ⚡ Explorer API: ${ms}ms — balance=${balanceResult.total} sats, charms=${charms.length}`);
+                console.log(`[${_ts()}] [ExtWalletSync] tokenBalances:`, JSON.stringify(tokenBalances));
+                if (charms.length > 0) console.log(`[${_ts()}] [ExtWalletSync] charms[0]:`, JSON.stringify(charms[0]));
 
                 await applyResults(balanceResult, charms, tokenBalances, blockchain, network, onPhase1Complete, onCharmFound);
 

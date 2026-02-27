@@ -33,6 +33,8 @@ window.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'CHARMS_WALLET_REQUEST') {
     const { id, method, params } = event.data;
     
+    console.log('[CharmsWallet] → request:', method, params || '');
+
     // Forward to background script
     chrome.runtime.sendMessage({
       type: 'WALLET_PROVIDER_REQUEST',
@@ -42,7 +44,7 @@ window.addEventListener('message', (event) => {
       origin: window.location.origin
     }, (response) => {
       if (chrome.runtime.lastError) {
-        console.error('Charms Wallet Extension: Error forwarding request', chrome.runtime.lastError);
+        console.error('[CharmsWallet] ✗ runtime error:', chrome.runtime.lastError.message);
         window.postMessage({
           type: 'CHARMS_WALLET_RESPONSE',
           id,
@@ -50,6 +52,8 @@ window.addEventListener('message', (event) => {
         }, '*');
         return;
       }
+
+      console.log('[CharmsWallet] ← response:', method, response?.error ? '✗ ' + response.error : '✓', response?.result ? JSON.stringify(response.result).slice(0, 80) : '');
 
       // Send response back to inpage script
       window.postMessage({
