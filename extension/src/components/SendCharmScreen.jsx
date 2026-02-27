@@ -13,6 +13,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCharms } from '@/stores/charmsStore';
 import { useAddresses } from '@/stores/addressesStore';
+import { useExtensionWalletSync } from '../hooks/useExtensionWalletSync';
 
 const TOKEN_DECIMALS = 100_000_000; // BRO has 8 decimals
 
@@ -46,6 +47,7 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
   const { activeNetwork } = useNetwork();
   const { charms } = useCharms();
   const { addresses } = useAddresses();
+  const { isSyncing, syncFullWallet } = useExtensionWalletSync();
 
   // Build address lookup: address string → { index, isChange }
   const addrLookup = useMemo(() => {
@@ -205,9 +207,27 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
 
             {/* No tokens notice */}
             {tokenBalances.length === 0 && (
-              <div className="card p-4 text-center border-yellow-500/20 bg-yellow-900/5">
-                <p className="text-sm text-yellow-400">No token balances found.</p>
-                <p className="text-xs text-dark-400 mt-1">Sync your wallet first.</p>
+              <div className="card p-4 text-center border-yellow-500/20 bg-yellow-900/5 space-y-3">
+                {isSyncing ? (
+                  <>
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+                      <p className="text-sm text-yellow-400">Syncing wallet…</p>
+                    </div>
+                    <p className="text-xs text-dark-400">Token balances will appear once sync completes.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-yellow-400">No token balances found.</p>
+                    <p className="text-xs text-dark-400">Sync your wallet to load token balances.</p>
+                    <button
+                      onClick={syncFullWallet}
+                      className="mt-1 px-4 py-2 rounded-xl text-xs font-medium bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 transition-colors"
+                    >
+                      ↻ Sync Now
+                    </button>
+                  </>
+                )}
               </div>
             )}
 
