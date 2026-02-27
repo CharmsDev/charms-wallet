@@ -25,15 +25,27 @@ function toHex(bytes) {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * Convert numbers > 2^32 to BigInt so cbor-x encodes them as CBOR uint64
+ * instead of float64 (which ciborium/Rust rejects when expecting an integer).
+ */
+function safeInt(n) {
+  if (typeof n === 'bigint') return n;
+  if (typeof n === 'number' && n > 0xFFFFFFFF) return BigInt(Math.round(n));
+  return n;
+}
+
 function objectToMap(value) {
   if (value === null || value === undefined) return value;
+  if (typeof value === 'bigint') return value;
   if (value instanceof Uint8Array) return value;
   if (Array.isArray(value)) return value.map(objectToMap);
   if (value instanceof Map) {
     const m = new Map();
-    for (const [k, v] of value) m.set(k, objectToMap(v));
+    for (const [k, v] of value) m.set(objectToMap(k), objectToMap(v));
     return m;
   }
+  if (typeof value === 'number') return safeInt(value);
   if (typeof value === 'object') {
     const m = new Map();
     for (const [k, v] of Object.entries(value)) m.set(k, objectToMap(v));
@@ -160,7 +172,7 @@ export function normalizeSpell(spell) {
   // coins: NativeOutput per output
   const DEFAULT_COIN = 300;
   const coins = spell.outs.map(out => ({
-    amount: out.coin ?? DEFAULT_COIN,
+    amount: safeInt(out.coin ?? DEFAULT_COIN),
     dest: addressToScriptPubkey(out.address),
   }));
 
