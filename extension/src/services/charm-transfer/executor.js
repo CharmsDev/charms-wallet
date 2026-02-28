@@ -1,164 +1,70 @@
 /**
- * Charm Transfer Executor
+ * Charm Transfer Executor (v10)
  *
- * Orchestrates a BRO (or any charm) token transfer:
- * 1. Build spell (v10 format)
- * 2. Normalize spell → CBOR hex
- * 3. Fetch prev_txs for all spell inputs
- * 4. Load token WASM binary
- * 5. Send to prover → get unsigned spell TX
- * 6. Sign spell TX with user's seed phrase
- * 7. Broadcast via Explorer API
+ * Two-phase orchestrator — allows UI to show a confirmation dialog between
+ * proving and signing:
+ *
+ *   Phase 1 — proveCharmTransfer (steps 1-5):
+ *     1. spell-builder.js     → build human-friendly spell object
+ *     2. spell-normalizer.js  → encode to CBOR hex for prover
+ *     3. tx-fetcher.js        → fetch prev_txs for all inputs
+ *     4. prover-client.js     → send to prover, get unsigned TX
+ *     5. tx-fetcher.js        → fetch any extra prev_txs prover added
+ *     → returns { spellTxHex, prevTxMap, fee }
+ *
+ *   Phase 2 — signAndBroadcastTransfer (steps 6-7):
+ *     6. tx-signer.js         → sign all wallet inputs (multi-key)
+ *     7. broadcaster.js       → broadcast via Explorer API (fallback mempool)
+ *     → returns { txid }
  */
 
+import { DEFAULT_FEE_RATE } from './constants.js';
+import { buildTransferSpell } from './spell-builder.js';
 import { normalizeSpell } from './spell-normalizer.js';
-import { proveTransfer } from './prover-client.js';
 import { fetchPrevTxs, fetchTxHex } from './tx-fetcher.js';
-import { signSpellTx } from './tx-signer.js';
-import { getTokenBinaries } from './wasm-loader.js';
+import { proveTransfer } from './prover-client.js';
+import { signSpellTxMultiKey } from './tx-signer.js';
+import { broadcastTx } from './broadcaster.js';
 
-const SPELL_VERSION = 10;
-const CHARM_DUST = 546;   // sats — min output carrying a charm
-const EXPLORER_API = import.meta.env.VITE_EXPLORER_WALLET_API_URL || 'https://charms-explorer-api.fly.dev';
-const MEMPOOL_MAINNET = 'https://mempool.space/api';
-const MEMPOOL_TESTNET = 'https://mempool.space/testnet4/api';
-
-// ── Broadcast ─────────────────────────────────────────────────────────────────
-
-async function broadcastTx(rawTxHex, network) {
-  // Primary: Explorer API (supports large OP_RETURN from charms proof)
-  try {
-    const networkParam = network === 'mainnet' ? 'mainnet' : 'testnet4';
-    const res = await fetch(`${EXPLORER_API}/v1/wallet/broadcast?network=${networkParam}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw_tx: rawTxHex }),
-    });
-    const data = await res.json();
-    if (res.ok && data?.txid) return data.txid;
-    throw new Error(data?.error || `Explorer broadcast HTTP ${res.status}`);
-  } catch (e) {
-    console.warn('[CharmTransfer] Explorer broadcast failed, trying mempool:', e.message);
-  }
-
-  // Fallback: mempool.space
-  const base = network === 'mainnet' ? MEMPOOL_MAINNET : MEMPOOL_TESTNET;
-  const res = await fetch(`${base}/tx`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: rawTxHex,
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Mempool broadcast failed: ${text.slice(0, 200)}`);
-  return text.trim(); // txid
-}
-
-// ── Spell builder ─────────────────────────────────────────────────────────────
+// ── Phase 1: Build spell + prove ─────────────────────────────────────────────
 
 /**
- * Build a token transfer spell.
- *
- * @param {object} p
- * @param {string} p.tokenAppId        e.g. "t/3d7fe.../c975d4..."
- * @param {string} p.inputUtxoId       "txid:vout" of the UTXO carrying the token
- * @param {number} p.inputTokenAmount  raw token units in that UTXO
- * @param {number} p.transferAmount    raw token units to send
- * @param {string} p.recipientAddress  Bitcoin address of recipient
- * @param {string} p.senderAddress     Bitcoin address of sender (for change)
- */
-function buildTransferSpell({
-  tokenAppId,
-  inputUtxoId,
-  inputTokenAmount,
-  transferAmount,
-  recipientAddress,
-  senderAddress,
-}) {
-  const apps = { '$00': tokenAppId };
-
-  const ins = [{ utxo_id: inputUtxoId }];
-
-  const outs = [];
-
-  // Output 0: tokens → recipient
-  outs.push({
-    address: recipientAddress,
-    coin: CHARM_DUST,
-    charms: { '$00': transferAmount },
-  });
-
-  // Output 1 (optional): remaining tokens → sender
-  const remainingTokens = inputTokenAmount - transferAmount;
-  if (remainingTokens > 0) {
-    outs.push({
-      address: senderAddress,
-      coin: CHARM_DUST,
-      charms: { '$00': remainingTokens },
-    });
-  }
-
-  return {
-    version: SPELL_VERSION,
-    apps,
-    ins,
-    outs,
-    private_inputs: { '$00': null }, // token contract has no private inputs for transfer
-  };
-}
-
-// ── Main executor ─────────────────────────────────────────────────────────────
-
-/**
- * Execute a charm token transfer.
+ * Build spell, normalize, fetch prev_txs, send to prover.
+ * Returns the unsigned TX hex + prevTxMap + estimated fee.
+ * The caller should show a confirmation dialog before proceeding to phase 2.
  *
  * @param {object} params
- * @param {string} params.tokenAppId
- * @param {string} params.inputUtxoId       "txid:vout"
- * @param {number} params.inputTokenAmount  raw token units (e.g. 100_000_000 for 1 BRO)
- * @param {number} params.transferAmount    raw token units to send
- * @param {string} params.recipientAddress
- * @param {string} params.senderAddress
- * @param {number} params.senderAddressIndex  BIP86 derivation index
- * @param {boolean} params.senderIsChange     BIP86 change path flag
- * @param {string} params.seedPhrase
- * @param {string} params.network            'mainnet' | 'testnet4'
- * @param {function} params.onStatus         (msg: string) => void
- * @returns {{ txid: string }}
+ * @param {string}  params.tokenAppId
+ * @param {Array<{utxoId:string, amount:number}>} params.charmInputs
+ * @param {{utxoId:string, value:number}} params.fundingUtxo
+ * @param {number}  params.transferAmount     raw token units
+ * @param {string}  params.recipientAddress
+ * @param {string}  params.changeAddress
+ * @param {string}  params.network            'mainnet' | 'testnet4'
+ * @param {function} params.onStatus          (msg: string) => void
+ * @returns {{ spellTxHex: string, prevTxMap: Map, fee: number }}
  */
-export async function executeCharmTransfer(params) {
+export async function proveCharmTransfer(params) {
   const {
-    tokenAppId,
-    inputUtxoId,
-    inputTokenAmount,
-    transferAmount,
-    recipientAddress,
-    senderAddress,
-    senderAddressIndex,
-    senderIsChange,
-    seedPhrase,
-    network,
-    onStatus,
+    tokenAppId, charmInputs, fundingUtxo, transferAmount,
+    recipientAddress, changeAddress, network, onStatus,
   } = params;
 
   const status = msg => { console.log('[CharmTransfer]', msg); onStatus?.(msg); };
 
-  // 1. Build spell
+  // ── Step 1: Build spell ────────────────────────────────────────────────────
   status('Building transfer spell…');
   const spell = buildTransferSpell({
-    tokenAppId,
-    inputUtxoId,
-    inputTokenAmount,
-    transferAmount,
-    recipientAddress,
-    senderAddress,
+    tokenAppId, charmInputs, fundingUtxo,
+    transferAmount, recipientAddress, changeAddress,
   });
   console.log('[CharmTransfer] Spell:', JSON.stringify(spell, null, 2));
 
-  // 2. Normalize spell
+  // ── Step 2: Normalize → CBOR hex ──────────────────────────────────────────
   status('Normalizing spell…');
   const { normalizedSpellHex, appPrivateInputs, txInsBeamedSourceUtxos } = normalizeSpell(spell);
 
-  // 3. Fetch prev_txs for all spell inputs
+  // ── Step 3: Fetch prev_txs for all spell inputs ───────────────────────────
   status('Fetching input transactions…');
   const prevTxMap = await fetchPrevTxs(spell.ins, network);
   const prevTxs = spell.ins.map(inp => {
@@ -168,41 +74,80 @@ export async function executeCharmTransfer(params) {
     return { bitcoin: hex };
   });
 
-  // 4. Load token WASM
-  status('Loading token contract…');
-  const binaries = await getTokenBinaries(tokenAppId);
-
-  // 5. Build prover payload
+  // ── Step 4: Send to prover ────────────────────────────────────────────────
+  status('Generating ZK proof (this can take 5–10 min)…');
   const payload = {
     spell: normalizedSpellHex,
     app_private_inputs: appPrivateInputs,
     tx_ins_beamed_source_utxos: txInsBeamedSourceUtxos,
-    binaries,
+    binaries: {},
     prev_txs: prevTxs,
-    change_address: senderAddress,
-    fee_rate: 5,
+    change_address: changeAddress,
+    fee_rate: DEFAULT_FEE_RATE,
     chain: 'bitcoin',
     collateral_utxo: null,
   };
-
-  // 6. Send to prover (may take several minutes)
-  status('Generating ZK proof (this can take 5–10 min)…');
   const spellTxHex = await proveTransfer(payload, network, status);
   status(`Prover returned TX (${spellTxHex.length / 2} bytes)`);
 
-  // 7. Sign spell TX
+  // ── Step 5: Fetch extra prev_txs (prover may add funding inputs) ──────────
+  status('Fetching any extra input transactions…');
+  const bitcoin = await import('bitcoinjs-lib');
+  const spellTx = bitcoin.Transaction.fromHex(spellTxHex);
+  for (const inp of spellTx.ins) {
+    const txid = Buffer.from(inp.hash).reverse().toString('hex');
+    if (!prevTxMap.has(txid)) {
+      const hex = await fetchTxHex(txid, network);
+      prevTxMap.set(txid, hex);
+    }
+  }
+
+  // Compute fee: sum(input values) - sum(output values)
+  let totalIn = 0;
+  for (const inp of spellTx.ins) {
+    const prevTxid = Buffer.from(inp.hash).reverse().toString('hex');
+    const prevTxHex = prevTxMap.get(prevTxid);
+    if (prevTxHex) {
+      const prevTx = bitcoin.Transaction.fromHex(prevTxHex);
+      totalIn += prevTx.outs[inp.index]?.value ?? 0;
+    }
+  }
+  const totalOut = spellTx.outs.reduce((s, o) => s + o.value, 0);
+  const fee = totalIn - totalOut;
+
+  return { spellTxHex, prevTxMap, fee };
+}
+
+// ── Phase 2: Sign + broadcast ────────────────────────────────────────────────
+
+/**
+ * Sign the unsigned spell TX and broadcast it.
+ * Call this after the user confirms the transaction.
+ *
+ * @param {object} params
+ * @param {string}  params.spellTxHex         unsigned TX from phase 1
+ * @param {Map}     params.prevTxMap          txid → hex from phase 1
+ * @param {Object}  params.inputSigningMap    { "txid:vout": { address, index, isChange } }
+ * @param {string}  params.seedPhrase
+ * @param {string}  params.network            'mainnet' | 'testnet4'
+ * @param {function} params.onStatus          (msg: string) => void
+ * @returns {{ txid: string }}
+ */
+export async function signAndBroadcastTransfer(params) {
+  const {
+    spellTxHex, prevTxMap, inputSigningMap,
+    seedPhrase, network, onStatus,
+  } = params;
+
+  const status = msg => { console.log('[CharmTransfer]', msg); onStatus?.(msg); };
+
+  // ── Step 6: Sign all wallet inputs (multi-key) ───────────────────────────
   status('Signing transaction…');
-  const signedTxHex = await signSpellTx(
-    spellTxHex,
-    prevTxMap,
-    senderAddress,
-    senderAddressIndex,
-    senderIsChange,
-    seedPhrase,
-    network,
+  const signedTxHex = await signSpellTxMultiKey(
+    spellTxHex, prevTxMap, inputSigningMap, seedPhrase, network,
   );
 
-  // 8. Broadcast
+  // ── Step 7: Broadcast ─────────────────────────────────────────────────────
   status('Broadcasting transaction…');
   const txid = await broadcastTx(signedTxHex, network);
   status(`Broadcast OK — txid: ${txid}`);

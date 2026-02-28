@@ -6,15 +6,10 @@
  * Response: [{ "bitcoin": "<raw_tx_hex>" }]
  */
 
-const PROVER_URL_MAINNET = import.meta.env.VITE_PROVER_MAINNET_URL || 'https://v10.charms.dev/spells/prove';
-const PROVER_URL_TESTNET = import.meta.env.VITE_PROVER_TESTNET4_URL || 'https://prove-t4.charms.dev';
+import { getProverUrl } from './constants.js';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 5000;
-
-function getProverUrl(network) {
-  return network === 'mainnet' ? PROVER_URL_MAINNET : PROVER_URL_TESTNET;
-}
 
 async function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
@@ -62,12 +57,16 @@ export async function proveTransfer(payload, network, onStatus) {
       return txHex;
 
     } catch (err) {
-      if (attempt < MAX_ATTEMPTS) {
-        onStatus?.(`Prover attempt ${attempt} failed, retrying… (${err.message})`);
-        await sleep(RETRY_DELAY_MS);
-      } else {
+      // Deterministic errors — no point retrying
+      const isDeterministic = err.message && (
+        err.message.includes('Required VKs:') ||
+        err.message.includes('binaries must contain exactly')
+      );
+      if (isDeterministic || attempt >= MAX_ATTEMPTS) {
         throw err;
       }
+      onStatus?.(`Prover attempt ${attempt} failed, retrying… (${err.message})`);
+      await sleep(RETRY_DELAY_MS);
     }
   }
 }

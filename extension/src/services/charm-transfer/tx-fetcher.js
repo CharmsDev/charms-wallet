@@ -4,16 +4,10 @@
  * Uses Explorer API first, then mempool.space as fallback.
  */
 
-const EXPLORER_API = import.meta.env.VITE_EXPLORER_WALLET_API_URL || 'https://charms-explorer-api.fly.dev';
-const MEMPOOL_MAINNET = 'https://mempool.space/api';
-const MEMPOOL_TESTNET = 'https://mempool.space/testnet4/api';
-
-function getMempoolBase(network) {
-  return network === 'mainnet' ? MEMPOOL_MAINNET : MEMPOOL_TESTNET;
-}
+import { EXPLORER_API, getMempoolBase, getExplorerNetworkParam } from './constants.js';
 
 async function fetchViaExplorer(txid, network) {
-  const networkParam = network === 'mainnet' ? 'mainnet' : 'testnet4';
+  const networkParam = getExplorerNetworkParam(network);
   const url = `${EXPLORER_API}/v1/wallet/tx/${txid}?network=${networkParam}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Explorer ${res.status}`);

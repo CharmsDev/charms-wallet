@@ -310,8 +310,41 @@ async function handleWalletProviderRequest(request, sender) {
       }
 
       case 'signMessage': {
-        // TODO: Implement message signing with popup approval
-        return { error: 'Message signing not yet implemented' };
+        const isConnected = await isSiteConnected(origin);
+        if (!isConnected) {
+          return { error: 'Site not connected. Call requestAccounts first.' };
+        }
+
+        const { message } = params;
+        if (!message) return { error: 'Missing message parameter' };
+
+        const signRequestId = Date.now().toString();
+        await new Promise(resolve => {
+          chrome.storage.local.set({
+            [EXT.PENDING_SIGN]: {
+              id: signRequestId,
+              type: 'signMessage',
+              origin,
+              message,
+            }
+          }, resolve);
+        });
+
+        await chrome.windows.create({
+          url: chrome.runtime.getURL('approve-sign.html'),
+          type: 'popup',
+          width: 420,
+          height: 500,
+          focused: true
+        });
+
+        const signResult = await waitForSignResponse(signRequestId, 120000);
+
+        if (!signResult || !signResult.approved) {
+          return { error: signResult?.error || 'User rejected the signing request' };
+        }
+
+        return { result: signResult.signature };
       }
 
       case 'signPsbt': {

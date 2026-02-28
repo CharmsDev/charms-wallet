@@ -13,6 +13,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCharms } from '@/stores/charmsStore';
 import { useAddresses } from '@/stores/addressesStore';
+import { useUTXOs } from '@/stores/utxoStore';
 import { useExtensionWalletSync } from '../hooks/useExtensionWalletSync';
 
 const TOKEN_DECIMALS = 100_000_000; // BRO has 8 decimals
@@ -48,6 +49,7 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
   const { charms } = useCharms();
   const { addresses } = useAddresses();
   const { isSyncing, syncFullWallet } = useExtensionWalletSync();
+  const { utxos: btcUtxosByAddress } = useUTXOs();
 
   // Build address lookup: address string → { index, isChange }
   const addrLookup = useMemo(() => {
@@ -57,6 +59,16 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
     }
     return map;
   }, [addresses]);
+
+  // Set of charm UTXO keys ("txid:vout") — to exclude from funding selection
+  const charmUtxoKeys = useMemo(() => {
+    const keys = new Set();
+    const list = Array.isArray(charms) ? charms : Object.values(charms || {}).flat();
+    for (const c of list) {
+      if (c.txid) keys.add(`${c.txid}:${c.outputIndex ?? 0}`);
+    }
+    return keys;
+  }, [charms]);
 
   // ── Derive available tokens from charms store ──
   const tokenBalances = useMemo(() => {
@@ -105,6 +117,11 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
   const [txid, setTxid] = useState(null);
   const [copiedTxid, setCopiedTxid] = useState(false);
 
+  // Phase 1 result — held until user confirms
+  const [proverResult, setProverResult] = useState(null);
+  const [inputSigningMapRef, setInputSigningMapRef] = useState(null);
+  const [changeAddrRef, setChangeAddrRef] = useState(null);
+
   // ── Validation ──
   const rawAmount = useMemo(() => {
     const n = parseFloat(displayAmount);
@@ -123,46 +140,123 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
   const isAmountValid = rawAmount > 0 && rawAmount <= maxRaw;
   const canSubmit = isAddressValid && isAmountValid && selectedToken;
 
-  // ── Pick best UTXO for transfer ──
-  const selectInputUtxo = useCallback(() => {
-    if (!selectedToken) return null;
-    // Pick UTXO with enough tokens (prefer single covering UTXO)
+  // ── Select charm UTXOs (greedy, largest-first, max 16) ──
+  const selectCharmInputs = useCallback(() => {
+    if (!selectedToken || rawAmount <= 0) return [];
     const sorted = [...selectedToken.utxos].sort((a, b) => b.amount - a.amount);
+    const selected = [];
+    let total = 0;
     for (const u of sorted) {
-      if (u.amount >= rawAmount) return u;
+      if (total >= rawAmount || selected.length >= 16) break;
+      selected.push(u);
+      total += u.amount;
     }
-    // Fallback: largest UTXO (may need multi-UTXO in future)
-    return sorted[0] || null;
+    if (total < rawAmount) return []; // insufficient
+    return selected;
   }, [selectedToken, rawAmount]);
 
-  // ── Execute transfer ──
+  // ── Select funding UTXO (plain BTC, not a charm UTXO, largest available) ──
+  const selectFundingUtxo = useCallback(() => {
+    let best = null;
+    for (const [address, utxoList] of Object.entries(btcUtxosByAddress || {})) {
+      const addrInfo = addrLookup[address];
+      if (!addrInfo) continue; // not our address
+      for (const u of utxoList) {
+        const key = `${u.txid}:${u.vout}`;
+        if (charmUtxoKeys.has(key)) continue; // skip charm UTXOs
+        if (u.value < 1000) continue; // too small
+        if (!best || u.value > best.value) {
+          best = {
+            utxoId: key,
+            value: u.value,
+            address,
+            addressIndex: addrInfo.index,
+            isChange: addrInfo.isChange,
+          };
+        }
+      }
+    }
+    return best;
+  }, [btcUtxosByAddress, addrLookup, charmUtxoKeys]);
+
+  // ── Phase 1: Prove (user clicks "Send Tokens") ──
   const handleSend = useCallback(async () => {
     if (!canSubmit) return;
     setError('');
     setStep(STEP.PROVING);
 
     try {
-      const inputUtxo = selectInputUtxo();
-      if (!inputUtxo) throw new Error('No suitable token UTXO found');
+      const charmInputs = selectCharmInputs();
+      if (charmInputs.length === 0) throw new Error('Not enough token UTXOs for this amount');
 
-      // Get seed phrase from chrome.storage
+      const fundingUtxo = selectFundingUtxo();
+      if (!fundingUtxo) throw new Error('No BTC UTXO available for fees. Please ensure you have spendable BTC.');
+
+      // Build inputSigningMap: "txid:vout" → { address, index, isChange }
+      const inputSigningMap = {};
+      for (const ci of charmInputs) {
+        inputSigningMap[ci.utxoId] = {
+          address: ci.address,
+          index: ci.addressIndex,
+          isChange: ci.isChange,
+        };
+      }
+      inputSigningMap[fundingUtxo.utxoId] = {
+        address: fundingUtxo.address,
+        index: fundingUtxo.addressIndex,
+        isChange: fundingUtxo.isChange,
+      };
+
+      // Change address: first external address (index 0)
+      const changeAddr = (addresses || []).find(a => a.index === 0 && !a.isChange)?.address
+        || charmInputs[0].address;
+
+      const { proveCharmTransfer } = await import(
+        '../services/charm-transfer/executor.js'
+      );
+
+      const result = await proveCharmTransfer({
+        tokenAppId: selectedToken.appId,
+        charmInputs: charmInputs.map(ci => ({ utxoId: ci.utxoId, amount: ci.amount })),
+        fundingUtxo: { utxoId: fundingUtxo.utxoId, value: fundingUtxo.value },
+        transferAmount: rawAmount,
+        recipientAddress: recipient.trim(),
+        changeAddress: changeAddr,
+        network: activeNetwork,
+        onStatus: setStatusMessage,
+      });
+
+      // Store phase 1 result — wait for user confirmation
+      setProverResult(result);
+      setInputSigningMapRef(inputSigningMap);
+      setChangeAddrRef(changeAddr);
+      setStep(STEP.CONFIRM);
+
+    } catch (err) {
+      setError(err.message || 'Transfer failed');
+      setStep(STEP.FORM);
+    }
+  }, [canSubmit, selectCharmInputs, selectFundingUtxo, selectedToken, rawAmount, recipient, activeNetwork, addresses]);
+
+  // ── Phase 2: Sign + broadcast (user clicks "Confirm & Sign") ──
+  const handleConfirm = useCallback(async () => {
+    if (!proverResult) return;
+    setStep(STEP.PROVING);
+    setStatusMessage('Signing transaction…');
+
+    try {
       const stored = await chrome.storage.local.get(['wallet:seed_phrase']);
       const seedPhrase = stored['wallet:seed_phrase'];
       if (!seedPhrase) throw new Error('Seed phrase not found in wallet storage');
 
-      const { executeCharmTransfer } = await import(
+      const { signAndBroadcastTransfer } = await import(
         '../services/charm-transfer/executor.js'
       );
 
-      const result = await executeCharmTransfer({
-        tokenAppId: selectedToken.appId,
-        inputUtxoId: inputUtxo.utxoId,
-        inputTokenAmount: inputUtxo.amount,
-        transferAmount: rawAmount,
-        recipientAddress: recipient.trim(),
-        senderAddress: inputUtxo.address,
-        senderAddressIndex: inputUtxo.addressIndex,
-        senderIsChange: inputUtxo.isChange,
+      const result = await signAndBroadcastTransfer({
+        spellTxHex: proverResult.spellTxHex,
+        prevTxMap: proverResult.prevTxMap,
+        inputSigningMap: inputSigningMapRef,
         seedPhrase,
         network: activeNetwork,
         onStatus: setStatusMessage,
@@ -174,12 +268,20 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
       if (syncAfterSend) {
         syncAfterSend().catch(() => {});
       }
-
     } catch (err) {
-      setError(err.message || 'Transfer failed');
+      setError(err.message || 'Signing or broadcast failed');
       setStep(STEP.FORM);
     }
-  }, [canSubmit, selectInputUtxo, selectedToken, rawAmount, recipient, activeNetwork, syncAfterSend]);
+  }, [proverResult, inputSigningMapRef, activeNetwork, syncAfterSend]);
+
+  // ── Cancel from confirmation screen ──
+  const handleCancelConfirm = useCallback(() => {
+    setProverResult(null);
+    setInputSigningMapRef(null);
+    setChangeAddrRef(null);
+    setStep(STEP.FORM);
+    setStatusMessage('');
+  }, []);
 
   const mempoolBase = activeNetwork === 'mainnet'
     ? 'https://mempool.space'
@@ -340,6 +442,61 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
               {statusMessage || 'Generating ZK proof…'}
             </p>
             <p className="text-xs text-dark-500 text-center">Do not close this window</p>
+          </div>
+        )}
+
+        {/* ═══════ STEP: CONFIRM (after prover, before signing) ═══════ */}
+        {step === STEP.CONFIRM && proverResult && (
+          <div className="space-y-4 pt-2">
+            <div className="text-center mb-2">
+              <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-yellow-500/20 flex items-center justify-center">
+                <svg className="w-6 h-6 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h2 className="text-base font-bold text-white">Confirm Transaction</h2>
+              <p className="text-xs text-dark-400 mt-1">Review the details before signing</p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="card p-3 flex items-center justify-between">
+                <span className="text-xs text-dark-400">Send</span>
+                <span className="text-sm font-bold text-primary-400">
+                  {displayAmount} {selectedToken?.symbol}
+                </span>
+              </div>
+              <div className="card p-3 flex items-center justify-between">
+                <span className="text-xs text-dark-400">To</span>
+                <span className="text-xs font-mono text-white">{shortenAddr(recipient)}</span>
+              </div>
+              <div className="card p-3 flex items-center justify-between">
+                <span className="text-xs text-dark-400">Network Fee</span>
+                <span className="text-xs font-mono text-white">
+                  {proverResult.fee != null ? `${proverResult.fee} sats` : '—'}
+                </span>
+              </div>
+              <div className="card p-3 flex items-center justify-between">
+                <span className="text-xs text-dark-400">TX Size</span>
+                <span className="text-xs font-mono text-dark-300">
+                  {Math.round(proverResult.spellTxHex.length / 2)} bytes
+                </span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={handleCancelConfirm}
+                className="flex-1 py-3 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-dark-300 hover:bg-dark-700 hover:text-white transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirm}
+                className="flex-1 py-3 rounded-xl text-sm font-semibold bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:shadow-lg hover:shadow-green-500/25 transition-all"
+              >
+                Confirm & Sign
+              </button>
+            </div>
           </div>
         )}
 

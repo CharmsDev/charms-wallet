@@ -85,98 +85,111 @@ async function deriveKeyForAddress(seedPhrase, networkName, addressIndex, isChan
 }
 
 /**
- * Find which spell TX input(s) belong to a given address by scanning prevTxs.
- * Returns array of { inputIndex, value, scriptPubKey }
- */
-function findInputsForAddress(spellTx, prevTxMap, address, network) {
-  const tx = bitcoin.Transaction.fromHex(spellTx);
-  const results = [];
-
-  for (let i = 0; i < tx.ins.length; i++) {
-    const inp = tx.ins[i];
-    const prevTxid = Buffer.from(inp.hash).reverse().toString('hex');
-    const prevTxHex = prevTxMap.get(prevTxid);
-    if (!prevTxHex) continue;
-
-    const prevTx = bitcoin.Transaction.fromHex(prevTxHex);
-    const prevOut = prevTx.outs[inp.index];
-    if (!prevOut) continue;
-
-    // Derive address from scriptPubKey to check if it's ours
-    try {
-      const derived = bitcoin.address.fromOutputScript(prevOut.script, network);
-      if (derived === address) {
-        results.push({
-          inputIndex: i,
-          value: prevOut.value,
-          scriptPubKey: prevOut.script,
-        });
-      }
-    } catch (_) {
-      // Non-standard script — not ours
-    }
-  }
-
-  return results;
-}
-
-/**
- * Sign a spell TX raw hex using BIP86 Taproot key from seed phrase.
+ * Sign a spell TX with multiple derivation keys.
  *
- * @param {string} spellTxHex    Raw TX hex from prover
- * @param {Map<string,string>} prevTxMap  txid → raw hex (for all inputs)
- * @param {string} signerAddress  Our P2TR address that owns the input(s)
- * @param {number} addressIndex   BIP86 derivation index
- * @param {boolean} isChange      BIP86 change path flag
+ * Each wallet input may be at a different address/derivation path.
+ * The prover may also add inputs not in our map (e.g. extra funding from change_address
+ * looked up on-chain) — we discover those by scanning prevouts for known wallet addresses.
+ *
+ * @param {string} spellTxHex        Raw TX hex from prover
+ * @param {Map<string,string>} prevTxMap  txid → raw hex
+ * @param {Object} inputSigningMap   { "txid:vout": { address, index, isChange } }
  * @param {string} seedPhrase
- * @param {string} networkName   'mainnet' | 'testnet4'
+ * @param {string} networkName       'mainnet' | 'testnet4'
  * @returns {string} signed raw TX hex
  */
-export async function signSpellTx(
+export async function signSpellTxMultiKey(
   spellTxHex,
   prevTxMap,
-  signerAddress,
-  addressIndex,
-  isChange,
+  inputSigningMap,
   seedPhrase,
   networkName,
 ) {
   const network = getNetwork(networkName);
-  const { tweakedPrivateKey } = await deriveKeyForAddress(
-    seedPhrase, networkName, addressIndex, isChange
-  );
-
   const tx = bitcoin.Transaction.fromHex(spellTxHex);
-  const ourInputs = findInputsForAddress(spellTxHex, prevTxMap, signerAddress, network);
 
-  if (ourInputs.length === 0) {
-    throw new Error(`No inputs found for address ${signerAddress} in spell TX`);
+  // Pre-compute all prevout scripts and values (needed for Taproot sighash)
+  const prevoutScripts = [];
+  const prevoutValues = [];
+  for (const inp of tx.ins) {
+    const prevTxid = Buffer.from(inp.hash).reverse().toString('hex');
+    const prevTxHex = prevTxMap.get(prevTxid);
+    if (!prevTxHex) throw new Error(`Missing prevTx for ${prevTxid}`);
+    const prevTx = bitcoin.Transaction.fromHex(prevTxHex);
+    const prevOut = prevTx.outs[inp.index];
+    if (!prevOut) throw new Error(`Missing prevout ${prevTxid}:${inp.index}`);
+    prevoutScripts.push(prevOut.script);
+    prevoutValues.push(prevOut.value);
   }
 
-  // Sign each of our inputs with Taproot key-path spend
-  for (const { inputIndex, value, scriptPubKey } of ourInputs) {
-    const sighash = tx.hashForWitnessV1(
-      inputIndex,
-      // All prevout scripts
-      tx.ins.map((inp) => {
-        const pTxHex = prevTxMap.get(Buffer.from(inp.hash).reverse().toString('hex'));
-        if (!pTxHex) throw new Error(`Missing prevTx for input ${inputIndex}`);
-        const pTx = bitcoin.Transaction.fromHex(pTxHex);
-        return pTx.outs[inp.index].script;
-      }),
-      // All prevout values
-      tx.ins.map((inp) => {
-        const pTxHex = prevTxMap.get(Buffer.from(inp.hash).reverse().toString('hex'));
-        if (!pTxHex) throw new Error(`Missing prevTx for input ${inputIndex}`);
-        const pTx = bitcoin.Transaction.fromHex(pTxHex);
-        return pTx.outs[inp.index].value;
-      }),
-      bitcoin.Transaction.SIGHASH_DEFAULT,
-    );
+  // Derive keys per unique (index, isChange) pair — cache to avoid re-deriving
+  const keyCache = new Map(); // "index:isChange" → tweakedPrivateKey
 
-    const sig = ecc.signSchnorr(sighash, tweakedPrivateKey, Buffer.alloc(32));
-    tx.ins[inputIndex].witness = [Buffer.from(sig)];
+  // Build lookup: for each TX input, find its signing info from the map
+  // The map uses utxoId format "txid:vout" as keys
+  let signedCount = 0;
+  for (let i = 0; i < tx.ins.length; i++) {
+    const inp = tx.ins[i];
+    const prevTxid = Buffer.from(inp.hash).reverse().toString('hex');
+    const utxoKey = `${prevTxid}:${inp.index}`;
+
+    const signingInfo = inputSigningMap[utxoKey];
+    if (!signingInfo) {
+      // Not our input (e.g. another party's, or prover-added that we don't own)
+      // The prover adds inputs from change_address — which should be in our map.
+      // If not found, try matching by address from prevout.
+      const prevAddr = tryDeriveAddress(prevoutScripts[i], network);
+      if (prevAddr) {
+        // Search the map for any entry with this address
+        const matchEntry = Object.values(inputSigningMap).find(e => e.address === prevAddr);
+        if (matchEntry) {
+          // Found — sign with this key
+          const key = await getCachedKey(keyCache, matchEntry.index, matchEntry.isChange, seedPhrase, networkName);
+          signInput(tx, i, prevoutScripts, prevoutValues, key);
+          signedCount++;
+          continue;
+        }
+      }
+      continue; // truly not ours
+    }
+
+    const key = await getCachedKey(keyCache, signingInfo.index, signingInfo.isChange, seedPhrase, networkName);
+    signInput(tx, i, prevoutScripts, prevoutValues, key);
+    signedCount++;
+  }
+
+  if (signedCount === 0) {
+    throw new Error('No inputs were signed — inputSigningMap has no matching entries');
   }
 
   return tx.toHex();
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+function tryDeriveAddress(script, network) {
+  try {
+    return bitcoin.address.fromOutputScript(script, network);
+  } catch (_) {
+    return null;
+  }
+}
+
+async function getCachedKey(cache, index, isChange, seedPhrase, networkName) {
+  const cacheKey = `${index}:${isChange}`;
+  if (cache.has(cacheKey)) return cache.get(cacheKey);
+  const { tweakedPrivateKey } = await deriveKeyForAddress(seedPhrase, networkName, index, isChange);
+  cache.set(cacheKey, tweakedPrivateKey);
+  return tweakedPrivateKey;
+}
+
+function signInput(tx, inputIndex, prevoutScripts, prevoutValues, tweakedPrivateKey) {
+  const sighash = tx.hashForWitnessV1(
+    inputIndex,
+    prevoutScripts,
+    prevoutValues,
+    bitcoin.Transaction.SIGHASH_DEFAULT,
+  );
+  const sig = ecc.signSchnorr(sighash, tweakedPrivateKey, Buffer.alloc(32));
+  tx.ins[inputIndex].witness = [Buffer.from(sig)];
 }
