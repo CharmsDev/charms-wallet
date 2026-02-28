@@ -282,6 +282,56 @@ function signTaprootInput(psbt, inputIndex, keyInfo, network) {
   psbt.data.updateInput(inputIndex, { tapKeySig });
 }
 
+/**
+ * Sign a Bitcoin message with the wallet's private key.
+ * Format: Bitcoin Signed Message (BIP137/Electrum-compatible).
+ * Returns base64-encoded signature.
+ */
+async function signMessageWithKeys(message, seedPhrase, networkName, addresses) {
+  const network = getNetworkConfig(networkName);
+  const keyMap = await deriveKeyMap(seedPhrase, networkName, addresses);
+
+  // Use the first derived key (the active address)
+  const firstKey = keyMap.values().next().value;
+  if (!firstKey) throw new Error('No key available to sign message');
+
+  const { privateKey, publicKey } = firstKey;
+
+  // Bitcoin Signed Message hash: dSHA256(prefix + varint(len) + message)
+  const prefix = '\x18Bitcoin Signed Message:\n';
+  const msgBuffer = Buffer.from(message, 'utf8');
+  const prefixBuffer = Buffer.from(prefix, 'utf8');
+
+  function varIntBuffer(n) {
+    if (n < 0xfd) return Buffer.from([n]);
+    if (n <= 0xffff) { const b = Buffer.alloc(3); b[0] = 0xfd; b.writeUInt16LE(n, 1); return b; }
+    const b = Buffer.alloc(5); b[0] = 0xfe; b.writeUInt32LE(n, 1); return b;
+  }
+
+  const payload = Buffer.concat([
+    varIntBuffer(prefixBuffer.length), prefixBuffer,
+    varIntBuffer(msgBuffer.length), msgBuffer
+  ]);
+
+  const hash = bitcoin.crypto.hash256(payload);
+
+  // Determine if key needs negation (odd Y)
+  const isOddY = publicKey[0] === 0x03;
+  const signingKey = isOddY ? ecc.privateNegate(privateKey) : privateKey;
+
+  // Sign with ECDSA (recoverable)
+  const sigRaw = ecc.sign(hash, signingKey);
+
+  // Build recoverable signature: 1 byte header + 32 bytes R + 32 bytes S
+  // Header: 31 = uncompressed, 27+4 = compressed P2PKH, 39+4 = P2WPKH
+  // For Taproot/P2TR addresses use header 31 (compressed + no recovery flag)
+  const recoveryFlag = isOddY ? 0 : 0;
+  const header = 31 + recoveryFlag; // 31 = compressed key, standard
+  const sigBuffer = Buffer.concat([Buffer.from([header]), sigRaw]);
+
+  return sigBuffer.toString('base64');
+}
+
 // ============================================================
 // React UI Component
 // ============================================================
@@ -348,7 +398,6 @@ function SignApproval() {
     setError(null);
 
     try {
-      // Get seed phrase and addresses from storage
       const mainnetKey = addrKey('bitcoin', 'mainnet');
       const testnetKey = addrKey('bitcoin', 'testnet4');
       const storageData = await chrome.storage.local.get([
@@ -365,34 +414,31 @@ function SignApproval() {
       const activeAddrKey = addrKey('bitcoin', networkName);
       let addresses = safeParse(storageData[activeAddrKey]);
 
-      // Also try the other network's addresses as fallback
       if (addresses.length === 0) {
         const fallbackNetwork = networkName === 'mainnet' ? 'testnet4' : 'mainnet';
-        const fallbackAddrKey = addrKey('bitcoin', fallbackNetwork);
-        addresses = safeParse(storageData[fallbackAddrKey]);
+        addresses = safeParse(storageData[addrKey('bitcoin', fallbackNetwork)]);
       }
 
       if (addresses.length === 0) throw new Error('No wallet addresses found');
 
-      console.log('[approve-sign] Signing PSBT with', addresses.length, 'addresses on', networkName);
+      if (request.type === 'signMessage') {
+        // Sign message
+        console.log('[approve-sign] Signing message:', request.message);
+        const signature = await signMessageWithKeys(request.message, seedPhrase, networkName, addresses);
+        console.log('[approve-sign] Message signed successfully');
+        await chrome.storage.local.set({
+          [EXT_SIGN_RESPONSE]: { approved: true, requestId: request.id, signature }
+        });
+      } else {
+        // Sign PSBT
+        console.log('[approve-sign] Signing PSBT with', addresses.length, 'addresses on', networkName);
+        const signedPsbtHex = await signPsbtWithKeys(request.psbtHex, request.options, seedPhrase, networkName, addresses);
+        console.log('[approve-sign] PSBT signed successfully');
+        await chrome.storage.local.set({
+          [EXT_SIGN_RESPONSE]: { approved: true, requestId: request.id, signedPsbtHex }
+        });
+      }
 
-      const signedPsbtHex = await signPsbtWithKeys(
-        request.psbtHex,
-        request.options,
-        seedPhrase,
-        networkName,
-        addresses
-      );
-
-      console.log('[approve-sign] PSBT signed successfully');
-
-      await chrome.storage.local.set({
-        [EXT_SIGN_RESPONSE]: {
-          approved: true,
-          requestId: request.id,
-          signedPsbtHex,
-        }
-      });
       await chrome.storage.local.remove(EXT_PENDING_SIGN);
       window.close();
     } catch (err) {
@@ -443,9 +489,22 @@ function SignApproval() {
         </div>
       </div>
 
-      <div style={styles.message}>This site wants you to sign a transaction</div>
+      <div style={styles.message}>
+        {request.type === 'signMessage' ? 'This site wants you to sign a message' : 'This site wants you to sign a transaction'}
+      </div>
 
-      {psbtInfo && (
+      {request.type === 'signMessage' && (
+        <div style={styles.txDetails}>
+          <div style={styles.txRow}>
+            <span style={styles.txLabel}>Message</span>
+          </div>
+          <div style={{ ...styles.txRow, wordBreak: 'break-all', fontSize: '12px', color: '#94a3b8' }}>
+            {request.message}
+          </div>
+        </div>
+      )}
+
+      {!request.type && psbtInfo && (
         <div style={styles.txDetails}>
           <div style={styles.txRow}>
             <span style={styles.txLabel}>Inputs</span>
