@@ -271,18 +271,20 @@ export class UTXOFetcher {
                 await saveUTXOs(currentUTXOs, blockchain, network);
             }, 0);
 
-            // Process UTXOs for received transaction detection (non-blocking)
-            if (Object.keys(utxoMap).length > 0) {
-                setTimeout(async () => {
-                    try {
-                        const transactionRecorder = new TransactionRecorder(blockchain, network);
-                        await transactionRecorder.processUTXOsForReceivedTransactions(utxoMap, sortedEntries);
-                    } catch (error) {
-                        // Don't fail the entire UTXO fetch if transaction processing fails
-                        console.warn('Transaction processing failed:', error.message);
-                    }
-                }, 100); // Small delay to ensure UTXO processing completes first
-            }
+            // DISABLED: TransactionRecorder auto-processing on every UTXO sync.
+            // It classifies ALL UTXOs each time, causing 20+ HTTP calls to mempool.space
+            // and mock-prover per sync cycle. Will be replaced by Explorer API tx history.
+            // See _rjj/tasklist/PENDING.md task #2-4.
+            // if (Object.keys(utxoMap).length > 0) {
+            //     setTimeout(async () => {
+            //         try {
+            //             const transactionRecorder = new TransactionRecorder(blockchain, network);
+            //             await transactionRecorder.processUTXOsForReceivedTransactions(utxoMap, sortedEntries);
+            //         } catch (error) {
+            //             console.warn('Transaction processing failed:', error.message);
+            //         }
+            //     }, 100);
+            // }
 
             const syncMs = ((performance.now() - syncT0) / 1000).toFixed(1);
             const totalUtxos = Object.values(utxoMap).reduce((s, list) => s + list.length, 0);
