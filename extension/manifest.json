@@ -17,7 +17,7 @@
     },
     "default_title": "Charms Wallet"
   },
-  "permissions": ["storage"],
+  "permissions": ["storage", "offscreen", "notifications"],
   "host_permissions": [
     "https://mempool.space/*",
     "https://charms.sh/*",
