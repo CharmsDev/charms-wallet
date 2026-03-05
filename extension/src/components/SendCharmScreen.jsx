@@ -9,7 +9,7 @@
  * 3. "Send" → prover (5-10 min ZK proof) → sign → broadcast via Explorer API
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCharms } from '@/stores/charmsStore';
 import { useAddresses } from '@/stores/addressesStore';
@@ -122,6 +122,12 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
   const [inputSigningMapRef, setInputSigningMapRef] = useState(null);
   const [changeAddrRef, setChangeAddrRef] = useState(null);
 
+  // Phase 2 — inline loading state within CONFIRM screen (no second spinner screen)
+  const [confirming, setConfirming] = useState(false);
+
+  // Symbol restored from storage when popup is reopened after proof completes
+  const [confirmedSymbol, setConfirmedSymbol] = useState('');
+
   // ── Validation ──
   const rawAmount = useMemo(() => {
     const n = parseFloat(displayAmount);
@@ -179,11 +185,61 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
     return best;
   }, [btcUtxosByAddress, addrLookup, charmUtxoKeys]);
 
+  // ── Restore CONFIRM state from a pending proof stored in chrome.storage ──
+  const restoreConfirmState = useCallback((data) => {
+    const prevTxMap = new Map(data.prevTxMapEntries || []);
+    setProverResult({ spellTxHex: data.spellTxHex, prevTxMap, fee: data.fee });
+    const meta = data.meta || {};
+    if (meta.inputSigningMap) setInputSigningMapRef(meta.inputSigningMap);
+    if (meta.displayAmount)   setDisplayAmount(meta.displayAmount);
+    if (meta.recipient)       setRecipient(meta.recipient);
+    if (meta.symbol)          setConfirmedSymbol(meta.symbol);
+    setStep(STEP.CONFIRM);
+  }, []);
+
+  // ── On mount: check for a pending proof + listen for live background messages ──
+  useEffect(() => {
+    // Case: popup was closed while prover was running — restore state on reopen
+    chrome.runtime.sendMessage({ type: 'GET_PENDING_PROOF' }, (response) => {
+      if (chrome.runtime.lastError) return;
+      const pp = response?.pendingProof;
+      if (!pp) return;
+      if (pp.status === 'ready') {
+        restoreConfirmState(pp);
+      } else if (pp.status === 'proving') {
+        // Still running — show PROVING step with last known status
+        const meta = pp.meta || {};
+        if (meta.displayAmount) setDisplayAmount(meta.displayAmount);
+        if (meta.recipient)     setRecipient(meta.recipient);
+        if (meta.inputSigningMap) setInputSigningMapRef(meta.inputSigningMap);
+        if (meta.symbol)        setConfirmedSymbol(meta.symbol);
+        setStep(STEP.PROVING);
+        setStatusMessage(response.provingStatus?.message || 'Generating ZK proof…');
+      }
+    });
+
+    // Listen for live updates from background/offscreen
+    const handleMessage = (message) => {
+      if (message.type === 'PROVER_STATUS_UPDATE') {
+        setStatusMessage(message.message);
+      } else if (message.type === 'PROOF_READY') {
+        restoreConfirmState(message);
+      } else if (message.type === 'PROOF_ERROR') {
+        setError(message.error || 'Prover failed');
+        setStep(STEP.FORM);
+      }
+    };
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => chrome.runtime.onMessage.removeListener(handleMessage);
+  }, [restoreConfirmState]);
+
   // ── Phase 1: Prove (user clicks "Send Tokens") ──
+  // Delegates to background.js → offscreen document so the prover runs even if popup closes.
   const handleSend = useCallback(async () => {
     if (!canSubmit) return;
     setError('');
     setStep(STEP.PROVING);
+    setStatusMessage('Preparing transfer…');
 
     try {
       const charmInputs = selectCharmInputs();
@@ -195,56 +251,67 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
       // Build inputSigningMap: "txid:vout" → { address, index, isChange }
       const inputSigningMap = {};
       for (const ci of charmInputs) {
-        inputSigningMap[ci.utxoId] = {
-          address: ci.address,
-          index: ci.addressIndex,
-          isChange: ci.isChange,
-        };
+        inputSigningMap[ci.utxoId] = { address: ci.address, index: ci.addressIndex, isChange: ci.isChange };
       }
       inputSigningMap[fundingUtxo.utxoId] = {
-        address: fundingUtxo.address,
-        index: fundingUtxo.addressIndex,
-        isChange: fundingUtxo.isChange,
+        address: fundingUtxo.address, index: fundingUtxo.addressIndex, isChange: fundingUtxo.isChange,
       };
 
-      // Change address: first external address (index 0)
       const changeAddr = (addresses || []).find(a => a.index === 0 && !a.isChange)?.address
         || charmInputs[0].address;
 
-      const { proveCharmTransfer } = await import(
-        '../services/charm-transfer/executor.js'
-      );
-
-      const result = await proveCharmTransfer({
-        tokenAppId: selectedToken.appId,
-        charmInputs: charmInputs.map(ci => ({ utxoId: ci.utxoId, amount: ci.amount })),
-        fundingUtxo: { utxoId: fundingUtxo.utxoId, value: fundingUtxo.value },
-        transferAmount: rawAmount,
-        recipientAddress: recipient.trim(),
-        changeAddress: changeAddr,
-        network: activeNetwork,
-        onStatus: setStatusMessage,
-      });
-
-      // Store phase 1 result — wait for user confirmation
-      setProverResult(result);
+      // Keep in component state for immediate use if popup stays open
       setInputSigningMapRef(inputSigningMap);
       setChangeAddrRef(changeAddr);
-      setStep(STEP.CONFIRM);
+
+      const proverParams = {
+        tokenAppId:       selectedToken.appId,
+        charmInputs:      charmInputs.map(ci => ({ utxoId: ci.utxoId, amount: ci.amount })),
+        fundingUtxo:      { utxoId: fundingUtxo.utxoId, value: fundingUtxo.value },
+        transferAmount:   rawAmount,
+        recipientAddress: recipient.trim(),
+        changeAddress:    changeAddr,
+        network:          activeNetwork,
+      };
+
+      // Metadata stored in ext:pending_proof so CONFIRM can be restored if popup reopens
+      const meta = {
+        inputSigningMap,
+        displayAmount,
+        symbol:    selectedToken.symbol,
+        recipient: recipient.trim(),
+        network:   activeNetwork,
+      };
+
+      // Send to background — prover runs in offscreen document (popup can be closed safely)
+      await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          { type: 'START_CHARM_PROOF', params: { proverParams, meta } },
+          (response) => {
+            if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+            if (!response?.ok) return reject(new Error(response?.error || 'Failed to start prover'));
+            resolve();
+          }
+        );
+      });
+
+      setStatusMessage('Generating ZK proof (5–10 min)… You can close this window.');
 
     } catch (err) {
       setError(err.message || 'Transfer failed');
       setStep(STEP.FORM);
     }
-  }, [canSubmit, selectCharmInputs, selectFundingUtxo, selectedToken, rawAmount, recipient, activeNetwork, addresses]);
+  }, [canSubmit, selectCharmInputs, selectFundingUtxo, selectedToken, rawAmount, recipient, activeNetwork, addresses, displayAmount]);
 
   // ── Phase 2: Sign + broadcast (user clicks "Confirm & Sign") ──
   const handleConfirm = useCallback(async () => {
-    if (!proverResult) return;
-    setStep(STEP.PROVING);
-    setStatusMessage('Signing transaction…');
+    if (!proverResult || confirming) return;
+    setConfirming(true);
+    setError('');
 
     try {
+      // [RJJ-AUTOSIGN] — auto-sign path: reads seed phrase from storage and signs directly.
+      // Keep for future use when automatic signing is enabled after prover completes.
       const stored = await chrome.storage.local.get(['wallet:seed_phrase']);
       const seedPhrase = stored['wallet:seed_phrase'];
       if (!seedPhrase) throw new Error('Seed phrase not found in wallet storage');
@@ -259,10 +326,13 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
         inputSigningMap: inputSigningMapRef,
         seedPhrase,
         network: activeNetwork,
-        onStatus: setStatusMessage,
+        onStatus: () => {},
       });
+      // [RJJ-AUTOSIGN] end
 
       setTxid(result.txid);
+      // Clear the pending proof from storage — transfer is done
+      chrome.runtime.sendMessage({ type: 'CLEAR_PENDING_PROOF' }).catch(() => {});
       setStep(STEP.SUCCESS);
 
       if (syncAfterSend) {
@@ -270,17 +340,21 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
       }
     } catch (err) {
       setError(err.message || 'Signing or broadcast failed');
-      setStep(STEP.FORM);
+      setConfirming(false);
     }
-  }, [proverResult, inputSigningMapRef, activeNetwork, syncAfterSend]);
+  }, [proverResult, confirming, inputSigningMapRef, activeNetwork, syncAfterSend]);
 
   // ── Cancel from confirmation screen ──
   const handleCancelConfirm = useCallback(() => {
     setProverResult(null);
     setInputSigningMapRef(null);
     setChangeAddrRef(null);
+    setConfirmedSymbol('');
     setStep(STEP.FORM);
     setStatusMessage('');
+    setError('');
+    // Discard the pending proof from storage
+    chrome.runtime.sendMessage({ type: 'CLEAR_PENDING_PROOF' }).catch(() => {});
   }, []);
 
   const mempoolBase = activeNetwork === 'mainnet'
@@ -441,7 +515,9 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
             <p className="text-xs text-dark-300 text-center max-w-[220px] leading-relaxed">
               {statusMessage || 'Generating ZK proof…'}
             </p>
-            <p className="text-xs text-dark-500 text-center">Do not close this window</p>
+            <p className="text-xs text-dark-500 text-center">
+              The proof runs in background — you can close this window and come back later.
+            </p>
           </div>
         )}
 
@@ -462,7 +538,7 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
               <div className="card p-3 flex items-center justify-between">
                 <span className="text-xs text-dark-400">Send</span>
                 <span className="text-sm font-bold text-primary-400">
-                  {displayAmount} {selectedToken?.symbol}
+                  {displayAmount} {selectedToken?.symbol || confirmedSymbol}
                 </span>
               </div>
               <div className="card p-3 flex items-center justify-between">
@@ -483,18 +559,33 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
               </div>
             </div>
 
+            {error && (
+              <div className="p-3 bg-red-900/20 border border-red-500/30 rounded-xl">
+                <p className="text-red-400 text-xs">{error}</p>
+              </div>
+            )}
+
             <div className="flex gap-3 pt-2">
               <button
                 onClick={handleCancelConfirm}
-                className="flex-1 py-3 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-dark-300 hover:bg-dark-700 hover:text-white transition-all"
+                disabled={confirming}
+                className="flex-1 py-3 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-dark-300 hover:bg-dark-700 hover:text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirm}
-                className="flex-1 py-3 rounded-xl text-sm font-semibold bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:shadow-lg hover:shadow-green-500/25 transition-all"
+                disabled={confirming}
+                className="flex-1 py-3 rounded-xl text-sm font-semibold bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:shadow-lg hover:shadow-green-500/25 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Confirm & Sign
+                {confirming ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Signing & Broadcasting…
+                  </>
+                ) : (
+                  'Confirm & Sign'
+                )}
               </button>
             </div>
           </div>

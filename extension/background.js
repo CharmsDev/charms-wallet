@@ -16,12 +16,111 @@ const EXT = {
   CONNECTION_RESPONSE: 'ext:connection_response',
   PENDING_SIGN:        'ext:pending_sign',
   SIGN_RESPONSE:       'ext:sign_response',
+  // Offscreen prover
+  PENDING_PROOF:       'ext:pending_proof',
+  PROVING_STATUS:      'ext:proving_status',
 };
 function addressesKey(blockchain, network) {
   return `wallet:${blockchain}:${network}:addresses`;
 }
 function utxosKey(blockchain, network) {
   return `wallet:${blockchain}:${network}:utxos`;
+}
+
+
+// ─── Offscreen Document Management ──────────────────────────────────────────
+
+const OFFSCREEN_URL = 'offscreen.html';
+
+/**
+ * Ensure one offscreen document is running.
+ * Chrome allows only one offscreen document per extension at a time.
+ */
+async function ensureOffscreenDocument() {
+  const existing = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL(OFFSCREEN_URL)],
+  });
+  if (existing.length > 0) return;
+  await chrome.offscreen.createDocument({
+    url: chrome.runtime.getURL(OFFSCREEN_URL),
+    reasons: ['BLOBS'],
+    justification: 'ZK proof generation for Charms token transfers',
+  });
+}
+
+/** Close the offscreen document (after prover finishes or errors). */
+async function closeOffscreenDocument() {
+  try { await chrome.offscreen.closeDocument(); } catch (_) {}
+}
+
+/**
+ * Start ZK proof generation in the offscreen document.
+ * Stores prover params so the result can be matched on return.
+ */
+async function handleStartCharmProof({ proverParams, meta }) {
+  // Store metadata immediately so it survives if the popup is closed during proving.
+  // The proof result will be merged into this entry when it arrives.
+  await chrome.storage.local.set({
+    [EXT.PENDING_PROOF]:  { meta, status: 'proving' },
+    [EXT.PROVING_STATUS]: { message: 'Starting proof…', ts: Date.now() },
+  });
+  await ensureOffscreenDocument();
+  // Send prover params to offscreen — fire-and-forget (result comes back via onMessage)
+  chrome.runtime.sendMessage({ type: 'RUN_PROVER', params: proverParams }).catch(() => {});
+}
+
+/**
+ * Called when the offscreen document returns a successful proof.
+ * Stores the result and notifies the popup (or shows a system notification).
+ */
+async function handleProverResult({ spellTxHex, prevTxMapEntries, fee }) {
+  // Merge proof data with the metadata stored when proving started
+  const stored = await new Promise(resolve =>
+    chrome.storage.local.get([EXT.PENDING_PROOF], resolve)
+  );
+  const pendingProof = {
+    ...(stored[EXT.PENDING_PROOF] || {}),
+    status: 'ready',
+    spellTxHex,
+    prevTxMapEntries,
+    fee,
+  };
+
+  await chrome.storage.local.set({ [EXT.PENDING_PROOF]: pendingProof });
+  await chrome.storage.local.remove(EXT.PROVING_STATUS);
+  await closeOffscreenDocument();
+
+  // Try to notify popup if it is currently open; otherwise open the signing page directly
+  chrome.runtime.sendMessage({ type: 'PROOF_READY', ...pendingProof }).catch(() => {
+    // Popup is closed — open the signing approval page so user can confirm immediately
+    chrome.windows.create({
+      url: chrome.runtime.getURL('approve-sign.html'),
+      type: 'popup',
+      width: 420,
+      height: 580,
+      focused: true,
+    });
+  });
+}
+
+/**
+ * Called when the offscreen document reports a prover error.
+ */
+async function handleProverError(errorMsg) {
+  await chrome.storage.local.set({
+    [EXT.PROVING_STATUS]: { error: errorMsg, ts: Date.now() },
+  });
+  await closeOffscreenDocument();
+
+  chrome.runtime.sendMessage({ type: 'PROOF_ERROR', error: errorMsg }).catch(() => {
+    chrome.notifications.create('charm-proof-error', {
+      type: 'basic',
+      iconUrl: 'icons/icon48.png',
+      title: 'Charms Wallet — Transfer Failed',
+      message: errorMsg.slice(0, 100),
+    });
+  });
 }
 
 // Listen for extension installation
@@ -489,6 +588,62 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .then(sendResponse)
       .catch(error => sendResponse({ error: error.message }));
     return true; // Keep channel open for async response
+  }
+
+
+  // ── Offscreen prover messages ─────────────────────────────────────────────
+
+  // Popup → Background: start ZK proof in offscreen document
+  if (request.type === 'START_CHARM_PROOF') {
+    handleStartCharmProof(request.params)
+      .then(() => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  // Popup → Background: check if a proof result is waiting
+  if (request.type === 'GET_PENDING_PROOF') {
+    chrome.storage.local.get([EXT.PENDING_PROOF, EXT.PROVING_STATUS], (data) => {
+      sendResponse({
+        pendingProof:   data[EXT.PENDING_PROOF]   || null,
+        provingStatus:  data[EXT.PROVING_STATUS]  || null,
+      });
+    });
+    return true;
+  }
+
+  // Popup → Background: discard pending proof (user cancelled)
+  if (request.type === 'CLEAR_PENDING_PROOF') {
+    chrome.storage.local.remove([EXT.PENDING_PROOF, EXT.PROVING_STATUS], () => {
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  // Offscreen → Background: live status update (forwarded to popup if open)
+  if (request.type === 'PROVER_STATUS') {
+    chrome.storage.local.set({ [EXT.PROVING_STATUS]: { message: request.message, ts: Date.now() } });
+    chrome.runtime.sendMessage({ type: 'PROVER_STATUS_UPDATE', message: request.message }).catch(() => {});
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  // Offscreen → Background: proof succeeded
+  if (request.type === 'PROVER_RESULT') {
+    handleProverResult({
+      spellTxHex:       request.spellTxHex,
+      prevTxMapEntries: request.prevTxMapEntries,
+      fee:              request.fee,
+    });
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  // Offscreen → Background: proof failed
+  if (request.type === 'PROVER_ERROR') {
+    handleProverError(request.error);
+    sendResponse({ ok: true });
+    return true;
   }
 
   if (request.type === 'API_REQUEST') {

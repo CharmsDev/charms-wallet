@@ -338,27 +338,49 @@ async function signMessageWithKeys(message, seedPhrase, networkName, addresses) 
 
 // Storage keys (must match background.js / storage-keys.js)
 const EXT_PENDING_SIGN = 'ext:pending_sign';
+const EXT_PENDING_PROOF = 'ext:pending_proof';
 const EXT_SIGN_RESPONSE = 'ext:sign_response';
 const SK_SEED_PHRASE = 'wallet:seed_phrase';
 const SK_ACTIVE_NETWORK = 'wallet:active_network';
 const addrKey = (bc, net) => `wallet:${bc}:${net}:addresses`;
 
+function shortenAddr(addr) {
+  if (!addr || addr.length < 12) return addr;
+  return `${addr.slice(0, 8)}…${addr.slice(-6)}`;
+}
+
 function SignApproval() {
+  // PSBT / message signing state
   const [request, setRequest] = useState(null);
   const [psbtInfo, setPsbtInfo] = useState(null);
+
+  // Charm transfer (BRO proof) state
+  const [pendingProof, setPendingProof] = useState(null);
+  const [txid, setTxid] = useState(null);
+
+  // Shared state
+  const [mode, setMode] = useState(null); // 'psbt' | 'charm'
   const [signing, setSigning] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     (async () => {
-      const data = await chrome.storage.local.get([EXT_PENDING_SIGN]);
-      const req = data[EXT_PENDING_SIGN];
-      console.log('[approve-sign] Pending request:', req);
+      const data = await chrome.storage.local.get([EXT_PENDING_SIGN, EXT_PENDING_PROOF]);
 
-      if (!req) {
-        setError('No pending sign request found');
+      // Charm transfer takes priority (background opens this page when proof is ready)
+      const pp = data[EXT_PENDING_PROOF];
+      if (pp?.status === 'ready') {
+        setPendingProof(pp);
+        setMode('charm');
         return;
       }
+
+      const req = data[EXT_PENDING_SIGN];
+      if (!req) {
+        setError('No pending request found');
+        return;
+      }
+      setMode('psbt');
       setRequest(req);
 
       // Parse PSBT to show details
@@ -366,17 +388,11 @@ function SignApproval() {
         const psbt = bitcoin.Psbt.fromHex(req.psbtHex);
         const inputCount = psbt.inputCount;
         const outputCount = psbt.txOutputs.length;
-
         let totalOutput = 0n;
         const outputs = psbt.txOutputs.map((out, i) => {
           totalOutput += BigInt(out.value);
-          return {
-            index: i,
-            value: Number(out.value),
-            address: out.address || '(script)',
-          };
+          return { index: i, value: Number(out.value), address: out.address || '(script)' };
         });
-
         setPsbtInfo({ inputCount, outputCount, outputs, totalOutput: Number(totalOutput) });
       } catch (e) {
         console.warn('[approve-sign] Could not parse PSBT for display:', e);
@@ -385,7 +401,9 @@ function SignApproval() {
     })();
   }, []);
 
-  const handleCancel = async () => {
+  // ── Cancel handlers ──────────────────────────────────────────────────────────
+
+  const handleCancelPsbt = async () => {
     await chrome.storage.local.set({
       [EXT_SIGN_RESPONSE]: { approved: false, requestId: request.id, error: 'User rejected the signing request' }
     });
@@ -393,52 +411,37 @@ function SignApproval() {
     window.close();
   };
 
-  const handleSign = async () => {
+  const handleCancelCharm = async () => {
+    await chrome.storage.local.remove([EXT_PENDING_PROOF]);
+    window.close();
+  };
+
+  // ── Sign: PSBT / message ─────────────────────────────────────────────────────
+
+  const handleSignPsbt = async () => {
     setSigning(true);
     setError(null);
-
     try {
       const mainnetKey = addrKey('bitcoin', 'mainnet');
       const testnetKey = addrKey('bitcoin', 'testnet4');
-      const storageData = await chrome.storage.local.get([
-        SK_SEED_PHRASE,
-        SK_ACTIVE_NETWORK,
-        mainnetKey,
-        testnetKey,
-      ]);
-
+      const storageData = await chrome.storage.local.get([SK_SEED_PHRASE, SK_ACTIVE_NETWORK, mainnetKey, testnetKey]);
       const seedPhrase = storageData[SK_SEED_PHRASE];
       if (!seedPhrase) throw new Error('Seed phrase not found in wallet');
-
       const networkName = storageData[SK_ACTIVE_NETWORK] || 'mainnet';
-      const activeAddrKey = addrKey('bitcoin', networkName);
-      let addresses = safeParse(storageData[activeAddrKey]);
-
+      let addresses = safeParse(storageData[addrKey('bitcoin', networkName)]);
       if (addresses.length === 0) {
-        const fallbackNetwork = networkName === 'mainnet' ? 'testnet4' : 'mainnet';
-        addresses = safeParse(storageData[addrKey('bitcoin', fallbackNetwork)]);
+        const fallback = networkName === 'mainnet' ? 'testnet4' : 'mainnet';
+        addresses = safeParse(storageData[addrKey('bitcoin', fallback)]);
       }
-
       if (addresses.length === 0) throw new Error('No wallet addresses found');
 
       if (request.type === 'signMessage') {
-        // Sign message
-        console.log('[approve-sign] Signing message:', request.message);
         const signature = await signMessageWithKeys(request.message, seedPhrase, networkName, addresses);
-        console.log('[approve-sign] Message signed successfully');
-        await chrome.storage.local.set({
-          [EXT_SIGN_RESPONSE]: { approved: true, requestId: request.id, signature }
-        });
+        await chrome.storage.local.set({ [EXT_SIGN_RESPONSE]: { approved: true, requestId: request.id, signature } });
       } else {
-        // Sign PSBT
-        console.log('[approve-sign] Signing PSBT with', addresses.length, 'addresses on', networkName);
         const signedPsbtHex = await signPsbtWithKeys(request.psbtHex, request.options, seedPhrase, networkName, addresses);
-        console.log('[approve-sign] PSBT signed successfully');
-        await chrome.storage.local.set({
-          [EXT_SIGN_RESPONSE]: { approved: true, requestId: request.id, signedPsbtHex }
-        });
+        await chrome.storage.local.set({ [EXT_SIGN_RESPONSE]: { approved: true, requestId: request.id, signedPsbtHex } });
       }
-
       await chrome.storage.local.remove(EXT_PENDING_SIGN);
       window.close();
     } catch (err) {
@@ -448,7 +451,40 @@ function SignApproval() {
     }
   };
 
-  if (!request) {
+  // ── Sign + broadcast: Charm transfer ─────────────────────────────────────────
+
+  const handleSignCharm = async () => {
+    setSigning(true);
+    setError(null);
+    try {
+      const storageData = await chrome.storage.local.get([SK_SEED_PHRASE, SK_ACTIVE_NETWORK]);
+      const seedPhrase = storageData[SK_SEED_PHRASE];
+      if (!seedPhrase) throw new Error('Seed phrase not found in wallet');
+      const network = pendingProof.meta?.network || storageData[SK_ACTIVE_NETWORK] || 'mainnet';
+
+      const { signAndBroadcastTransfer } = await import('./services/charm-transfer/executor.js');
+      const prevTxMap = new Map(pendingProof.prevTxMapEntries || []);
+      const result = await signAndBroadcastTransfer({
+        spellTxHex: pendingProof.spellTxHex,
+        prevTxMap,
+        inputSigningMap: pendingProof.meta?.inputSigningMap,
+        seedPhrase,
+        network,
+        onStatus: () => {},
+      });
+
+      await chrome.storage.local.remove([EXT_PENDING_PROOF]);
+      setTxid(result.txid);
+    } catch (err) {
+      console.error('[approve-sign] Charm sign error:', err);
+      setError(err.message);
+      setSigning(false);
+    }
+  };
+
+  // ── Loading / error state (no request yet) ───────────────────────────────────
+
+  if (!mode) {
     return (
       <div style={styles.container}>
         <div style={styles.header}>
@@ -458,14 +494,92 @@ function SignApproval() {
             <div style={styles.subtitle}>Sign Transaction</div>
           </div>
         </div>
-        {error ? (
-          <div style={styles.error}>{error}</div>
-        ) : (
-          <div style={styles.loading}>Loading...</div>
-        )}
+        {error ? <div style={styles.error}>{error}</div> : <div style={styles.loading}>Loading...</div>}
       </div>
     );
   }
+
+  // ── Charm transfer UI ────────────────────────────────────────────────────────
+
+  if (mode === 'charm') {
+    const meta = pendingProof.meta || {};
+    const TOKEN_DECIMALS = 100_000_000;
+    const displayAmount = meta.displayAmount || '?';
+    const symbol = meta.symbol || 'Token';
+    const recipient = meta.recipient || '?';
+    const fee = pendingProof.fee;
+    const txBytes = pendingProof.spellTxHex ? Math.round(pendingProof.spellTxHex.length / 2) : '?';
+    const mempoolBase = (meta.network === 'mainnet') ? 'https://mempool.space' : 'https://mempool.space/testnet4';
+
+    // Success screen
+    if (txid) {
+      return (
+        <div style={styles.container}>
+          <div style={styles.header}>
+            <div style={{ ...styles.logo, background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' }}>✓</div>
+            <div>
+              <div style={styles.title}>Tokens Sent!</div>
+              <div style={styles.subtitle}>Broadcast to Bitcoin network</div>
+            </div>
+          </div>
+          <div style={styles.txDetails}>
+            <div style={styles.txRow}><span style={styles.txLabel}>Amount</span><span style={{ ...styles.txValue, color: '#f7931a' }}>{displayAmount} {symbol}</span></div>
+            <div style={styles.txRow}><span style={styles.txLabel}>To</span><span style={styles.txValue}>{shortenAddr(recipient)}</span></div>
+            <div style={{ ...styles.txRow, wordBreak: 'break-all', flexDirection: 'column', gap: 4 }}>
+              <span style={styles.txLabel}>Transaction ID</span>
+              <span style={{ ...styles.txValue, fontSize: 11 }}>{txid}</span>
+            </div>
+          </div>
+          <div style={styles.buttons}>
+            <a href={`${mempoolBase}/tx/${txid}`} target="_blank" rel="noopener noreferrer"
+              style={{ ...styles.btnCancel, textAlign: 'center', textDecoration: 'none', lineHeight: '44px' }}>
+              View on Mempool
+            </a>
+            <button style={styles.btnSign} onClick={() => window.close()}>Done</button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <div style={styles.logo}>₿</div>
+          <div>
+            <div style={styles.title}>Charms Wallet</div>
+            <div style={styles.subtitle}>Confirm Token Transfer</div>
+          </div>
+        </div>
+
+        <div style={styles.card}>
+          <div style={styles.siteInfo}>
+            <div style={styles.siteIcon}>🪙</div>
+            <div style={styles.siteName}>{displayAmount} {symbol}</div>
+            <div style={styles.siteUrl}>ZK proof verified — ready to sign</div>
+          </div>
+        </div>
+
+        <div style={styles.txDetails}>
+          <div style={styles.txRow}><span style={styles.txLabel}>Token</span><span style={{ ...styles.txValue, color: '#f7931a' }}>{symbol}</span></div>
+          <div style={styles.txRow}><span style={styles.txLabel}>Amount</span><span style={styles.txValue}>{displayAmount}</span></div>
+          <div style={styles.txRow}><span style={styles.txLabel}>To</span><span style={styles.txValue}>{shortenAddr(recipient)}</span></div>
+          <div style={styles.txRow}><span style={styles.txLabel}>Network Fee</span><span style={styles.txValue}>{fee != null ? `${fee} sats` : '—'}</span></div>
+          <div style={styles.txRow}><span style={styles.txLabel}>TX Size</span><span style={styles.txValue}>{txBytes} bytes</span></div>
+        </div>
+
+        {error && <div style={styles.error}>{error}</div>}
+
+        <div style={styles.buttons}>
+          <button style={styles.btnCancel} onClick={handleCancelCharm} disabled={signing}>Cancel</button>
+          <button style={signing ? styles.btnSignDisabled : styles.btnSign} onClick={handleSignCharm} disabled={signing}>
+            {signing ? 'Signing…' : 'Confirm & Sign'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── PSBT / message UI (existing) ─────────────────────────────────────────────
 
   const url = (() => {
     try { return new URL(request.origin); } catch { return { hostname: 'Unknown', origin: request.origin }; }
@@ -495,29 +609,16 @@ function SignApproval() {
 
       {request.type === 'signMessage' && (
         <div style={styles.txDetails}>
-          <div style={styles.txRow}>
-            <span style={styles.txLabel}>Message</span>
-          </div>
-          <div style={{ ...styles.txRow, wordBreak: 'break-all', fontSize: '12px', color: '#94a3b8' }}>
-            {request.message}
-          </div>
+          <div style={styles.txRow}><span style={styles.txLabel}>Message</span></div>
+          <div style={{ ...styles.txRow, wordBreak: 'break-all', fontSize: '12px', color: '#94a3b8' }}>{request.message}</div>
         </div>
       )}
 
       {!request.type && psbtInfo && (
         <div style={styles.txDetails}>
-          <div style={styles.txRow}>
-            <span style={styles.txLabel}>Inputs</span>
-            <span style={styles.txValue}>{psbtInfo.inputCount}</span>
-          </div>
-          <div style={styles.txRow}>
-            <span style={styles.txLabel}>Outputs</span>
-            <span style={styles.txValue}>{psbtInfo.outputCount}</span>
-          </div>
-          <div style={styles.txRow}>
-            <span style={styles.txLabel}>Total Output</span>
-            <span style={styles.txValue}>{(psbtInfo.totalOutput / 100_000_000).toFixed(8)} BTC</span>
-          </div>
+          <div style={styles.txRow}><span style={styles.txLabel}>Inputs</span><span style={styles.txValue}>{psbtInfo.inputCount}</span></div>
+          <div style={styles.txRow}><span style={styles.txLabel}>Outputs</span><span style={styles.txValue}>{psbtInfo.outputCount}</span></div>
+          <div style={styles.txRow}><span style={styles.txLabel}>Total Output</span><span style={styles.txValue}>{(psbtInfo.totalOutput / 100_000_000).toFixed(8)} BTC</span></div>
           {psbtInfo.outputs.length > 0 && psbtInfo.outputs.length <= 6 && (
             <div style={styles.outputList}>
               {psbtInfo.outputs.map((out, i) => (
@@ -534,10 +635,8 @@ function SignApproval() {
       {error && <div style={styles.error}>{error}</div>}
 
       <div style={styles.buttons}>
-        <button style={styles.btnCancel} onClick={handleCancel} disabled={signing}>
-          Cancel
-        </button>
-        <button style={signing ? styles.btnSignDisabled : styles.btnSign} onClick={handleSign} disabled={signing}>
+        <button style={styles.btnCancel} onClick={handleCancelPsbt} disabled={signing}>Cancel</button>
+        <button style={signing ? styles.btnSignDisabled : styles.btnSign} onClick={handleSignPsbt} disabled={signing}>
           {signing ? 'Signing...' : 'Sign'}
         </button>
       </div>
