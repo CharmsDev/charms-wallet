@@ -6,8 +6,7 @@ import { useUTXOs } from '@/stores/utxoStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { charmUtxoSelector } from '@/services/charms/utils/charm-utxo-selector';
-import { charmsSpellService } from '@/services/charms/spell-composer';
-import { MIN_FUNDING_UTXO_SATS } from '@/services/charms/utils/charm-constants';
+import { DEFAULT_FEE_RATE } from '@/services/charm-transfer/constants';
 import { bitcoinApiRouter } from '@/services/shared/bitcoin-api-router';
 
 /**
@@ -26,7 +25,7 @@ export default function TransferConfirmDialog({
 }) {
     const [selectedCharmUtxos, setSelectedCharmUtxos] = useState([]);
     const [fundingUtxo, setFundingUtxo] = useState(null);
-    const [spellJson, setSpellJson] = useState('');
+    const [v10Params, setV10Params] = useState(null);
     const [activeTab, setActiveTab] = useState('details'); // 'details' or 'spell'
     const [error, setError] = useState(null);
     const [feeRate, setFeeRate] = useState(null);
@@ -96,19 +95,14 @@ export default function TransferConfirmDialog({
 
             setSelectedCharmUtxos(charmUtxosToUse);
 
-            // Step 2: Estimate fees BEFORE selecting funding UTXO
-            
-            // Estimate transaction size:
-            // - Base tx overhead: ~10 bytes
-            // - Each input: ~180 bytes (P2TR with witness)
-            // - Each output: ~43 bytes (P2TR)
-            // Commit tx: 1 funding input + 1 output = ~233 bytes
-            // Spell tx: N charm inputs + 1 funding input + outputs = ~(180*N + 180 + 43*outputs)
+            // Step 2: Estimate fees — v10 single TX
+            // - Base overhead: ~10 bytes
+            // - Each P2TR input: ~180 bytes
+            // - Each P2TR output: ~43 bytes
             const numCharmInputs = charmUtxosToUse.length;
-            const estimatedCommitSize = 233; // bytes
-            const estimatedSpellSize = 180 * numCharmInputs + 180 + 43 * 3; // 3 outputs typical
-            const totalEstimatedSize = estimatedCommitSize + estimatedSpellSize;
-            const calculatedFees = Math.ceil(totalEstimatedSize * networkFeeRate);
+            const numOutputs = hasChange ? 3 : 2; // recipient + change (if any) + OP_RETURN proof
+            const estimatedSize = 10 + 180 * (numCharmInputs + 1) + 43 * numOutputs;
+            const calculatedFees = Math.ceil(estimatedSize * networkFeeRate);
             setEstimatedFees(calculatedFees);
             
             // Add 20% safety margin
@@ -148,29 +142,17 @@ export default function TransferConfirmDialog({
 
             setFundingUtxo(selectedFundingUtxo);
 
-            // Step 3: Generate spell JSON
-            let spell;
-            
-            if (isNFT) {
-                spell = charmsSpellService.composeNFTTransfer(charm, destinationAddress);
-            } else if (charmUtxosToUse.length === 1) {
-                // Single UTXO token transfer
-                spell = charmsSpellService.composeTransferSpell(
-                    charmUtxosToUse[0],
-                    transferAmount,
-                    destinationAddress
-                );
-            } else {
-                // Multi-UTXO token transfer
-                spell = charmsSpellService.composeTokenMultiInputTransfer(
-                    charmUtxosToUse,
-                    transferAmount,
-                    destinationAddress,
-                    changeAddress
-                );
-            }
-
-            setSpellJson(spell);
+            // Step 3: Build v10 transfer params
+            setV10Params({
+                tokenAppId: charm.appId,
+                charmInputs: charmUtxosToUse.map(u => ({
+                    utxoId: `${u.txid}:${u.outputIndex}`,
+                    amount: u.amount,
+                })),
+                transferAmount,
+                recipientAddress: destinationAddress,
+                changeAddress,
+            });
 
             } catch (err) {
                 setError(err.message);
@@ -182,43 +164,38 @@ export default function TransferConfirmDialog({
     }, [charm, charms, transferAmount, destinationAddress, utxos, isNFT, isToken, changeAddress, activeNetwork]);
 
     const handleConfirm = () => {
-        if (!fundingUtxo || !spellJson || selectedCharmUtxos.length === 0) {
+        if (!fundingUtxo || !v10Params || selectedCharmUtxos.length === 0) {
             return;
         }
 
-        // Create input signing map: txid:vout -> addressInfo
+        // Build input signing map: "txid:vout" → { address, index, isChange }
         const inputSigningMap = {};
-        
-        // Add charm UTXOs to map
+
         for (const utxo of selectedCharmUtxos) {
             const key = `${utxo.txid}:${utxo.outputIndex}`;
-            const addressEntry = addresses.find(addr => addr.address === utxo.address);
+            const entry = addresses.find(a => a.address === utxo.address);
             inputSigningMap[key] = {
                 address: utxo.address,
-                index: addressEntry?.index || 0,
-                isChange: addressEntry?.isChange || false
-            };
-        }
-        
-        // Add funding UTXO to map
-        if (fundingUtxo) {
-            const key = `${fundingUtxo.txid}:${fundingUtxo.vout}`;
-            const addressEntry = addresses.find(addr => addr.address === fundingUtxo.address);
-            
-            inputSigningMap[key] = {
-                address: fundingUtxo.address,
-                index: addressEntry?.index || 0,
-                isChange: addressEntry?.isChange || false
+                index: entry?.index || 0,
+                isChange: entry?.isChange || false,
             };
         }
 
+        const fundingKey = `${fundingUtxo.txid}:${fundingUtxo.vout}`;
+        const fundingEntry = addresses.find(a => a.address === fundingUtxo.address);
+        inputSigningMap[fundingKey] = {
+            address: fundingUtxo.address,
+            index: fundingEntry?.index || 0,
+            isChange: fundingEntry?.isChange || false,
+        };
+
         onConfirm({
             selectedCharmUtxos,
-            fundingUtxo,
-            spellJson,
+            fundingUtxo: { utxoId: `${fundingUtxo.txid}:${fundingUtxo.vout}`, value: fundingUtxo.value, address: fundingUtxo.address },
+            v10Params,
             changeAddress,
-            inputSigningMap,  // NEW: Map of inputs to sign
-            feeRate  // Pass the dynamic fee rate to the process dialog
+            inputSigningMap,
+            feeRate,
         });
     };
 
@@ -369,12 +346,12 @@ export default function TransferConfirmDialog({
                         </div>
                     )}
 
-                    {/* Spell JSON Tab */}
-                    {activeTab === 'spell' && spellJson && (
+                    {/* Transfer Params Tab */}
+                    {activeTab === 'spell' && v10Params && (
                         <div className="glass-effect p-4 rounded-xl h-full">
-                            <h4 className="font-bold text-white mb-3">Spell JSON</h4>
+                            <h4 className="font-bold text-white mb-3">Transfer Params (v10)</h4>
                             <pre className="bg-dark-800 p-4 rounded-lg text-xs text-green-400 overflow-x-auto h-[calc(100%-3rem)] overflow-y-auto">
-                                {spellJson}
+                                {JSON.stringify(v10Params, null, 2)}
                             </pre>
                         </div>
                     )}
@@ -390,8 +367,8 @@ export default function TransferConfirmDialog({
                     </button>
                     <button
                         onClick={handleConfirm}
-                        disabled={!fundingUtxo || !spellJson || selectedCharmUtxos.length === 0 || !!error}
-                        className={`btn ${!fundingUtxo || !spellJson || selectedCharmUtxos.length === 0 || !!error
+                        disabled={!fundingUtxo || !v10Params || selectedCharmUtxos.length === 0 || !!error}
+                        className={`btn ${!fundingUtxo || !v10Params || selectedCharmUtxos.length === 0 || !!error
                             ? 'bg-dark-600 cursor-not-allowed text-dark-400'
                             : 'btn-primary'
                             }`}

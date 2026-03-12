@@ -1,159 +1,66 @@
 /**
  * Charm Transaction Extractor
- * Extracts charm token information from transactions using charms-js
+ * Extracts charm token information from transactions via Charms Explorer API.
+ * No charms-js dependency — uses indexed data from the Explorer.
  */
 
-import { extractAndVerifySpell } from 'charms-js';
-import { bitcoinApiRouter } from '../shared/bitcoin-api-router';
-import charmsExplorerAPI, { getBroTokenAppId } from '../charms/charms-explorer-api';
+import { explorerWalletService } from '../shared/explorer-wallet-service';
 
-// BRO Token hardcoded fallback (when API is not available)
-const BRO_TOKEN_FALLBACK = {
-    name: 'Bro',
-    ticker: '$BRO',
-    image: 'https://bro.charms.dev/assets/bro-token-DsXLIv23.jpg',
-    decimals: 8
+// Known token metadata (mirrors explorer-wallet-sync.js)
+const KNOWN_TOKENS = {
+    't/3d7fe7e4cea6121947af73d70e5119bebd8aa5b7edfe74bfaf6e779a1847bd9b/c975d4e0c292fb95efbda5c13312d6ac1d8b5aeff7f0f1e5578645a2da70ff5f': {
+        name: 'Bro',
+        ticker: '$BRO',
+        image: 'https://bro.charms.dev/assets/bro-token-DsXLIv23.jpg',
+        decimals: 8,
+    },
 };
 
 /**
- * Extract charm token data from a transaction
+ * Extract charm token data from a transaction via Explorer API.
  * @param {string} txid - Transaction ID
  * @param {string} network - Network (mainnet or testnet4)
- * @param {Array} myAddresses - Array of wallet addresses
+ * @param {Array} myAddresses - Array of wallet addresses (used to filter amounts)
  * @returns {Promise<Object|null>} Charm token data or null
  */
 export async function extractCharmTokenData(txid, network, myAddresses = []) {
     try {
-        console.log(`[CharmExtractor] Processing tx: ${txid}`);
-        
-        // Get transaction hex
-        const txHex = await bitcoinApiRouter.getTransactionHex(txid, network);
-        if (!txHex) {
-            console.log(`[CharmExtractor] No tx hex found for ${txid}`);
-            return null;
-        }
+        const data = await explorerWalletService.getCharmsByTxid(txid, network);
 
-        // Extract and verify spell using charms-js
-        const spellResult = await extractAndVerifySpell(txHex, network);
-        
-        console.log(`[CharmExtractor] extractAndVerifySpell result:`, {
-            success: spellResult.success,
-            charmsCount: spellResult.charms?.length || 0
-        });
-        
-        if (!spellResult.success || !spellResult.charms || spellResult.charms.length === 0) {
-            console.log(`[CharmExtractor] No charms found in tx ${txid}`);
-            return null;
-        }
+        // API may return array directly or { charms: [...] }
+        const charmsArray = Array.isArray(data) ? data : (data?.charms || data?.data || []);
+        if (!charmsArray || charmsArray.length === 0) return null;
 
-        // Get the first charm (usually there's only one per transaction)
-        const charm = spellResult.charms[0];
-        
-        console.log(`[CharmExtractor] Charm data:`, {
-            appId: charm.appId || charm.app_id,
-            amount: charm.amount,
-            outputs: charm.outputs?.length || 0
-        });
-        
-        // Extract app ID
-        const appId = charm.appId || charm.app_id;
-        if (!appId) {
-            console.log(`[CharmExtractor] No appId found in charm`);
-            return null;
-        }
-        
-        console.log(`[CharmExtractor] AppId: ${appId}`);
+        // Use first charm entry for metadata
+        const charm = charmsArray[0];
+        const appId = charm.app_id || charm.appId;
+        if (!appId) return null;
 
-        // Get token metadata
-        let tokenName = 'Unknown Token';
-        let tokenTicker = 'TOKEN';
-        let tokenImage = null;
-        
-        // Check if it's BRO token (use hardcoded fallback)
-        const broAppId = getBroTokenAppId();
-        const isBroToken = appId === broAppId;
-        
-        console.log(`[CharmExtractor] Token check:`, {
-            appId,
-            broAppId,
-            isBroToken,
-            match: appId === broAppId
-        });
-        
-        if (isBroToken) {
-            tokenName = BRO_TOKEN_FALLBACK.name;
-            tokenTicker = BRO_TOKEN_FALLBACK.ticker;
-            tokenImage = BRO_TOKEN_FALLBACK.image;
-            console.log(`[CharmExtractor] Using BRO fallback data`);
-        } else {
-            console.log(`[CharmExtractor] Not BRO token, trying API...`);
-            // Try to get metadata from Charms Explorer API for other tokens
-            try {
-                const metadata = await charmsExplorerAPI.getTokenMetadata(appId);
-                if (metadata) {
-                    tokenName = metadata.name || tokenName;
-                    tokenTicker = metadata.ticker || tokenTicker;
-                    tokenImage = metadata.image || null;
-                    console.log(`[CharmExtractor] Got metadata from API:`, metadata);
-                }
-            } catch (error) {
-                console.log(`[CharmExtractor] API failed, using defaults`);
-                // Silent fail - use defaults for unknown tokens
+        const known = KNOWN_TOKENS[appId];
+        const decimals = known?.decimals || 0;
+
+        // Sum amounts for wallet addresses
+        const myAddressSet = new Set(
+            myAddresses.map(a => (typeof a === 'string' ? a : a?.address)).filter(Boolean)
+        );
+        let tokenAmountSats = 0;
+        for (const c of charmsArray) {
+            const addr = c.address || c.output_address;
+            if (!myAddressSet.size || myAddressSet.has(addr)) {
+                tokenAmountSats += c.amount || 0;
             }
         }
 
-        // Extract token amount from outputs (in satoshis, need to divide by 100,000,000)
-        let tokenAmountSats = 0;
-        const myAddressSet = new Set(myAddresses.map(addr => addr.address || addr));
-        
-        console.log(`[CharmExtractor] My addresses count: ${myAddressSet.size}`);
-        
-        if (charm.outputs && Array.isArray(charm.outputs)) {
-            console.log(`[CharmExtractor] Processing ${charm.outputs.length} outputs`);
-            // Sum amounts from outputs that belong to our addresses
-            charm.outputs.forEach((output, idx) => {
-                const isMyAddress = output.address && myAddressSet.has(output.address);
-                console.log(`[CharmExtractor] Output ${idx}:`, {
-                    address: output.address,
-                    amount: output.amount,
-                    isMine: isMyAddress
-                });
-                if (isMyAddress) {
-                    tokenAmountSats += output.amount || 0;
-                }
-            });
-        } else if (charm.amount !== undefined) {
-            // Fallback to charm.amount if outputs not available
-            tokenAmountSats = charm.amount;
-            console.log(`[CharmExtractor] Using charm.amount fallback: ${tokenAmountSats}`);
-        }
-        
-        console.log(`[CharmExtractor] Total amount in sats: ${tokenAmountSats}`);
-        
-        // Convert from satoshis to token units (divide by 100,000,000)
-        const tokenAmount = tokenAmountSats / 100000000;
-        
-        console.log(`[CharmExtractor] Token amount after division: ${tokenAmount}`);
+        const tokenAmount = decimals > 0 ? tokenAmountSats / Math.pow(10, decimals) : tokenAmountSats;
 
-        const result = {
+        return {
             appId,
-            tokenName,
-            tokenTicker,
-            tokenImage,
-            tokenAmount, // Already converted to token units
-            tokenAmountSats, // Keep raw satoshi amount for reference
-            charmData: charm // Store full charm data for reference
-        };
-        
-        console.log(`[CharmExtractor] Final result:`, {
-            appId,
-            tokenName,
-            tokenTicker,
+            tokenName: known?.name || charm.symbol || charm.name || 'Unknown Token',
+            tokenTicker: known?.ticker || charm.symbol || 'TOKEN',
+            tokenImage: known?.image || charm.image || null,
             tokenAmount,
-            tokenAmountSats
-        });
-        
-        return result;
+            tokenAmountSats,
+        };
     } catch (error) {
         console.error('[CharmTransactionExtractor] Error extracting charm data:', error);
         return null;
@@ -161,7 +68,7 @@ export async function extractCharmTokenData(txid, network, myAddresses = []) {
 }
 
 /**
- * Extract charm token data for multiple transactions
+ * Extract charm token data for multiple transactions.
  * @param {Array} transactions - Array of transaction objects with txid
  * @param {string} network - Network (mainnet or testnet4)
  * @param {Array} myAddresses - Array of wallet addresses
@@ -170,24 +77,20 @@ export async function extractCharmTokenData(txid, network, myAddresses = []) {
  */
 export async function extractCharmTokenDataBatch(transactions, network, myAddresses = [], onProgress = null) {
     const results = new Map();
-    
+
     for (let i = 0; i < transactions.length; i++) {
         const tx = transactions[i];
-        
-        if (onProgress) {
-            onProgress(i + 1, transactions.length);
-        }
-        
+        if (onProgress) onProgress(i + 1, transactions.length);
+
         try {
             const charmData = await extractCharmTokenData(tx.txid, network, myAddresses);
             if (charmData) {
                 results.set(tx.txid, charmData);
             }
         } catch (error) {
-            // Continue with next transaction
             console.error(`[CharmTransactionExtractor] Error processing tx ${tx.txid}:`, error);
         }
     }
-    
+
     return results;
 }

@@ -107,17 +107,18 @@ export class WalletInitializationService {
             onStepChange(5, 'Scanning for Charms...');
 
             try {
-                const { charmsService } = await import('@/services/charms/charms');
-                const { getUTXOs } = await import('@/services/storage');
+                // Charm balances are fetched from the Charms Explorer indexed API
+                // during the wallet sync (explorer-wallet-sync.js). No separate scan needed.
+                const { syncWalletExplorer } = await import('@/services/wallet/sync/explorer-wallet-sync');
 
                 for (const currentNetwork of networks) {
                     try {
-                        const utxos = await getUTXOs(blockchain, currentNetwork);
-                        
-                        if (Object.keys(utxos).length > 0) {
-                            const charmsNetwork = currentNetwork === 'mainnet' ? 'mainnet' : 'testnet4';
-                            const charms = await charmsService.getCharmsByUTXOs(utxos, charmsNetwork);
-                        }
+                        await syncWalletExplorer({
+                            blockchain,
+                            network: currentNetwork,
+                            fullScan: false,
+                            skipCharms: false,
+                        });
                     } catch (error) {
                         // Continue with initialization
                     }
