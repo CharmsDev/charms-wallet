@@ -1,67 +1,25 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
-import { useBlockchain, BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
+import Image from 'next/image';
+import { BLOCKCHAINS } from '@/stores/blockchainStore';
+import { useNetworkDropdown } from '@/hooks/useNetworkDropdown';
 
 export default function Header({ activeSection, setActiveSection }) {
     const {
-        activeBlockchain,
         activeNetwork,
-        saveBlockchain,
-        saveNetwork,
-        getAvailableNetworks,
+        mounted,
+        networkDropdownOpen,
+        dropdownPosition,
+        availableNetworks,
         isBitcoin,
-        isCardano
-    } = useBlockchain();
-
-    const [networkDropdownOpen, setNetworkDropdownOpen] = useState(false);
-    const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 });
-    const [mounted, setMounted] = useState(false);
-
-    useEffect(() => {
-        setMounted(true);
-    }, []);
-
-    // Handle blockchain selection
-    const handleBlockchainSelect = (blockchain) => {
-        saveBlockchain(blockchain);
-    };
-
-    // Handle network selection
-    const handleNetworkSelect = (network) => {
-        saveNetwork(network);
-        setNetworkDropdownOpen(false);
-    };
-
-    // Calculate dropdown position relative to button
-    const handleDropdownToggle = (event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        setDropdownPosition({
-            top: rect.bottom + 8, // 8px below the button
-            right: window.innerWidth - rect.right // Align right edge with button
-        });
-        setNetworkDropdownOpen(!networkDropdownOpen);
-    };
-
-    // Get available networks for the current blockchain
-    const availableNetworks = getAvailableNetworks();
-
-    // Get network display name
-    const getNetworkDisplayName = () => {
-        const network = availableNetworks.find(n => n.id === activeNetwork);
-        return network ? network.name : activeNetwork;
-    };
-
-    // Get blockchain display class
-    const getBlockchainClass = (blockchain) => {
-        if (blockchain === activeBlockchain) {
-            return blockchain === BLOCKCHAINS.BITCOIN
-                ? "bg-bitcoin-500/20 text-bitcoin-400 bitcoin-glow-text"
-                : "bg-cardano-500/20 text-cardano-400 cardano-glow-text";
-        }
-        return "bg-dark-700/30 text-dark-400 hover:bg-dark-700/50";
-    };
+        handleBlockchainSelect,
+        handleNetworkSelect,
+        handleDropdownToggle,
+        getNetworkDisplayName,
+        getBlockchainClass,
+    } = useNetworkDropdown();
 
     return (
         <div className="fixed-header">
@@ -74,10 +32,12 @@ export default function Header({ activeSection, setActiveSection }) {
                         <div className="flex items-center space-x-6">
                             {/* Main Charms Logo */}
                             <div className="flex items-center space-x-3">
-                                <img
+                                <Image
                                     src="/logo.png"
                                     alt="Charms Wallet"
-                                    className="h-8"
+                                    width={32}
+                                    height={32}
+                                    className="h-8 w-auto"
                                 />
                                 <span className="text-lg font-semibold text-dark-100 tracking-tight" style={{ transform: 'translateX(-3px)' }}>
                                     Charms Wallet
@@ -152,10 +112,12 @@ export default function Header({ activeSection, setActiveSection }) {
                         <div className="flex justify-between items-center">
                             {/* Smaller Charms Logo */}
                             <div className="flex items-center space-x-2">
-                                <img
+                                <Image
                                     src="/logo.png"
                                     alt="Charms Wallet"
-                                    className="h-6"
+                                    width={24}
+                                    height={24}
+                                    className="h-6 w-auto"
                                 />
                                 <span className="text-sm font-semibold text-dark-100 tracking-tight" style={{ transform: 'translateX(-3px)' }}>
                                     Charms Wallet

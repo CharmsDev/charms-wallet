@@ -1,5 +1,7 @@
 'use client';
 
+import Image from 'next/image';
+
 /**
  * Displays Charm token transaction details with token metadata
  * Includes token image, name, ticker, and App ID in a compact two-column layout
@@ -16,9 +18,12 @@ export default function CharmTransaction({ transaction, copyToClipboard }) {
             <div className="flex gap-4 items-start">
                 {charmData.tokenImage && (
                     <div className="w-1/5 flex-shrink-0">
-                        <img 
-                            src={charmData.tokenImage} 
+                        <Image
+                            src={charmData.tokenImage}
                             alt={charmData.tokenName || 'Token'}
+                            width={200}
+                            height={200}
+                            unoptimized
                             className="w-full h-auto rounded-lg object-cover border-2 border-purple-500/30"
                             onError={(e) => { e.target.style.display = 'none'; }}
                         />

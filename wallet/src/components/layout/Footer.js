@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Image from 'next/image';
 import ConfigModal from './ConfigModal';
 
 export default function Footer() {
@@ -11,7 +12,7 @@ export default function Footer() {
                     <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
                         {/* Brand */}
                         <div className="flex items-center gap-2">
-                            <img src="/logo.png" alt="Charms" className="h-6 w-auto" />
+                            <Image src="/logo.png" alt="Charms" width={24} height={24} className="h-6 w-auto" />
                             <span className="text-sm font-bold text-dark-200">
                                 Powered by <span className="bitcoin-glow-text text-bitcoin-400">Charms</span>
                             </span>

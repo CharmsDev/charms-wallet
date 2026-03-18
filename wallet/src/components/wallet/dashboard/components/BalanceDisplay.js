@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import Image from 'next/image';
 import { useCharms } from '@/stores/charmsStore';
 import { useUTXOs } from '@/stores/utxoStore';
 import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
@@ -164,9 +165,11 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
                         <div className="glass-effect p-4 rounded-xl border border-dark-600 relative flex flex-col">
                             <div className="flex items-center space-x-2 mb-2">
                                 <div className="w-6 h-6 rounded-full overflow-hidden">
-                                    <img 
-                                        src="https://bro.charms.dev/assets/bro-token-DsXLIv23.jpg" 
-                                        alt="Bro Token" 
+                                    <Image
+                                        src="https://bro.charms.dev/assets/bro-token-DsXLIv23.jpg"
+                                        alt="Bro Token"
+                                        width={24}
+                                        height={24}
                                         className="w-full h-full object-cover"
                                         onError={(e) => {
                                             e.target.style.display = 'none';

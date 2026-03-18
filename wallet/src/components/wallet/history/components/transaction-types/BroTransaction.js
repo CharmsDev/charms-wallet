@@ -1,5 +1,7 @@
 'use client';
 
+import Image from 'next/image';
+
 /**
  * Displays BRO token transaction details including mining/mint output information
  * Shows token metadata with image, name, ticker, and App ID in a two-column layout
@@ -18,9 +20,12 @@ export default function BroTransaction({ transaction, copyToClipboard }) {
             <div className="flex gap-4 items-start">
                 {charmData.tokenImage && (
                     <div className="w-1/5 flex-shrink-0">
-                        <img 
-                            src={charmData.tokenImage} 
+                        <Image
+                            src={charmData.tokenImage}
                             alt={charmData.tokenName || 'BRO Token'}
+                            width={200}
+                            height={200}
+                            unoptimized
                             className="w-full h-auto rounded-lg object-cover border-2 border-orange-500/30"
                             onError={(e) => { e.target.style.display = 'none'; }}
                         />

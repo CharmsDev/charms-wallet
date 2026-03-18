@@ -4,6 +4,12 @@ const nextConfig = {
         ignoreDuringBuilds: true,
     },
 
+    images: {
+        remotePatterns: [
+            { protocol: 'https', hostname: 'bro.charms.dev' },
+        ],
+    },
+
     // Disabled to prevent double mounting in development
     reactStrictMode: false,
     

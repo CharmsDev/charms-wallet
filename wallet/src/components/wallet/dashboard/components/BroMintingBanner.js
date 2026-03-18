@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Image from 'next/image';
 
 const BroMintingBanner = () => {
   const handleMintClick = () => {
@@ -23,9 +24,11 @@ const BroMintingBanner = () => {
         }
       `}</style>
       <div className="flex items-start space-x-3">
-        <img 
-          src="https://bro.charms.dev/assets/bro-token-DsXLIv23.jpg" 
-          alt="Bro Token" 
+        <Image
+          src="https://bro.charms.dev/assets/bro-token-DsXLIv23.jpg"
+          alt="Bro Token"
+          width={40}
+          height={40}
           className="h-10 w-10 rounded-full object-cover flex-shrink-0"
         />
         <div className="flex-1 space-y-2">

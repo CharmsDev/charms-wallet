@@ -3,7 +3,7 @@
  * React hook for wallet synchronization
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { syncWallet, syncAfterTransfer, syncUTXOsOnly } from '@/services/wallet/wallet-sync-service';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useCharmsStore } from '@/stores/charms';
@@ -13,6 +13,7 @@ export function useWalletSync() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [syncProgress, setSyncProgress] = useState({ phase: null, current: 0, total: 0 });
     const [syncError, setSyncError] = useState(null);
+    const syncingRef = useRef(false);
 
     const { refreshUTXOs } = useUTXOs();
     const addCharm = useCharmsStore(state => state.addCharm);
@@ -23,7 +24,8 @@ export function useWalletSync() {
      * Limited to 12 addresses for fast refresh
      */
     const syncFullWallet = useCallback(async () => {
-        if (isSyncing) return;
+        if (syncingRef.current) return;
+        syncingRef.current = true;
 
         setIsSyncing(true);
         setSyncError(null);
@@ -59,10 +61,11 @@ export function useWalletSync() {
             setSyncError(error.message);
             throw error;
         } finally {
+            syncingRef.current = false;
             setIsSyncing(false);
             setSyncProgress({ phase: null, current: 0, total: 0 });
         }
-    }, [isSyncing, activeBlockchain, activeNetwork, refreshUTXOs, addCharm]);
+    }, [activeBlockchain, activeNetwork, refreshUTXOs, addCharm]);
 
     /**
      * Charms-only refresh (Charms tab)
@@ -70,7 +73,8 @@ export function useWalletSync() {
      * Limited to 12 addresses for fast refresh
      */
     const syncCharmsOnly = useCallback(async () => {
-        if (isSyncing) return;
+        if (syncingRef.current) return;
+        syncingRef.current = true;
 
         setIsSyncing(true);
         setSyncError(null);
@@ -105,17 +109,19 @@ export function useWalletSync() {
             setSyncError(error.message);
             throw error;
         } finally {
+            syncingRef.current = false;
             setIsSyncing(false);
             setSyncProgress({ phase: null, current: 0, total: 0 });
         }
-    }, [isSyncing, activeBlockchain, activeNetwork, refreshUTXOs, addCharm]);
+    }, [activeBlockchain, activeNetwork, refreshUTXOs, addCharm]);
 
     /**
      * UTXO-only refresh (UTXOs tab)
      * Scans all addresses to find all UTXOs
      */
     const syncUTXOs = useCallback(async (addressLimit = null) => {
-        if (isSyncing) return;
+        if (syncingRef.current) return;
+        syncingRef.current = true;
 
         setIsSyncing(true);
         setSyncError(null);
@@ -137,15 +143,17 @@ export function useWalletSync() {
             setSyncError(error.message);
             throw error;
         } finally {
+            syncingRef.current = false;
             setIsSyncing(false);
         }
-    }, [isSyncing, activeBlockchain, activeNetwork, refreshUTXOs]);
+    }, [activeBlockchain, activeNetwork, refreshUTXOs]);
 
     /**
      * Post-transfer sync
      */
     const syncAfterCharmTransfer = useCallback(async (transferData) => {
-        if (isSyncing) return;
+        if (syncingRef.current) return;
+        syncingRef.current = true;
 
         setIsSyncing(true);
         setSyncError(null);
@@ -167,9 +175,10 @@ export function useWalletSync() {
             setSyncError(error.message);
             throw error;
         } finally {
+            syncingRef.current = false;
             setIsSyncing(false);
         }
-    }, [isSyncing, activeBlockchain, activeNetwork, addCharm]);
+    }, [activeBlockchain, activeNetwork, addCharm]);
 
     return {
         isSyncing,
