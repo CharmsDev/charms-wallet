@@ -12,6 +12,7 @@
 import { getAddresses, saveCharms, saveBalance } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
 import { syncUTXOs } from './utxo-sync';
+import { isPotentialCharm, isCharmUtxo } from '@/services/utxo/utils/charms';
 
 // ============================================
 // Known token metadata (mirrors extension)
@@ -77,20 +78,7 @@ async function fetchFromExplorerAPI(explorerService, addressList, network, skipC
         skipCharms ? [] : explorerService.getAggregateCharmBalances(addressList, network),
     ]);
 
-    // Calculate BTC balance locally from UTXO list (more reliable than /balance endpoint)
-    let confirmed = 0;
-    let unconfirmed = 0;
-    for (const utxo of utxos) {
-        const sats = utxo.value || 0;
-        if ((utxo.confirmations || 0) >= 1) {
-            confirmed += sats;
-        } else {
-            unconfirmed += sats;
-        }
-    }
-    const balanceResult = { confirmed, unconfirmed, total: confirmed + unconfirmed };
-
-    // Normalize charms
+    // Normalize charms first — needed for isCharmUtxo check below
     const charms = [];
     const seenKeys = new Set();
     if (!skipCharms && Array.isArray(charmBalances)) {
@@ -103,6 +91,21 @@ async function fetchFromExplorerAPI(explorerService, addressList, network, skipC
             }
         }
     }
+
+    // Calculate BTC balance using existing spendability checks (same logic as calculateBalances)
+    let confirmed = 0;
+    let unconfirmed = 0;
+    for (const utxo of utxos) {
+        if (isPotentialCharm(utxo)) continue;      // ≤ 1000 sats — dust / charm outputs
+        if (isCharmUtxo(utxo, charms)) continue;   // known charm-bearing UTXOs
+        const sats = utxo.value || 0;
+        if ((utxo.confirmations || 0) >= 1) {
+            confirmed += sats;
+        } else {
+            unconfirmed += sats;
+        }
+    }
+    const balanceResult = { confirmed, unconfirmed, total: confirmed + unconfirmed };
 
     // Build token balance summary
     const tokenBalances = (Array.isArray(charmBalances) ? charmBalances : []).map(b => ({
