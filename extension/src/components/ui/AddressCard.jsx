@@ -22,7 +22,9 @@ export default function AddressCard({ address }) {
           </svg>
         </div>
         <div className="text-left">
-          <div className="text-xs text-dark-400">Your Address</div>
+          <div className="text-xs text-dark-400">
+            {address && (address.startsWith('bc1q') || address.startsWith('tb1q')) ? 'Native SegWit' : 'Taproot'}
+          </div>
           <div className="text-sm text-white font-mono">
             {address ? `${address.slice(0, 10)}...${address.slice(-6)}` : 'Loading...'}
           </div>

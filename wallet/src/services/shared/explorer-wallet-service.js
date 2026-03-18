@@ -442,6 +442,32 @@ export class ExplorerWalletService {
         // handle it via the UTXO list.
         return false;
     }
+
+    // ── Transaction history (indexed, paginated) ─────────────────────────
+
+    /**
+     * Get paginated transaction history for an address.
+     * Returns { address, network, transactions, page, page_size, total, total_pages }.
+     * Each transaction: { txid, direction, amount, fee, block_height, block_time, confirmations }.
+     */
+    async getTransactionHistory(address, network, { page = 1, pageSize = 50 } = {}) {
+        return this._makeRequest(
+            `/v1/wallet/transactions/${address}?page=${page}&page_size=${pageSize}`,
+            {},
+            network
+        );
+    }
+
+    // ── Charms by txid (public API) ──────────────────────────────────────
+
+    /**
+     * Get all charm UTXOs created by a specific transaction.
+     * Uses the public /v1/charms/{txid} endpoint.
+     * Returns array of charm objects or wrapping structure depending on API version.
+     */
+    async getCharmsByTxid(txid, network) {
+        return this._makeRequest(`/v1/charms/${txid}`, {}, network);
+    }
 }
 
 export const explorerWalletService = new ExplorerWalletService();

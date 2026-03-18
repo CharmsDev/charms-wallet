@@ -11,7 +11,7 @@ export default function BalanceCards({ totalBalance, pendingBalance, broBalance,
           <span className="text-xs text-dark-400">Bitcoin</span>
         </div>
         <div className="text-xl font-bold gradient-text">
-          {isSyncing && syncPhase === 'utxos' ? '--' : formatBTC(totalBalance)}
+          {isSyncing ? '--' : formatBTC(totalBalance)}
         </div>
         <div className="text-xs text-dark-500">BTC</div>
         {pendingBalance > 0 && (

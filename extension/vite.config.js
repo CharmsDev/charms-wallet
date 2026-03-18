@@ -7,26 +7,6 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 import { resolve } from 'path';
 import { copyFileSync, mkdirSync, existsSync } from 'fs';
 
-// Override WASM-based modules with extension-specific prover API versions
-function overrideWasmModules() {
-  const overrides = {
-    'charm-transaction-extractor': resolve(__dirname, './src/services/failover/charm-tx-extractor.js'),
-  };
-  return {
-    name: 'override-wasm-modules',
-    enforce: 'pre',
-    resolveId(source, importer) {
-      if (!importer) return null;
-      for (const [key, replacement] of Object.entries(overrides)) {
-        if (source.endsWith(key) || source.endsWith(key + '.js') || source.endsWith(key + '.ts')) {
-          return replacement;
-        }
-      }
-      return null;
-    },
-  };
-}
-
 // Copy static files to dist after build
 function copyStaticFiles(isDev = false) {
   return {
@@ -132,7 +112,6 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
-      overrideWasmModules(),
       wasm(),
       topLevelAwait(),
       react({
@@ -153,8 +132,6 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': resolve(__dirname, '../wallet/src'),
-        '@shared': resolve(__dirname, './src/shared'),
-        'next/navigation': resolve(__dirname, './src/mocks/next-navigation.js'),
       },
     },
     base: './',

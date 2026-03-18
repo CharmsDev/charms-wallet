@@ -1,44 +1,58 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import config from '@/config';
 import packageJson from '../../../package.json';
+import { SPELL_VERSION, EXPLORER_API, PROVER_URL_MAINNET, PROVER_URL_TESTNET } from '@/services/charm-transfer/constants';
+
+const DATA_SOURCES = [
+    { data: 'UTXOs',           source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/utxos/<addr>' },
+    { data: 'Balance',         source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/balance/<addr>' },
+    { data: 'Token Balances',  source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/charms/<addr>' },
+    { data: 'Transactions',    source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/transactions/<addr>' },
+    { data: 'Fee Estimates',   source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/fee-estimate' },
+    { data: 'Broadcast TX',    source: 'Explorer → QuickNode → Mempool',       badge: 'multi',    endpoint: '/v1/wallet/broadcast (failover)' },
+    { data: 'TX Lookup',       source: 'Explorer → QuickNode → Mempool',       badge: 'multi',    endpoint: '/v1/wallet/tx/<txid> (failover)' },
+    { data: 'Charm Metadata',  source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/assets/reference-nft/<appId>' },
+    { data: 'Spell Proving',   source: 'Charms Prover',                        badge: 'prover',   endpoint: '/spells/prove (POST)' },
+    { data: 'BTC Price',       source: 'CoinGecko',                            badge: 'external', endpoint: '/api/v3/simple/price' },
+];
 
 export default function ConfigModal({ isOpen, onClose }) {
+    const [activeTab, setActiveTab] = useState('config');
+
     if (!isOpen) return null;
 
     const network = config.bitcoin.network || '—';
     const isTestnet = config.bitcoin.isTestnet();
 
-    // Prover URLs
-    let proverUrl = '—';
-    try { proverUrl = config.api.getProverUrl(network); } catch { /* not configured */ }
+    // Prover — use constants.js (source of truth, already v10)
+    const proverUrl = network === 'mainnet' ? PROVER_URL_MAINNET : PROVER_URL_TESTNET;
     const isLocalProver = proverUrl?.includes('localhost') || proverUrl?.includes('127.0.0.1');
     const zkpIsReal = !isLocalProver && proverUrl !== '—';
 
-    // API URLs
-    const charmsApiUrl = config.api.charms || '—';
+    // APIs
+    const explorerApiUrl = EXPLORER_API || '—';
     const walletApiUrl = config.api.wallet || '—';
-    const explorerWalletApiUrl = config.explorerWallet?.apiUrl || '—';
 
     // QuickNode
     const quickNodeUrl = config.bitcoin.getQuickNodeApiUrl(network);
     const hasQuickNode = config.bitcoin.hasQuickNode(network);
 
     // Mempool
-    const mempoolMainnet = 'https://mempool.space/api';
-    const mempoolTestnet4 = 'https://mempool.space/testnet4/api';
-    const mempoolUrl = isTestnet ? mempoolTestnet4 : mempoolMainnet;
-
-    // Cardano
-    const cardanoNetwork = config.cardano?.network || '—';
-    const blockfrostUrl = config.cardano?.getBlockfrostApiUrl?.() || '—';
-    const hasBlockfrost = !!(config.cardano?.blockfrostProjectId);
+    const mempoolUrl = isTestnet ? 'https://mempool.space/testnet4/api' : 'https://mempool.space/api';
 
     const truncate = (str, len = 22) => {
         if (!str || str === '—') return '—';
         if (str.length <= len * 2) return str;
         return `${str.slice(0, len)}...${str.slice(-len)}`;
+    };
+
+    const badgeClasses = {
+        explorer: 'bg-blue-500/15 text-blue-400',
+        multi:    'bg-emerald-500/15 text-emerald-400',
+        prover:   'bg-purple-500/15 text-purple-400',
+        external: 'bg-yellow-500/15 text-yellow-400',
     };
 
     return (
@@ -64,146 +78,192 @@ export default function ConfigModal({ isOpen, onClose }) {
                     </button>
                 </div>
 
+                {/* Tabs */}
+                <div className="flex border-b border-dark-700 px-6">
+                    <button
+                        className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${activeTab === 'config' ? 'text-dark-100 border-bitcoin-400' : 'text-dark-400 border-transparent hover:text-dark-100'}`}
+                        onClick={() => setActiveTab('config')}
+                    >
+                        Configuration
+                    </button>
+                    <button
+                        className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${activeTab === 'data-sources' ? 'text-dark-100 border-bitcoin-400' : 'text-dark-400 border-transparent hover:text-dark-100'}`}
+                        onClick={() => setActiveTab('data-sources')}
+                    >
+                        Data Sources
+                    </button>
+                </div>
+
                 {/* Content */}
                 <div className="p-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        {/* Left column */}
-                        <div className="space-y-5">
-                            {/* General */}
-                            <Section title="General">
-                                <Row
-                                    icon={<TagIcon />}
-                                    label="Wallet Version"
-                                    value={`v${packageJson.version}`}
-                                    highlight
-                                />
-                                <Row
-                                    icon={<NetworkIcon />}
-                                    label="Bitcoin Network"
-                                    value={network.toUpperCase()}
-                                    className={isTestnet ? 'text-yellow-400' : 'text-emerald-400'}
-                                />
-                                {cardanoNetwork !== '—' && (
+                    {activeTab === 'config' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                            {/* Left column */}
+                            <div className="space-y-5">
+                                {/* General */}
+                                <Section title="General">
+                                    <Row
+                                        icon={<TagIcon />}
+                                        label="Wallet Version"
+                                        value={`v${packageJson.version}`}
+                                        highlight
+                                    />
+                                    <Row
+                                        icon={<TagIcon />}
+                                        label="Charms Version"
+                                        value="v0.10.0"
+                                        highlight
+                                    />
+                                    <Row
+                                        icon={<ShieldIcon />}
+                                        label="Spell Version"
+                                        value={`${SPELL_VERSION}`}
+                                        className="text-purple-400"
+                                    />
                                     <Row
                                         icon={<NetworkIcon />}
-                                        label="Cardano Network"
-                                        value={cardanoNetwork.toUpperCase()}
-                                        className="text-blue-400"
+                                        label="Network"
+                                        value={network.toUpperCase()}
+                                        className={isTestnet ? 'text-yellow-400' : 'text-emerald-400'}
                                     />
-                                )}
-                            </Section>
+                                </Section>
 
-                            {/* ZK Prover */}
-                            <Section title="ZK Prover">
-                                <Row
-                                    icon={<ServerIcon />}
-                                    label="Prover URL"
-                                    value={truncate(proverUrl)}
-                                    mono
-                                />
-                                <Row
-                                    icon={<ShieldIcon />}
-                                    label="Proof Mode"
-                                    custom={
-                                        <div className="flex gap-3 mt-0.5">
-                                            <span className={`flex items-center gap-1.5 text-xs ${zkpIsReal ? 'text-dark-100' : 'text-dark-500'}`}>
-                                                <span className={`inline-block w-3 h-3 rounded-full border-2 ${zkpIsReal ? 'border-emerald-400' : 'border-dark-500'} relative`}>
-                                                    {zkpIsReal && <span className="absolute top-0.5 left-0.5 w-1 h-1 rounded-full bg-emerald-400" />}
+                                {/* ZK Prover */}
+                                <Section title="ZK Prover">
+                                    <Row
+                                        icon={<ServerIcon />}
+                                        label="Prover URL"
+                                        value={truncate(proverUrl)}
+                                        mono
+                                    />
+                                    <Row
+                                        icon={<ShieldIcon />}
+                                        label="Proof Mode"
+                                        custom={
+                                            <div className="flex gap-3 mt-0.5">
+                                                <span className={`flex items-center gap-1.5 text-xs ${zkpIsReal ? 'text-dark-100' : 'text-dark-500'}`}>
+                                                    <span className={`inline-block w-3 h-3 rounded-full border-2 ${zkpIsReal ? 'border-emerald-400' : 'border-dark-500'} relative`}>
+                                                        {zkpIsReal && <span className="absolute top-0.5 left-0.5 w-1 h-1 rounded-full bg-emerald-400" />}
+                                                    </span>
+                                                    Real
                                                 </span>
-                                                Real
-                                            </span>
-                                            <span className={`flex items-center gap-1.5 text-xs ${!zkpIsReal ? 'text-dark-100' : 'text-dark-500'}`}>
-                                                <span className={`inline-block w-3 h-3 rounded-full border-2 ${!zkpIsReal ? 'border-emerald-400' : 'border-dark-500'} relative`}>
-                                                    {!zkpIsReal && <span className="absolute top-0.5 left-0.5 w-1 h-1 rounded-full bg-emerald-400" />}
+                                                <span className={`flex items-center gap-1.5 text-xs ${!zkpIsReal ? 'text-dark-100' : 'text-dark-500'}`}>
+                                                    <span className={`inline-block w-3 h-3 rounded-full border-2 ${!zkpIsReal ? 'border-emerald-400' : 'border-dark-500'} relative`}>
+                                                        {!zkpIsReal && <span className="absolute top-0.5 left-0.5 w-1 h-1 rounded-full bg-emerald-400" />}
+                                                    </span>
+                                                    Mocked
                                                 </span>
-                                                Mocked
-                                            </span>
-                                        </div>
-                                    }
-                                />
-                            </Section>
+                                            </div>
+                                        }
+                                    />
+                                </Section>
 
-                            {/* Bitcoin APIs */}
-                            <Section title="Bitcoin APIs">
-                                <Row
-                                    icon={<GlobeIcon />}
-                                    label="Mempool.space"
-                                    value={truncate(mempoolUrl)}
-                                    mono
-                                />
-                                <Row
-                                    icon={<DatabaseIcon />}
-                                    label="QuickNode"
-                                    value={hasQuickNode ? truncate(quickNodeUrl) : 'Not configured'}
-                                    mono
-                                    className={!hasQuickNode ? 'text-dark-500 italic' : undefined}
-                                />
-                            </Section>
-                        </div>
-
-                        {/* Right column */}
-                        <div className="space-y-5">
-                            {/* Charms APIs */}
-                            <Section title="Charms APIs">
-                                <Row
-                                    icon={<DatabaseIcon />}
-                                    label="Explorer Wallet API"
-                                    value={truncate(explorerWalletApiUrl)}
-                                    mono
-                                />
-                                <Row
-                                    icon={<ServerIcon />}
-                                    label="Charms API"
-                                    value={truncate(charmsApiUrl)}
-                                    mono
-                                />
-                                <Row
-                                    icon={<GlobeIcon />}
-                                    label="Wallet API"
-                                    value={truncate(walletApiUrl)}
-                                    mono
-                                    className={walletApiUrl === '—' ? 'text-dark-500 italic' : undefined}
-                                />
-                            </Section>
-
-                            {/* Cardano APIs (if configured) */}
-                            {cardanoNetwork !== '—' && (
-                                <Section title="Cardano APIs">
+                                {/* Bitcoin Data Sources */}
+                                <Section title="Bitcoin Data">
                                     <Row
                                         icon={<DatabaseIcon />}
-                                        label="Blockfrost"
-                                        value={hasBlockfrost ? truncate(blockfrostUrl) : 'Not configured'}
+                                        label="Explorer API (primary)"
+                                        value={truncate(explorerApiUrl)}
                                         mono
-                                        className={!hasBlockfrost ? 'text-dark-500 italic' : undefined}
+                                    />
+                                    <Row
+                                        icon={<ServerIcon />}
+                                        label="QuickNode (failover)"
+                                        value={hasQuickNode ? truncate(quickNodeUrl) : 'Not configured'}
+                                        mono
+                                        className={!hasQuickNode ? 'text-dark-500 italic' : undefined}
                                     />
                                     <Row
                                         icon={<GlobeIcon />}
-                                        label="Cardano API"
-                                        value={truncate(config.api.cardano || '—')}
+                                        label="Mempool.space (fallback)"
+                                        value={truncate(mempoolUrl)}
                                         mono
                                     />
                                 </Section>
-                            )}
+                            </div>
 
-                            {/* Prover Endpoints */}
-                            <Section title="Prover Endpoints">
-                                <Row
-                                    icon={<ServerIcon />}
-                                    label="Mainnet Prover"
-                                    value={truncate(config.api.prover?.mainnet || '—')}
-                                    mono
-                                    className={!config.api.prover?.mainnet ? 'text-dark-500 italic' : undefined}
-                                />
-                                <Row
-                                    icon={<ServerIcon />}
-                                    label="Testnet4 Prover"
-                                    value={truncate(config.api.prover?.testnet4 || '—')}
-                                    mono
-                                    className={!config.api.prover?.testnet4 ? 'text-dark-500 italic' : undefined}
-                                />
-                            </Section>
+                            {/* Right column */}
+                            <div className="space-y-5">
+                                {/* Charms APIs */}
+                                <Section title="APIs">
+                                    <Row
+                                        icon={<GlobeIcon />}
+                                        label="Wallet API"
+                                        value={truncate(walletApiUrl)}
+                                        mono
+                                        className={walletApiUrl === '—' ? 'text-dark-500 italic' : undefined}
+                                    />
+                                    <Row
+                                        icon={<GlobeIcon />}
+                                        label="CoinGecko (BTC price)"
+                                        value="https://api.coingecko.com"
+                                        mono
+                                    />
+                                </Section>
+
+                                {/* Prover Endpoints */}
+                                <Section title="Prover Endpoints">
+                                    <Row
+                                        icon={<ServerIcon />}
+                                        label="Mainnet"
+                                        value={truncate(PROVER_URL_MAINNET)}
+                                        mono
+                                    />
+                                    <Row
+                                        icon={<ServerIcon />}
+                                        label="Testnet4"
+                                        value={truncate(PROVER_URL_TESTNET)}
+                                        mono
+                                    />
+                                </Section>
+
+                                {/* Data Provider Architecture */}
+                                <Section title="Provider Architecture">
+                                    <div className="space-y-2 text-xs text-dark-300">
+                                        <div className="flex items-center gap-2">
+                                            <span className="inline-block w-2 h-2 rounded-full bg-blue-400" />
+                                            <span><strong className="text-dark-100">Primary:</strong> Explorer API (direct node RPC)</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="inline-block w-2 h-2 rounded-full bg-yellow-400" />
+                                            <span><strong className="text-dark-100">Failover:</strong> QuickNode (Blockbook add-on)</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />
+                                            <span><strong className="text-dark-100">Fallback:</strong> Mempool.space (public API)</span>
+                                        </div>
+                                    </div>
+                                </Section>
+                            </div>
                         </div>
-                    </div>
+                    )}
+
+                    {activeTab === 'data-sources' && (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-dark-700">
+                                        <th className="text-left text-xs font-semibold uppercase tracking-wider text-dark-400 py-2 px-3">Data</th>
+                                        <th className="text-left text-xs font-semibold uppercase tracking-wider text-dark-400 py-2 px-3">Source</th>
+                                        <th className="text-left text-xs font-semibold uppercase tracking-wider text-dark-400 py-2 px-3">Endpoint</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {DATA_SOURCES.map((ds) => (
+                                        <tr key={ds.data} className="border-b border-dark-800/50">
+                                            <td className="py-2.5 px-3 text-dark-100 font-medium">{ds.data}</td>
+                                            <td className="py-2.5 px-3">
+                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${badgeClasses[ds.badge]}`}>
+                                                    {ds.source}
+                                                </span>
+                                            </td>
+                                            <td className="py-2.5 px-3 font-mono text-xs text-dark-400 break-all">{ds.endpoint}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -245,7 +305,7 @@ function Row({ icon, label, value, mono, highlight, className, custom }) {
     );
 }
 
-// ── Icons (inline SVGs to avoid external dependencies) ──────────────
+// ── Icons (inline SVGs) ──────────────────────────────────────────────
 
 function TagIcon() {
     return (

@@ -16,7 +16,8 @@ export function useDashboardSync({
     await StorageAdapter.set(`last_synced_${activeBlockchain}_${activeNetwork}`, date.toISOString());
   }, [activeBlockchain, activeNetwork]);
 
-  // On mount: load cache, then auto-sync in background
+  // On mount: load cached data only — no auto-sync.
+  // User triggers refresh manually via the sync button.
   useEffect(() => {
     if (!hasWallet) return;
     let cancelled = false;
@@ -27,15 +28,6 @@ export function useDashboardSync({
 
       const ts = await StorageAdapter.get(`last_synced_${activeBlockchain}_${activeNetwork}`);
       if (ts && !cancelled) setLastSynced(new Date(ts));
-
-      if (!cancelled) {
-        try {
-          await syncFullWallet();
-          if (!cancelled) await persistSync(new Date());
-        } catch (err) {
-          console.warn('[DashboardSync] Auto-sync error:', err.message);
-        }
-      }
     };
 
     init();
