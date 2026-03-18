@@ -95,7 +95,14 @@ async function fetchFromExplorerAPI(explorerService, addressList, network, skipC
     let confirmed = 0;
     let unconfirmed = 0;
     for (const utxo of utxos) {
+        // Exclude UTXOs that carry charms — they are not spendable as BTC
+        const utxoKey = `${utxo.txid}:${utxo.vout}`;
+        if (charmUtxoKeys.has(utxoKey)) continue;
+
         const sats = utxo.value || 0;
+        // Exclude dust/charm UTXOs (≤ 1000 sats) — these are non-spendable charm outputs
+        if (sats <= 1000) continue;
+
         const isConfirmed = (utxo.confirmations || 0) >= 1;
         if (isConfirmed) {
             confirmed += sats;

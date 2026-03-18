@@ -10,7 +10,7 @@ import { getNetwork } from '@/utils/addressUtils';
  */
 export class WalletInitializationService {
     constructor() {
-        this.totalSteps = 8;
+        this.totalSteps = 7;
     }
 
     /**
@@ -49,7 +49,7 @@ export class WalletInitializationService {
             const { saveAddresses } = await import('@/services/storage');
 
             const networks = ['mainnet', 'testnet4'];
-            const pairsPerNetwork = 12; // 12 pairs (24 addrs: 12 receive + 12 change) per network
+            const pairsPerNetwork = 6; // 6 pairs (12 addrs: 6 receive + 6 change) per network
 
             for (const currentNetwork of networks) {
                 // Get the appropriate Bitcoin network object for address generation
@@ -82,143 +82,85 @@ export class WalletInitializationService {
                 });
             }
 
-            onStepChange(4, 'Scanning addresses...');
+            onStepChange(4, 'Fetching balances...');
 
+            // Use Explorer API for fast balance + charm + UTXO fetch (single round-trip per network)
             try {
-                // Use centralized batch scanner with a limit of 12 addresses per network
-                const { utxoService } = await import('@/services/utxo');
+                const { getAddresses } = await import('@/services/storage');
+                const { explorerWalletService } = await import('@/services/shared/explorer-wallet-service');
+                const { syncUTXOs } = await import('@/services/wallet/sync/utxo-sync');
 
                 for (const currentNetwork of networks) {
                     try {
-                        await utxoService.fetchAndStoreAllUTXOsSequential(
-                            blockchain,
-                            currentNetwork,
-                            null, // no onProgress during initialization to keep steps clean
-                            24    // limit to 24 addresses (12 indices = 12 receive + 12 change)
-                        );
-                    } catch (error) {
-                        // Continue with initialization
-                    }
-                }
-            } catch (error) {
-                // Continue with initialization even if address scanning fails
-            }
+                        const storedAddresses = await getAddresses(blockchain, currentNetwork);
+                        const addressList = storedAddresses.map(a => a.address);
+                        if (addressList.length === 0) continue;
 
-            onStepChange(5, 'Scanning for Charms...');
+                        const explorerAvailable = explorerWalletService.isAvailable(currentNetwork);
+                        if (explorerAvailable) {
+                            // Fast path: Explorer API aggregate endpoints
+                            const [utxos, charmBalances] = await Promise.all([
+                                explorerWalletService.getAggregateUTXOs(addressList, currentNetwork),
+                                explorerWalletService.getAggregateCharmBalances(addressList, currentNetwork),
+                            ]);
 
-            try {
-                // Charm balances are fetched from the Charms Explorer indexed API
-                // during the wallet sync (explorer-wallet-sync.js). No separate scan needed.
-                const { syncWalletExplorer } = await import('@/services/wallet/sync/explorer-wallet-sync');
+                            // Build set of charm-bearing UTXOs to exclude from BTC balance
+                            const charmUtxoKeys = new Set();
+                            if (Array.isArray(charmBalances)) {
+                                for (const balance of charmBalances) {
+                                    for (const u of (balance.utxos || [])) {
+                                        charmUtxoKeys.add(`${u.txid}:${u.vout}`);
+                                    }
+                                }
+                            }
 
-                for (const currentNetwork of networks) {
-                    try {
-                        await syncWalletExplorer({
-                            blockchain,
-                            network: currentNetwork,
-                            fullScan: false,
-                            skipCharms: false,
-                        });
-                    } catch (error) {
-                        // Continue with initialization
-                    }
-                }
-            } catch (error) {
-                // Continue with initialization
-            }
+                            // Calculate BTC balance from UTXOs (excluding charm UTXOs and dust ≤ 1000 sats)
+                            let confirmed = 0, unconfirmed = 0;
+                            for (const u of utxos) {
+                                if (charmUtxoKeys.has(`${u.txid}:${u.vout}`)) continue;
+                                if ((u.value || 0) <= 1000) continue; // Exclude dust/charm outputs
+                                if ((u.confirmations || 0) >= 1) confirmed += u.value || 0;
+                                else unconfirmed += u.value || 0;
+                            }
 
-            onStepChange(6, 'Scanning for transaction history...');
-
-            try {
-                const transactionHistoryModule = await import('@/services/wallet/services/transaction-history-service');
-                const transactionHistoryService = transactionHistoryModule.default || transactionHistoryModule.transactionHistoryService;
-
-                for (const currentNetwork of networks) {
-                    try {
-                        // Check if history recovery is needed
-                        const isRecoveryNeeded = await transactionHistoryService.isHistoryRecoveryNeeded(blockchain, currentNetwork);
-                        
-                        if (isRecoveryNeeded) {
-                            await transactionHistoryService.recoverTransactionHistory(
-                                blockchain, 
-                                currentNetwork,
-                                null, // No progress callback to avoid step interference
-                                12 // FORCE 12 addresses limit
-                            );
-                        }
-                    } catch (error) {
-                        console.error(`[WALLET] Error recovering ${currentNetwork} transaction history:`, error);
-                        // Continue with initialization even if history recovery fails
-                    }
-                }
-            } catch (error) {
-                console.error('[WALLET] Error importing transaction history service:', error);
-                // Continue with initialization
-            }
-
-            onStepChange(7, 'Calculating balances...');
-
-            // CRITICAL: Calculate and save balances for both networks
-            try {
-                const { utxoService } = await import('@/services/utxo');
-                const { getUTXOs, getCharms, saveBalance } = await import('@/services/storage');
-
-                for (const currentNetwork of networks) {
-                    try {
-                        const utxos = await getUTXOs(blockchain, currentNetwork);
-                        const charms = await getCharms(blockchain, currentNetwork) || [];
-                        
-                        // CRITICAL: calculateBalances filters out charms, ordinals, runes - ensures correct balance
-                        const balanceData = utxoService.calculateBalances(utxos, charms);
-                        
-                        // Calculate token balances
-                        let tokenBalances = [];
-                        if (charms.length > 0) {
-                            const { useCharmsStore } = await import('@/stores/charms');
-                            const tokenGroups = useCharmsStore.getState().groupTokensByAppId();
-                            tokenBalances = tokenGroups.map(group => ({
-                                appId: group.appId,
-                                name: group.name,
-                                ticker: group.ticker,
-                                amount: group.totalAmount
-                            }));
-                        }
-                        
-                        // Calculate total balance (spendable + pending, excludes reserved UTXOs)
-                        const totalBalance = balanceData.spendable + balanceData.pending;
-                        
-                        // Save balance to localStorage
-                        await saveBalance({
-                            spendable: balanceData.spendable,
-                            pending: balanceData.pending,
-                            total: totalBalance,
-                            nonSpendable: balanceData.nonSpendable,
-                            utxoCount: Object.values(utxos).reduce((sum, list) => sum + list.length, 0),
-                            charmCount: charms.length,
-                            ordinalCount: 0,
-                            runeCount: 0,
-                            tokens: tokenBalances
-                        }, blockchain, currentNetwork);
-                        
-                        // Update UTXO store in memory for active network
-                        if (currentNetwork === network) {
+                            // Update balance store
                             const { useUTXOStore } = await import('@/stores/utxoStore');
-                            useUTXOStore.setState({
-                                totalBalance: balanceData.spendable,
-                                pendingBalance: balanceData.pending
-                            });
+                            if (currentNetwork === network) {
+                                useUTXOStore.setState({ totalBalance: confirmed, pendingBalance: unconfirmed });
+                            }
+
+                            // Process charms
+                            if (Array.isArray(charmBalances) && charmBalances.length > 0) {
+                                const { saveCharms } = await import('@/services/storage');
+                                const charms = [];
+                                for (const balance of charmBalances) {
+                                    for (const u of (balance.utxos || [])) {
+                                        if (u.mempoolSpent) continue;
+                                        charms.push({
+                                            txid: u.txid, outputIndex: u.vout, address: u.address,
+                                            appId: u.appId || u.app_id, amount: u.amount || 0,
+                                            type: 'token', confirmed: u.confirmed ?? false,
+                                        });
+                                    }
+                                }
+                                await saveCharms(charms, blockchain, currentNetwork);
+                            }
+
+                            console.log(`[WALLET] Explorer API (${currentNetwork}): ${confirmed + unconfirmed} sats, ${charmBalances?.length || 0} token types`);
                         }
+
+                        // UTXO sync for spending capability (runs after display is ready)
+                        onStepChange(5, 'Syncing UTXOs...');
+                        await syncUTXOs({ blockchain, network: currentNetwork, fullScan: true });
                     } catch (error) {
-                        console.error(`[WALLET] Error calculating balance for ${currentNetwork}:`, error);
-                        // Continue with initialization
+                        console.warn(`[WALLET] Scan failed for ${currentNetwork}:`, error.message);
                     }
                 }
             } catch (error) {
-                console.error('[WALLET] Error calculating balances:', error);
-                // Continue with initialization
+                console.warn('[WALLET] Balance fetch error:', error.message);
             }
 
-            onStepChange(8, 'Finalizing setup...');
+            onStepChange(7, 'Finalizing setup...');
 
             return finalSeedPhrase;
 
