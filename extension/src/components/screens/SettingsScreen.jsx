@@ -174,7 +174,7 @@ export default function SettingsScreen({ activeNetwork, getAvailableNetworks, is
             </div>
             <span className="text-sm text-white">About</span>
           </div>
-          <span className="text-xs text-dark-500">v0.6.5</span>
+          <span className="text-xs text-dark-500">v{chrome?.runtime?.getManifest?.()?.version || '?'}</span>
         </div>
         <ResetSection />
       </div>
