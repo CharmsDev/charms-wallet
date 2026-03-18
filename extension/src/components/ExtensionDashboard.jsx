@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useWallet } from '@/stores/walletStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useUTXOs } from '@/stores/utxoStore';
@@ -7,6 +7,7 @@ import { useExtensionWalletSync } from '../hooks/useExtensionWalletSync';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useDashboardSync } from '../hooks/useDashboardSync';
 import { useNetworkSwitch } from '../hooks/useNetworkSwitch';
+import { ensureP2wpkhAddress } from '../services/lazy-p2wpkh';
 import DashboardHeader from './ui/DashboardHeader';
 import BottomNav from './ui/BottomNav';
 import HomeScreen from './screens/HomeScreen';
@@ -15,13 +16,29 @@ import ActivityScreen from './screens/ActivityScreen';
 import SettingsScreen from './screens/SettingsScreen';
 
 export default function ExtensionDashboard() {
-  const { hasWallet } = useWallet();
+  const { hasWallet, seedPhrase } = useWallet();
   const { addresses, loadAddresses } = useAddresses();
   const { activeNetwork, saveNetwork, getAvailableNetworks } = useNetwork();
   const { activeBlockchain } = useBlockchain();
   const { syncFullWallet, syncUTXOs, isSyncing, syncPhase } = useExtensionWalletSync();
   const { loadUTXOs } = useUTXOs();
   const [activeScreen, setActiveScreen] = useState('home');
+
+  // Lazy P2WPKH derivation for wallets created before the update
+  const didLazyDerive = useRef(false);
+  useEffect(() => {
+    if (!seedPhrase || !addresses?.length || didLazyDerive.current) return;
+    const hasP2wpkh = addresses.some(a => {
+      const addr = a?.address || a;
+      return addr.startsWith('bc1q') || addr.startsWith('tb1q');
+    });
+    if (!hasP2wpkh) {
+      didLazyDerive.current = true;
+      ensureP2wpkhAddress(seedPhrase, activeNetwork, activeBlockchain).then(derived => {
+        if (derived) loadAddresses(activeBlockchain, activeNetwork);
+      });
+    }
+  }, [seedPhrase, addresses, activeNetwork, activeBlockchain, loadAddresses]);
 
   const { lastSynced, handleManualSync } = useDashboardSync({
     hasWallet, activeBlockchain, activeNetwork,

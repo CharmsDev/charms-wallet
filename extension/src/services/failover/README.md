@@ -19,7 +19,6 @@ the sync automatically falls back to these modules.
 | `wallet-sync.js`        | Full sync via UTXO scan + prover verify                    | utxo-sync, charm-sync              |
 | `charm-sync.js`         | Charm extraction via prover `/spells/verify`               | charm-verifier                     |
 | `charm-verifier.js`     | Fetches tx hex from mempool.space, verifies via prover API | mempool.space, mock-prover.fly.dev |
-| `charm-tx-extractor.js` | Enriches tx history with charm data via prover             | mempool.space, mock-prover.fly.dev |
 
 ## Legacy flow (slow, ~10-30s)
 

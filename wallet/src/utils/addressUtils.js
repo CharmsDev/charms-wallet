@@ -199,7 +199,7 @@ export function generateInitialBitcoinAddresses(seedPhrase, onProgress, onComple
     let i = 0;
     const addresses = [];
     const chunkSize = 10; // Process 10 indexes at a time
-    const totalPairs = 12; // This will generate 24 addresses total (12 receive + 12 change)
+    const totalPairs = 6; // This will generate 12 addresses total (6 receive + 6 change)
 
     function generateChunk() {
         const limit = Math.min(i + chunkSize, totalPairs);
@@ -244,7 +244,7 @@ export function generateInitialBitcoinAddresses(seedPhrase, onProgress, onComple
 }
 
 // Optimized generator: precompute seed and HD nodes once, supports limiting pairs
-export function generateInitialBitcoinAddressesFast(seedPhrase, onProgress, onComplete, targetNetwork = null, totalPairs = 12) {
+export function generateInitialBitcoinAddressesFast(seedPhrase, onProgress, onComplete, targetNetwork = null, totalPairs = 6) {
     let i = 0;
     const addresses = [];
     const chunkSize = 32; // larger chunks for speed while keeping UI responsive
@@ -254,6 +254,22 @@ export function generateInitialBitcoinAddressesFast(seedPhrase, onProgress, onCo
         const network = targetNetwork || getNetwork();
         const seed = await bip39.mnemonicToSeed(seedPhrase);
         const masterNode = bip32.fromSeed(seed, network);
+
+        // BIP84 (P2WPKH) — derive one address at index 0
+        try {
+            const bip84Path = (network.bech32 === 'bc') ? "m/84'/0'/0'" : "m/84'/1'/0'";
+            const bip84Account = masterNode.derivePath(bip84Path);
+            const bip84Recv = bip84Account.derive(0);
+            const p2wpkhNode = bip84Recv.derive(0);
+            const pubkey = Buffer.from(p2wpkhNode.publicKey);
+            const { address: p2wpkhAddr } = bitcoin.payments.p2wpkh({ pubkey, network });
+            addresses.push({ address: p2wpkhAddr, index: 0, isChange: false, created: new Date().toISOString() });
+            console.log('[addressUtils] P2WPKH address derived:', p2wpkhAddr);
+        } catch (err) {
+            console.error('[addressUtils] P2WPKH derivation failed:', err);
+        }
+
+        // BIP86 (P2TR) — existing logic
         const derivationPath = (network.bech32 === 'bc') ? "m/86'/0'/0'" : "m/86'/1'/0'";
         const accountNode = masterNode.derivePath(derivationPath);
         const receiveChain = accountNode.derive(0);
@@ -284,7 +300,10 @@ export function generateInitialBitcoinAddressesFast(seedPhrase, onProgress, onCo
         }
 
         generateChunk();
-    })();
+    })().catch(err => {
+        console.error('[addressUtils] Address generation failed:', err);
+        if (onComplete) onComplete(addresses); // return whatever we have so far
+    });
 }
 
 /**

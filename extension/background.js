@@ -127,7 +127,7 @@ async function handleProverError(errorMsg) {
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('Extension installed:', details.reason);
   if (details.reason === 'install') {
-    console.log('First time installation - Charms Wallet v0.6.3');
+    console.log('First time installation - Charms Wallet v0.7.0');
     // Set default values
     chrome.storage.local.set({
       [SK.ACTIVE_BLOCKCHAIN]: 'bitcoin',
@@ -135,7 +135,7 @@ chrome.runtime.onInstalled.addListener((details) => {
       [EXT.CONNECTED_SITES]: {}
     });
   } else if (details.reason === 'update') {
-    console.log('Extension updated to v0.6.3');
+    console.log('Extension updated to v0.7.0');
   }
 });
 
@@ -217,6 +217,16 @@ function parseAddresses(raw) {
     }
   }
   return [];
+}
+
+/**
+ * Sort addresses so P2WPKH (bc1q/tb1q) comes first.
+ */
+function sortP2wpkhFirst(addrs) {
+  const sorted = [...addrs];
+  const idx = sorted.findIndex(a => a.startsWith('bc1q') || a.startsWith('tb1q'));
+  if (idx > 0) sorted.unshift(sorted.splice(idx, 1)[0]);
+  return sorted;
 }
 
 /**
@@ -326,12 +336,12 @@ async function handleWalletProviderRequest(request, sender) {
           return { error: 'User rejected the connection request' };
         }
         
-        // Return ALL wallet addresses so dApps can scan balances across all of them
-        const accountAddresses = addresses.map(a => a?.address || a);
-        
+        // Return ALL wallet addresses — P2WPKH (bc1q/tb1q) first for CAST compatibility
+        const accountAddresses = sortP2wpkhFirst(addresses.map(a => a?.address || a));
+
         // Save as connected site
         await saveConnectedSite(origin, accountAddresses);
-        
+
         console.log('[requestAccounts] Site connected:', origin, 'addresses:', accountAddresses);
         return { result: accountAddresses };
       }
@@ -575,8 +585,8 @@ async function handleGetAccounts(origin) {
     return { result: [] };
   }
   
-  // Return ALL addresses so dApps can scan balances across all of them
-  const accountAddresses = addresses.map(a => a?.address || a);
+  // Return ALL addresses — P2WPKH (bc1q/tb1q) first for CAST compatibility
+  const accountAddresses = sortP2wpkhFirst(addresses.map(a => a?.address || a));
   return { result: accountAddresses };
 }
 

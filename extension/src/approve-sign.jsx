@@ -1,6 +1,3 @@
-// Import polyfills first - MUST be before any other imports
-import './polyfills.js';
-
 /**
  * PSBT Signing Approval Page
  *
@@ -57,44 +54,73 @@ function getNetworkConfig(networkName) {
   return networkName === 'mainnet' ? MAINNET : TESTNET;
 }
 
-function getDerivationPath(networkName) {
+function getBip86Path(networkName) {
   return networkName === 'mainnet' ? "m/86'/0'/0'" : "m/86'/1'/0'";
+}
+
+function getBip84Path(networkName) {
+  return networkName === 'mainnet' ? "m/84'/0'/0'" : "m/84'/1'/0'";
+}
+
+function isP2wpkhAddress(addr) {
+  return addr.startsWith('bc1q') || addr.startsWith('tb1q');
 }
 
 /**
  * Derive all key pairs from seed phrase for a given network.
- * Returns a Map of address → { privateKey, publicKey, xOnlyPubKey, index, isChange }
+ * Returns a Map of address → { privateKey, publicKey, xOnlyPubKey?, type, index, isChange }
+ * type: 'p2wpkh' | 'p2tr'
  */
 async function deriveKeyMap(seedPhrase, networkName, addresses) {
   const network = getNetworkConfig(networkName);
   const seed = await bip39.mnemonicToSeed(seedPhrase);
   const root = bip32.fromSeed(seed, network);
-  const basePath = getDerivationPath(networkName);
-  const accountNode = root.derivePath(basePath);
-  const receiveChain = accountNode.derive(0);
-  const changeChain = accountNode.derive(1);
+
+  // BIP86 (P2TR) nodes
+  const bip86Account = root.derivePath(getBip86Path(networkName));
+  const bip86Receive = bip86Account.derive(0);
+  const bip86Change = bip86Account.derive(1);
+
+  // BIP84 (P2WPKH) nodes
+  const bip84Account = root.derivePath(getBip84Path(networkName));
+  const bip84Receive = bip84Account.derive(0);
 
   const keyMap = new Map();
 
-  // Derive keys for all known addresses
   for (const addrObj of addresses) {
     const addr = addrObj.address || addrObj;
     const index = addrObj.index ?? 0;
     const isChange = addrObj.isChange ?? false;
-    const chain = isChange ? changeChain : receiveChain;
-    const child = chain.derive(index);
 
-    const xOnlyPubKey = Buffer.from(child.publicKey.slice(1, 33));
-    const p2tr = bitcoin.payments.p2tr({ internalPubkey: xOnlyPubKey, network });
-
-    if (p2tr.address === addr) {
-      keyMap.set(addr, {
-        privateKey: child.privateKey,
-        publicKey: child.publicKey,
-        xOnlyPubKey,
-        index,
-        isChange,
-      });
+    if (isP2wpkhAddress(addr)) {
+      // BIP84 P2WPKH — only receive chain index 0 for now
+      const child = bip84Receive.derive(index);
+      const p2wpkh = bitcoin.payments.p2wpkh({ pubkey: child.publicKey, network });
+      if (p2wpkh.address === addr) {
+        keyMap.set(addr, {
+          privateKey: child.privateKey,
+          publicKey: child.publicKey,  // full 33-byte compressed
+          type: 'p2wpkh',
+          index,
+          isChange,
+        });
+      }
+    } else {
+      // BIP86 P2TR
+      const chain = isChange ? bip86Change : bip86Receive;
+      const child = chain.derive(index);
+      const xOnlyPubKey = Buffer.from(child.publicKey.slice(1, 33));
+      const p2tr = bitcoin.payments.p2tr({ internalPubkey: xOnlyPubKey, network });
+      if (p2tr.address === addr) {
+        keyMap.set(addr, {
+          privateKey: child.privateKey,
+          publicKey: child.publicKey,
+          xOnlyPubKey,
+          type: 'p2tr',
+          index,
+          isChange,
+        });
+      }
     }
   }
 
@@ -127,32 +153,17 @@ async function signPsbtWithKeys(psbtHex, options, seedPhrase, networkName, addre
       const keyInfo = address ? keyMap.get(address) : null;
       console.log(`[approve-sign] toSign input ${index}, address=${address}, keyFound=${!!keyInfo}`);
 
-      if (!keyInfo) {
-        // Try to find key by matching the input's witnessUtxo scriptPubKey
-        let found = false;
-        for (const [addr, ki] of keyMap.entries()) {
-          try {
-            const p2tr = bitcoin.payments.p2tr({ internalPubkey: ki.xOnlyPubKey, network });
-            const inputData = psbt.data.inputs[index];
-            if (inputData?.witnessUtxo) {
-              const scriptHex = Buffer.from(inputData.witnessUtxo.script).toString('hex');
-              const p2trScriptHex = p2tr.output.toString('hex');
-              console.log(`[approve-sign] fallback match: addr=${addr}, script=${scriptHex.slice(0,20)}..., p2tr=${p2trScriptHex.slice(0,20)}..., match=${scriptHex === p2trScriptHex}`);
-              if (scriptHex === p2trScriptHex) {
-                signTaprootInput(psbt, index, ki, network);
-                found = true;
-                signedCount++;
-                break;
-              }
-            }
-          } catch { /* continue */ }
-        }
-        if (!found) {
+      if (keyInfo) {
+        signInputByType(psbt, index, keyInfo, network);
+        signedCount++;
+      } else {
+        // Fallback: match by scriptPubKey
+        const found = matchAndSignInput(psbt, index, keyMap, network);
+        if (found) {
+          signedCount++;
+        } else {
           throw new Error(`No key found for input ${index} (address: ${address})`);
         }
-      } else {
-        signTaprootInput(psbt, index, keyInfo, network);
-        signedCount++;
       }
     }
   } else {
@@ -167,18 +178,8 @@ async function signPsbtWithKeys(psbtHex, options, seedPhrase, networkName, addre
       const scriptHex = Buffer.from(inputData.witnessUtxo.script).toString('hex');
       console.log(`[approve-sign] input ${i}: scriptPubKey=${scriptHex}`);
 
-      for (const [addr, keyInfo] of keyMap.entries()) {
-        try {
-          const p2tr = bitcoin.payments.p2tr({ internalPubkey: keyInfo.xOnlyPubKey, network });
-          const p2trScriptHex = p2tr.output.toString('hex');
-          if (p2trScriptHex === scriptHex) {
-            console.log(`[approve-sign] input ${i}: MATCHED addr=${addr}`);
-            signTaprootInput(psbt, i, keyInfo, network);
-            signedCount++;
-            break;
-          }
-        } catch { /* continue */ }
-      }
+      const found = matchAndSignInput(psbt, i, keyMap, network);
+      if (found) signedCount++;
     }
   }
 
@@ -196,6 +197,93 @@ async function signPsbtWithKeys(psbtHex, options, seedPhrase, networkName, addre
   }
 
   return psbt.toHex();
+}
+
+/**
+ * Route signing to the correct method based on key type or script detection.
+ */
+function signInputByType(psbt, inputIndex, keyInfo, network) {
+  if (keyInfo.type === 'p2wpkh') {
+    signP2wpkhInput(psbt, inputIndex, keyInfo, network);
+  } else {
+    signTaprootInput(psbt, inputIndex, keyInfo, network);
+  }
+}
+
+/**
+ * Try to match an input's scriptPubKey against all keys in the keyMap and sign.
+ * Returns true if matched and signed.
+ */
+function matchAndSignInput(psbt, inputIndex, keyMap, network) {
+  const inputData = psbt.data.inputs[inputIndex];
+  if (!inputData?.witnessUtxo) return false;
+  const scriptHex = Buffer.from(inputData.witnessUtxo.script).toString('hex');
+
+  for (const [addr, keyInfo] of keyMap.entries()) {
+    try {
+      if (keyInfo.type === 'p2wpkh') {
+        // P2WPKH scriptPubKey: 0014<20-byte-hash>
+        const p2wpkh = bitcoin.payments.p2wpkh({ pubkey: keyInfo.publicKey, network });
+        if (p2wpkh.output.toString('hex') === scriptHex) {
+          console.log(`[approve-sign] input ${inputIndex}: MATCHED P2WPKH addr=${addr}`);
+          signP2wpkhInput(psbt, inputIndex, keyInfo, network);
+          return true;
+        }
+      } else {
+        // P2TR scriptPubKey: 5120<32-byte-xonly>
+        const p2tr = bitcoin.payments.p2tr({ internalPubkey: keyInfo.xOnlyPubKey, network });
+        if (p2tr.output.toString('hex') === scriptHex) {
+          console.log(`[approve-sign] input ${inputIndex}: MATCHED P2TR addr=${addr}`);
+          signTaprootInput(psbt, inputIndex, keyInfo, network);
+          return true;
+        }
+      }
+    } catch { /* continue */ }
+  }
+  return false;
+}
+
+/**
+ * Sign a single P2WPKH input with ECDSA.
+ *
+ * BIP141 witness v0 signing:
+ *   1. Build scriptCode = P2PKH-style script from the P2WPKH hash.
+ *   2. Compute sighash via hashForWitnessV0 on the unsigned transaction.
+ *   3. Sign with ECDSA and set partialSig on the PSBT input.
+ */
+function signP2wpkhInput(psbt, inputIndex, keyInfo, network) {
+  const { privateKey, publicKey } = keyInfo;
+
+  console.log(`[signP2wpkhInput] input=${inputIndex}, pubkey=${Buffer.from(publicKey).toString('hex').slice(0,16)}...`);
+
+  // Build scriptCode: OP_DUP OP_HASH160 <20-byte-hash> OP_EQUALVERIFY OP_CHECKSIG
+  const p2wpkh = bitcoin.payments.p2wpkh({ pubkey: publicKey, network });
+  const scriptCode = bitcoin.payments.p2pkh({ hash: p2wpkh.hash, network }).output;
+
+  // Get value from witnessUtxo
+  const value = psbt.data.inputs[inputIndex].witnessUtxo.value;
+
+  // Compute sighash for witness v0
+  const tx = psbt.__CACHE.__TX;
+  const sighash = tx.hashForWitnessV0(
+    inputIndex,
+    scriptCode,
+    typeof value === 'bigint' ? value : BigInt(value),
+    bitcoin.Transaction.SIGHASH_ALL,
+  );
+
+  // Sign with ECDSA
+  const sig = ecc.sign(sighash, privateKey);
+
+  // DER encode + sighash type byte
+  const derSig = bitcoin.script.signature.encode(Buffer.from(sig), bitcoin.Transaction.SIGHASH_ALL);
+
+  // Set partialSig on the PSBT input (ECDSA path)
+  psbt.updateInput(inputIndex, {
+    partialSig: [{ pubkey: publicKey, signature: derSig }],
+  });
+
+  console.log(`[signP2wpkhInput] input=${inputIndex}: signed OK`);
 }
 
 /**
@@ -291,11 +379,12 @@ async function signMessageWithKeys(message, seedPhrase, networkName, addresses) 
   const network = getNetworkConfig(networkName);
   const keyMap = await deriveKeyMap(seedPhrase, networkName, addresses);
 
-  // Use the first derived key (the active address)
-  const firstKey = keyMap.values().next().value;
-  if (!firstKey) throw new Error('No key available to sign message');
+  // Prefer P2WPKH key for signing (CAST cancel requires P2WPKH signature)
+  const p2wpkhKey = [...keyMap.values()].find(k => k.type === 'p2wpkh');
+  const signingKeyInfo = p2wpkhKey || keyMap.values().next().value;
+  if (!signingKeyInfo) throw new Error('No key available to sign message');
 
-  const { privateKey, publicKey } = firstKey;
+  const { privateKey, publicKey, type: keyType } = signingKeyInfo;
 
   // Bitcoin Signed Message hash: dSHA256(prefix + varint(len) + message)
   const prefix = '\x18Bitcoin Signed Message:\n';
@@ -315,21 +404,31 @@ async function signMessageWithKeys(message, seedPhrase, networkName, addresses) 
 
   const hash = bitcoin.crypto.hash256(payload);
 
-  // Determine if key needs negation (odd Y)
-  const isOddY = publicKey[0] === 0x03;
-  const signingKey = isOddY ? ecc.privateNegate(privateKey) : privateKey;
+  if (keyType === 'p2wpkh') {
+    // P2WPKH: sign with raw private key (no negation), header = 39 + recoveryId
+    const sigRaw = ecc.sign(hash, privateKey);
 
-  // Sign with ECDSA (recoverable)
-  const sigRaw = ecc.sign(hash, signingKey);
+    // Determine recovery ID by trying both 0 and 1
+    let recoveryId = 0;
+    for (let rid = 0; rid < 2; rid++) {
+      const recovered = ecc.recover(hash, sigRaw, rid, true);
+      if (recovered && Buffer.from(recovered).equals(Buffer.from(publicKey))) {
+        recoveryId = rid;
+        break;
+      }
+    }
 
-  // Build recoverable signature: 1 byte header + 32 bytes R + 32 bytes S
-  // Header: 31 = uncompressed, 27+4 = compressed P2PKH, 39+4 = P2WPKH
-  // For Taproot/P2TR addresses use header 31 (compressed + no recovery flag)
-  const recoveryFlag = isOddY ? 0 : 0;
-  const header = 31 + recoveryFlag; // 31 = compressed key, standard
-  const sigBuffer = Buffer.concat([Buffer.from([header]), sigRaw]);
-
-  return sigBuffer.toString('base64');
+    const header = 39 + recoveryId; // BIP137: P2WPKH compressed = 39-42
+    const sigBuffer = Buffer.concat([Buffer.from([header]), sigRaw]);
+    return sigBuffer.toString('base64');
+  } else {
+    // P2TR: existing Taproot signing — negate if odd Y, header 31
+    const isOddY = publicKey[0] === 0x03;
+    const signingKey = isOddY ? ecc.privateNegate(privateKey) : privateKey;
+    const sigRaw = ecc.sign(hash, signingKey);
+    const sigBuffer = Buffer.concat([Buffer.from([31]), sigRaw]);
+    return sigBuffer.toString('base64');
+  }
 }
 
 // ============================================================
