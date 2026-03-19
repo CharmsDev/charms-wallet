@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
+import packageJson from '../../../../package.json';
+
+export const runtime = 'edge';
 
 export async function GET() {
-    const pkg = require('../../../../package.json');
     return NextResponse.json({
         status: 'ok',
-        version: pkg.version,
+        version: packageJson.version,
         timestamp: new Date().toISOString(),
     });
 }
