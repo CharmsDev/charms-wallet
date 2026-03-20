@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAddresses } from '@/stores/addressesStore';
 import { useNetwork } from '@/contexts/NetworkContext';
-import { explorerWalletService } from '@/services/shared/explorer-wallet-service';
-
-const PAGE_SIZE = 50;
+import { mempoolService } from '@/services/shared/mempool-service';
 
 function formatDate(blockTime) {
   if (!blockTime) return 'Pending';
@@ -30,8 +28,50 @@ function getMempoolTxUrl(txid, network) {
     : `https://mempool.space/testnet4/tx/${txid}`;
 }
 
+/**
+ * Analyze a raw mempool.space transaction to determine direction and net amount
+ * relative to a set of wallet addresses.
+ */
+function analyzeTransaction(tx, walletAddressSet) {
+  // Sum of our addresses in inputs (what we spent)
+  let inputFromUs = 0;
+  let inputTotal = 0;
+  for (const vin of tx.vin || []) {
+    const addr = vin.prevout?.scriptpubkey_address;
+    const value = vin.prevout?.value || 0;
+    inputTotal += value;
+    if (addr && walletAddressSet.has(addr)) {
+      inputFromUs += value;
+    }
+  }
+
+  // Sum of our addresses in outputs (what we received back / change)
+  let outputToUs = 0;
+  let outputTotal = 0;
+  for (const vout of tx.vout || []) {
+    const addr = vout.scriptpubkey_address;
+    const value = vout.value || 0;
+    outputTotal += value;
+    if (addr && walletAddressSet.has(addr)) {
+      outputToUs += value;
+    }
+  }
+
+  const fee = tx.fee || (inputTotal - outputTotal);
+
+  if (inputFromUs > 0) {
+    // We had inputs → this is a send
+    // Net amount sent = what we put in - what came back to us - fee
+    const netSent = inputFromUs - outputToUs - fee;
+    return { direction: 'out', amount: Math.max(0, netSent), fee };
+  } else {
+    // None of our addresses in inputs → this is a receive
+    return { direction: 'in', amount: outputToUs, fee };
+  }
+}
+
 function ConfirmationBadge({ confirmations }) {
-  if (confirmations === 0) {
+  if (confirmations === 0 || confirmations == null) {
     return <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400">Unconfirmed</span>;
   }
   if (confirmations < 3) {
@@ -100,46 +140,63 @@ export default function ActivityScreen() {
 
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
 
-  const fetchTransactions = useCallback(async (pageNum = 1, append = false) => {
+  const fetchTransactions = useCallback(async () => {
     if (!addresses || addresses.length === 0) {
       setLoading(false);
       return;
     }
 
     try {
-      if (pageNum === 1) setLoading(true);
-      else setLoadingMore(true);
+      setLoading(true);
       setError(null);
 
-      // Only use non-change addresses to avoid duplicate transactions
+      // Build set of ALL wallet addresses (receive + change) for direction analysis
+      const allAddressSet = new Set(addresses.map(a => a.address));
+
+      // Only fetch for non-change addresses to avoid duplicate API calls
       const receiveAddresses = addresses.filter(a => !a.isChange).map(a => a.address);
 
-      // Fetch history for all addresses in parallel
+      // Get current block height for confirmations
+      let tipHeight = null;
+      try {
+        const baseUrl = activeNetwork === 'mainnet' ? 'https://mempool.space/api' : 'https://mempool.space/testnet4/api';
+        const resp = await fetch(`${baseUrl}/blocks/tip/height`);
+        if (resp.ok) tipHeight = parseInt(await resp.text(), 10);
+      } catch (_) {}
+
+      // Fetch history from mempool.space for each address
       const results = await Promise.allSettled(
-        receiveAddresses.map(addr =>
-          explorerWalletService.getTransactionHistory(addr, activeNetwork, { page: pageNum, pageSize: PAGE_SIZE })
-        )
+        receiveAddresses.map(addr => mempoolService.getAddressTransactions(addr, activeNetwork))
       );
 
-      // Merge and deduplicate by txid
+      // Merge, deduplicate, analyze direction
       const seen = new Set();
       const merged = [];
-      let anyHasMore = false;
 
       for (const r of results) {
-        if (r.status !== 'fulfilled' || !r.value?.transactions) continue;
-        const data = r.value;
-        if (data.page < data.total_pages) anyHasMore = true;
-        for (const tx of data.transactions) {
-          if (!seen.has(tx.txid)) {
-            seen.add(tx.txid);
-            merged.push(tx);
-          }
+        if (r.status !== 'fulfilled' || !Array.isArray(r.value)) continue;
+        for (const rawTx of r.value) {
+          if (seen.has(rawTx.txid)) continue;
+          seen.add(rawTx.txid);
+
+          const { direction, amount, fee } = analyzeTransaction(rawTx, allAddressSet);
+          const confirmed = rawTx.status?.confirmed || false;
+          const blockHeight = rawTx.status?.block_height || null;
+          const blockTime = rawTx.status?.block_time || null;
+          const confirmations = (confirmed && tipHeight && blockHeight)
+            ? Math.max(0, tipHeight - blockHeight + 1)
+            : 0;
+
+          merged.push({
+            txid: rawTx.txid,
+            direction,
+            amount,
+            fee,
+            block_time: blockTime,
+            confirmations,
+          });
         }
       }
 
@@ -150,38 +207,20 @@ export default function ActivityScreen() {
         return (b.block_time || 0) - (a.block_time || 0);
       });
 
-      if (append) {
-        setTransactions(prev => {
-          const existingIds = new Set(prev.map(t => t.txid));
-          const newTxs = merged.filter(t => !existingIds.has(t.txid));
-          return [...prev, ...newTxs];
-        });
-      } else {
-        setTransactions(merged);
-      }
-      setHasMore(anyHasMore);
+      setTransactions(merged);
     } catch (err) {
       console.error('[ActivityScreen] Error fetching transactions:', err);
       setError(err.message || 'Failed to fetch transactions');
     } finally {
       setLoading(false);
-      setLoadingMore(false);
     }
   }, [addresses, activeNetwork]);
 
   // Reset and fetch when network changes
   useEffect(() => {
     setTransactions([]);
-    setPage(1);
-    setHasMore(false);
-    fetchTransactions(1, false);
+    fetchTransactions();
   }, [activeNetwork, fetchTransactions]);
-
-  const handleLoadMore = () => {
-    const nextPage = page + 1;
-    setPage(nextPage);
-    fetchTransactions(nextPage, true);
-  };
 
   return (
     <div className="p-4">
@@ -200,7 +239,7 @@ export default function ActivityScreen() {
           <div className="text-red-400 text-sm mb-2">Failed to load transactions</div>
           <div className="text-xs text-dark-500 mb-3">{error}</div>
           <button
-            onClick={() => fetchTransactions(1, false)}
+            onClick={() => fetchTransactions()}
             className="btn btn-secondary text-xs px-3 py-1.5"
           >
             Retry
@@ -224,21 +263,6 @@ export default function ActivityScreen() {
             <TransactionRow key={tx.txid} tx={tx} network={activeNetwork} />
           ))}
         </div>
-      )}
-
-      {/* Load More button */}
-      {hasMore && !loading && !loadingMore && (
-        <button
-          onClick={handleLoadMore}
-          className="btn btn-secondary w-full mt-3 py-2 text-sm"
-        >
-          Load More
-        </button>
-      )}
-
-      {/* Loading more indicator */}
-      {loadingMore && (
-        <div className="text-center text-dark-500 text-xs mt-3 py-2">Loading more...</div>
       )}
     </div>
   );
