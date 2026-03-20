@@ -8,12 +8,11 @@
  * so it can be swapped in ExtensionDashboard without other changes.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { syncWalletExtension } from '../services/extension-wallet-sync';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useCharmsStore } from '@/stores/charms';
 import { useBlockchain } from '@/stores/blockchainStore';
-import { saveCharms } from '@/services/storage';
 
 export function useExtensionWalletSync() {
     const [isSyncing, setIsSyncing] = useState(false);
@@ -21,6 +20,7 @@ export function useExtensionWalletSync() {
     const [syncError, setSyncError] = useState(null);
     const [syncPhase, setSyncPhase] = useState(null); // 'utxos' | 'charms' | null
 
+    const syncingRef = useRef(false);
     const { refreshUTXOs } = useUTXOs();
     const addCharm = useCharmsStore(state => state.addCharm);
     const { activeBlockchain, activeNetwork } = useBlockchain();
@@ -29,18 +29,13 @@ export function useExtensionWalletSync() {
      * Full wallet sync using external API for charms
      */
     const syncFullWallet = useCallback(async () => {
-        if (isSyncing) return;
+        if (syncingRef.current) return;
+        syncingRef.current = true;
 
         setIsSyncing(true);
         setSyncError(null);
         setSyncPhase('utxos');
         setSyncProgress({ phase: 'utxos', current: 0, total: 0 });
-
-        // Clear storage FIRST, then Zustand store — avoids race condition where
-        // clearCharms() sets initialized=false, triggering useCharms hook to
-        // re-init from stale cache before sync clears storage.
-        await saveCharms([], activeBlockchain, activeNetwork);
-        useCharmsStore.setState({ charms: [], pendingCharms: [] });
 
         try {
             const result = await syncWalletExtension({
@@ -75,24 +70,22 @@ export function useExtensionWalletSync() {
             setSyncError(error.message);
             throw error;
         } finally {
+            syncingRef.current = false;
             setIsSyncing(false);
             setSyncPhase(null);
             setSyncProgress({ phase: null, current: 0, total: 0 });
         }
-    }, [isSyncing, activeBlockchain, activeNetwork, refreshUTXOs, addCharm]);
+    }, [activeBlockchain, activeNetwork, refreshUTXOs, addCharm]);
 
     /**
      * Charms-only refresh using external API
      */
     const syncCharmsOnly = useCallback(async () => {
-        if (isSyncing) return;
+        if (syncingRef.current) return;
+        syncingRef.current = true;
 
         setIsSyncing(true);
         setSyncError(null);
-
-        // Clear storage FIRST, then Zustand store (same race condition fix)
-        await saveCharms([], activeBlockchain, activeNetwork);
-        useCharmsStore.setState({ charms: [], pendingCharms: [] });
 
         try {
             const result = await syncWalletExtension({
@@ -123,16 +116,18 @@ export function useExtensionWalletSync() {
             setSyncError(error.message);
             throw error;
         } finally {
+            syncingRef.current = false;
             setIsSyncing(false);
             setSyncProgress({ phase: null, current: 0, total: 0 });
         }
-    }, [isSyncing, activeBlockchain, activeNetwork, refreshUTXOs, addCharm]);
+    }, [activeBlockchain, activeNetwork, refreshUTXOs, addCharm]);
 
     /**
      * UTXO-only refresh (no charms)
      */
     const syncUTXOs = useCallback(async (addressLimit = null) => {
-        if (isSyncing) return;
+        if (syncingRef.current) return;
+        syncingRef.current = true;
 
         setIsSyncing(true);
         setSyncError(null);
@@ -156,9 +151,10 @@ export function useExtensionWalletSync() {
             setSyncError(error.message);
             throw error;
         } finally {
+            syncingRef.current = false;
             setIsSyncing(false);
         }
-    }, [isSyncing, activeBlockchain, activeNetwork, refreshUTXOs]);
+    }, [activeBlockchain, activeNetwork, refreshUTXOs]);
 
     return {
         isSyncing,
