@@ -461,6 +461,7 @@ function SignApproval() {
   const [mode, setMode] = useState(null); // 'psbt' | 'charm'
   const [signing, setSigning] = useState(false);
   const [error, setError] = useState(null);
+  const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -678,10 +679,34 @@ function SignApproval() {
     );
   }
 
-  // ── PSBT / message UI (existing) ─────────────────────────────────────────────
+  // ── PSBT / message UI ────────────────────────────────────────────────────────
 
-  const url = (() => {
-    try { return new URL(request.origin); } catch { return { hostname: 'Unknown', origin: request.origin }; }
+  const orderInfo = request.options?.orderInfo;
+
+  // Build order summary text
+  const orderSummary = (() => {
+    if (!orderInfo) return null;
+    const { action, side, tokenAmount, totalSats, tokenSymbol } = orderInfo;
+    const sats = totalSats?.toLocaleString() || '?';
+    const tokens = tokenAmount != null ? (tokenAmount / 100_000_000).toFixed(8) : '?';
+    const sym = tokenSymbol || 'Token';
+
+    if (action === 'fill') {
+      if (side === 'ask') {
+        return { label: 'Fill Ask Order', desc: `Buy ${tokens} ${sym} for ${sats} sats`, icon: '🟢' };
+      } else {
+        return { label: 'Fill Bid Order', desc: `Sell ${tokens} ${sym} for ${sats} sats`, icon: '🔴' };
+      }
+    } else if (action === 'cancel') {
+      return { label: `Cancel ${side.toUpperCase()} Order`, desc: `Return ${tokens} ${sym} (${sats} sats)`, icon: '✕' };
+    } else if (action === 'create') {
+      if (side === 'ask') {
+        return { label: 'Create Ask Order', desc: `Sell ${tokens} ${sym} at ${sats} sats`, icon: '📤' };
+      } else {
+        return { label: 'Create Bid Order', desc: `Buy ${tokens} ${sym} at ${sats} sats`, icon: '📥' };
+      }
+    }
+    return null;
   })();
 
   return (
@@ -690,21 +715,37 @@ function SignApproval() {
         <div style={styles.logo}>₿</div>
         <div>
           <div style={styles.title}>Charms Wallet</div>
-          <div style={styles.subtitle}>Sign Transaction</div>
+          <div style={styles.subtitle}>{request.type === 'signMessage' ? 'Sign Message' : 'Sign Transaction'}</div>
         </div>
       </div>
 
-      <div style={styles.card}>
-        <div style={styles.siteInfo}>
-          <div style={styles.siteIcon}>🔏</div>
-          <div style={styles.siteName}>{url.hostname}</div>
-          <div style={styles.siteUrl}>{request.origin}</div>
+      {/* Order Summary Card */}
+      {orderSummary ? (
+        <div style={styles.card}>
+          <div style={styles.siteInfo}>
+            <div style={styles.siteIcon}>{orderSummary.icon}</div>
+            <div style={styles.siteName}>{orderSummary.label}</div>
+            <div style={styles.siteUrl}>{orderSummary.desc}</div>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div style={styles.card}>
+          <div style={styles.siteInfo}>
+            <div style={styles.siteIcon}>{request.type === 'signMessage' ? '✉️' : '🔏'}</div>
+            <div style={styles.siteName}>{request.type === 'signMessage' ? 'Message Signing' : 'Transaction'}</div>
+            <div style={styles.siteUrl}>{request.origin}</div>
+          </div>
+        </div>
+      )}
 
-      <div style={styles.message}>
-        {request.type === 'signMessage' ? 'This site wants you to sign a message' : 'This site wants you to sign a transaction'}
-      </div>
+      {/* Order details */}
+      {orderInfo && (
+        <div style={styles.txDetails}>
+          <div style={styles.txRow}><span style={styles.txLabel}>Action</span><span style={styles.txValue}>{orderSummary?.label}</span></div>
+          <div style={styles.txRow}><span style={styles.txLabel}>{orderInfo.tokenSymbol || 'Tokens'}</span><span style={{ ...styles.txValue, color: '#f7931a' }}>{(orderInfo.tokenAmount / 100_000_000).toFixed(8)}</span></div>
+          <div style={styles.txRow}><span style={styles.txLabel}>BTC</span><span style={styles.txValue}>{orderInfo.totalSats?.toLocaleString()} sats</span></div>
+        </div>
+      )}
 
       {request.type === 'signMessage' && (
         <div style={styles.txDetails}>
@@ -713,12 +754,39 @@ function SignApproval() {
         </div>
       )}
 
-      {!request.type && psbtInfo && (
+      {/* TX Details: collapsible when orderInfo present, always shown otherwise */}
+      {!request.type && psbtInfo && (orderInfo ? (
+        <>
+          <div style={{ textAlign: 'center', marginBottom: 8 }}>
+            <span onClick={() => setShowDetails(!showDetails)}
+              style={{ fontSize: 12, color: '#f7931a', cursor: 'pointer', userSelect: 'none' }}>
+              {showDetails ? '▾ Hide TX details' : '▸ Show TX details'}
+            </span>
+          </div>
+          {showDetails && (
+            <div style={styles.txDetails}>
+              <div style={styles.txRow}><span style={styles.txLabel}>Inputs</span><span style={styles.txValue}>{psbtInfo.inputCount}</span></div>
+              <div style={styles.txRow}><span style={styles.txLabel}>Outputs</span><span style={styles.txValue}>{psbtInfo.outputCount}</span></div>
+              <div style={styles.txRow}><span style={styles.txLabel}>Total Output</span><span style={styles.txValue}>{(psbtInfo.totalOutput / 100_000_000).toFixed(8)} BTC</span></div>
+              {psbtInfo.outputs.length > 0 && psbtInfo.outputs.length <= 8 && (
+                <div style={styles.outputList}>
+                  {psbtInfo.outputs.map((out, i) => (
+                    <div key={i} style={styles.outputItem}>
+                      <span style={styles.outputAddr}>{out.address.length > 20 ? out.address.slice(0, 10) + '...' + out.address.slice(-8) : out.address}</span>
+                      <span style={styles.outputValue}>{out.value.toLocaleString()} sats</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      ) : (
         <div style={styles.txDetails}>
           <div style={styles.txRow}><span style={styles.txLabel}>Inputs</span><span style={styles.txValue}>{psbtInfo.inputCount}</span></div>
           <div style={styles.txRow}><span style={styles.txLabel}>Outputs</span><span style={styles.txValue}>{psbtInfo.outputCount}</span></div>
           <div style={styles.txRow}><span style={styles.txLabel}>Total Output</span><span style={styles.txValue}>{(psbtInfo.totalOutput / 100_000_000).toFixed(8)} BTC</span></div>
-          {psbtInfo.outputs.length > 0 && psbtInfo.outputs.length <= 6 && (
+          {psbtInfo.outputs.length > 0 && psbtInfo.outputs.length <= 8 && (
             <div style={styles.outputList}>
               {psbtInfo.outputs.map((out, i) => (
                 <div key={i} style={styles.outputItem}>
@@ -729,7 +797,7 @@ function SignApproval() {
             </div>
           )}
         </div>
-      )}
+      ))}
 
       {error && <div style={styles.error}>{error}</div>}
 
@@ -749,9 +817,10 @@ const styles = {
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
     color: 'white',
-    width: 360,
-    minHeight: 400,
-    padding: 20,
+    boxSizing: 'border-box',
+    width: '100%',
+    minHeight: '100vh',
+    padding: '20px 24px',
   },
   header: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 },
   logo: {
