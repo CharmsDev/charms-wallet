@@ -76,22 +76,25 @@ async function enrichWithCharmData(txids) {
     const batch = txids.slice(i, i + BATCH);
     const results = await Promise.allSettled(
       batch.map(txid =>
-        fetch(`${EXPLORER_API}/v1/charms/${txid}`)
+        fetch(`${EXPLORER_API}/v1/transactions/${txid}`)
           .then(r => r.ok ? r.json() : null)
       )
     );
 
     for (const r of results) {
       if (r.status !== 'fulfilled' || !r.value) continue;
-      const d = r.value;
-      charmMap.set(d.txid, {
-        name: d.name || 'Charm',
-        symbol: d.symbol || d.name || 'CHARM',
-        amount: d.amount || 0,
-        assetType: d.asset_type || 'token',
-        verified: d.verified || false,
-        tags: d.tags,
-      });
+      const tx = r.value;
+      if (tx.assets && tx.assets.length > 0) {
+        const asset = tx.assets[0]; // Primary asset
+        charmMap.set(tx.txid, {
+          name: asset.name || 'Charm',
+          symbol: asset.symbol || asset.name || 'CHARM',
+          amount: asset.amount || 0,
+          assetType: asset.asset_type || 'token',
+          verified: asset.verified || false,
+          tags: tx.tags,
+        });
+      }
     }
   }
 
