@@ -29,44 +29,36 @@ function getMempoolTxUrl(txid, network) {
 }
 
 /**
- * Analyze a raw mempool.space transaction to determine direction and net amount
- * relative to a set of wallet addresses.
+ * Analyze a transaction by computing net flow across ALL wallet addresses.
+ * Positive net = received, negative net = sent.
  */
-function analyzeTransaction(tx, walletAddressSet) {
-  // Sum of our addresses in inputs (what we spent)
+function analyzeTransaction(tx, allWalletAddresses) {
   let inputFromUs = 0;
-  let inputTotal = 0;
-  for (const vin of tx.vin || []) {
-    const addr = vin.prevout?.scriptpubkey_address;
-    const value = vin.prevout?.value || 0;
-    inputTotal += value;
-    if (addr && walletAddressSet.has(addr)) {
-      inputFromUs += value;
-    }
-  }
-
-  // Sum of our addresses in outputs (what we received back / change)
   let outputToUs = 0;
-  let outputTotal = 0;
+
+  for (const vin of tx.vin || []) {
+    if (allWalletAddresses.has(vin.prevout?.scriptpubkey_address)) {
+      inputFromUs += vin.prevout?.value || 0;
+    }
+  }
   for (const vout of tx.vout || []) {
-    const addr = vout.scriptpubkey_address;
-    const value = vout.value || 0;
-    outputTotal += value;
-    if (addr && walletAddressSet.has(addr)) {
-      outputToUs += value;
+    if (allWalletAddresses.has(vout.scriptpubkey_address)) {
+      outputToUs += vout.value || 0;
     }
   }
 
-  const fee = tx.fee || (inputTotal - outputTotal);
+  const fee = tx.fee || 0;
+  const netFlow = outputToUs - inputFromUs; // positive = received, negative = sent
 
-  if (inputFromUs > 0) {
-    // We had inputs → this is a send
-    // Net amount sent = what we put in - what came back to us - fee
-    const netSent = inputFromUs - outputToUs - fee;
-    return { direction: 'out', amount: Math.max(0, netSent), fee };
-  } else {
-    // None of our addresses in inputs → this is a receive
+  if (netFlow >= 0 && inputFromUs === 0) {
+    // Pure receive — none of our addresses in inputs
     return { direction: 'in', amount: outputToUs, fee };
+  } else if (netFlow >= 0) {
+    // Self-transfer or consolidation — we were in inputs but net is positive (rare)
+    return { direction: 'in', amount: netFlow, fee };
+  } else {
+    // Sent — net outflow (includes fee)
+    return { direction: 'out', amount: Math.abs(netFlow), fee };
   }
 }
 
@@ -152,11 +144,12 @@ export default function ActivityScreen() {
       setLoading(true);
       setError(null);
 
-      // Build set of ALL wallet addresses (receive + change) for direction analysis
+      // ALL wallet addresses for direction analysis
       const allAddressSet = new Set(addresses.map(a => a.address));
 
-      // Only fetch for non-change addresses to avoid duplicate API calls
-      const receiveAddresses = addresses.filter(a => !a.isChange).map(a => a.address);
+      // Fetch for ALL addresses (receive + change, SegWit + Taproot)
+      // to capture every transaction that involves this wallet
+      const allUniqueAddresses = [...allAddressSet];
 
       // Get current block height for confirmations
       let tipHeight = null;
@@ -166,38 +159,45 @@ export default function ActivityScreen() {
         if (resp.ok) tipHeight = parseInt(await resp.text(), 10);
       } catch (_) {}
 
-      // Fetch history from mempool.space for each address
-      const results = await Promise.allSettled(
-        receiveAddresses.map(addr => mempoolService.getAddressTransactions(addr, activeNetwork))
-      );
+      // Fetch in batches of 5 to avoid rate limiting
+      const BATCH_SIZE = 5;
+      const rawTxMap = new Map(); // txid → raw tx (dedup)
 
-      // Merge, deduplicate, analyze direction
-      const seen = new Set();
-      const merged = [];
+      for (let i = 0; i < allUniqueAddresses.length; i += BATCH_SIZE) {
+        const batch = allUniqueAddresses.slice(i, i + BATCH_SIZE);
+        const results = await Promise.allSettled(
+          batch.map(addr => mempoolService.getAddressTransactions(addr, activeNetwork))
+        );
 
-      for (const r of results) {
-        if (r.status !== 'fulfilled' || !Array.isArray(r.value)) continue;
-        for (const rawTx of r.value) {
-          if (seen.has(rawTx.txid)) continue;
-          seen.add(rawTx.txid);
-
-          const { direction, amount, fee } = analyzeTransaction(rawTx, allAddressSet);
-          const confirmed = rawTx.status?.confirmed || false;
-          const blockHeight = rawTx.status?.block_height || null;
-          const blockTime = rawTx.status?.block_time || null;
-          const confirmations = (confirmed && tipHeight && blockHeight)
-            ? Math.max(0, tipHeight - blockHeight + 1)
-            : 0;
-
-          merged.push({
-            txid: rawTx.txid,
-            direction,
-            amount,
-            fee,
-            block_time: blockTime,
-            confirmations,
-          });
+        for (const r of results) {
+          if (r.status !== 'fulfilled' || !Array.isArray(r.value)) continue;
+          for (const rawTx of r.value) {
+            if (!rawTxMap.has(rawTx.txid)) {
+              rawTxMap.set(rawTx.txid, rawTx);
+            }
+          }
         }
+      }
+
+      // Analyze each unique transaction
+      const merged = [];
+      for (const [txid, rawTx] of rawTxMap) {
+        const { direction, amount, fee } = analyzeTransaction(rawTx, allAddressSet);
+        const confirmed = rawTx.status?.confirmed || false;
+        const blockHeight = rawTx.status?.block_height || null;
+        const blockTime = rawTx.status?.block_time || null;
+        const confirmations = (confirmed && tipHeight && blockHeight)
+          ? Math.max(0, tipHeight - blockHeight + 1)
+          : 0;
+
+        merged.push({
+          txid,
+          direction,
+          amount,
+          fee,
+          block_time: blockTime,
+          confirmations,
+        });
       }
 
       // Sort: pending first, then by block_time descending
