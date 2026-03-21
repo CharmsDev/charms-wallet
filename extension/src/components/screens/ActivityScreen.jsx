@@ -70,31 +70,10 @@ function analyzeTransaction(tx, allWalletAddresses) {
 
 async function enrichWithCharmData(txids) {
   const BATCH = 5;
-  const charmMap = new Map(); // txid → { name, symbol, amount, tags }
+  const charmMap = new Map();
 
   for (let i = 0; i < txids.length; i += BATCH) {
     const batch = txids.slice(i, i + BATCH);
-    const results = await Promise.allSettled(
-      batch.map(txid =>
-        fetch(`${EXPLORER_API}/v1/transactions/${txid}`)
-          .then(r => r.ok ? r.json() : null)
-      )
-    );
-
-    for (const r of results) {
-      if (r.status !== 'fulfilled' || !r.value) continue;
-      const data = r.value;
-      if (data.charm && data.charm.detected) {
-        // Has charm data — now fetch asset details
-        charmMap.set(data.txid, { detected: true, tags: data.tags });
-      }
-    }
-  }
-
-  // For charm txs, fetch asset details from /v1/charms/{txid}
-  const charmTxids = [...charmMap.keys()];
-  for (let i = 0; i < charmTxids.length; i += BATCH) {
-    const batch = charmTxids.slice(i, i + BATCH);
     const results = await Promise.allSettled(
       batch.map(txid =>
         fetch(`${EXPLORER_API}/v1/charms/${txid}`)
@@ -105,14 +84,13 @@ async function enrichWithCharmData(txids) {
     for (const r of results) {
       if (r.status !== 'fulfilled' || !r.value) continue;
       const d = r.value;
-      const existing = charmMap.get(d.txid) || {};
       charmMap.set(d.txid, {
-        ...existing,
         name: d.name || 'Charm',
         symbol: d.symbol || d.name || 'CHARM',
         amount: d.amount || 0,
         assetType: d.asset_type || 'token',
         verified: d.verified || false,
+        tags: d.tags,
       });
     }
   }
