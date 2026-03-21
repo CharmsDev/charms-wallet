@@ -6,7 +6,6 @@ import { useUTXOs } from '@/stores/utxoStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { charmUtxoSelector } from '@/services/charms/utils/charm-utxo-selector';
-import { DEFAULT_FEE_RATE } from '@/services/charm-transfer/constants';
 import { bitcoinApiRouter } from '@/services/shared/bitcoin-api-router';
 
 /**

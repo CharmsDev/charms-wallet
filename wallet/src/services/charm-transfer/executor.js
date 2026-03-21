@@ -18,7 +18,7 @@
  *     → returns { txid }
  */
 
-import { DEFAULT_FEE_RATE } from './constants.js';
+import { FALLBACK_FEE_RATE, MIN_FEE_RATE, getMempoolBase } from './constants.js';
 import { buildTransferSpell } from './spell-builder.js';
 import { normalizeSpell } from './spell-normalizer.js';
 import { fetchPrevTxs, fetchTxHex } from './tx-fetcher.js';
@@ -74,7 +74,18 @@ export async function proveCharmTransfer(params) {
     return { bitcoin: hex };
   });
 
-  // ── Step 4: Send to prover ────────────────────────────────────────────────
+  // ── Step 4: Fetch dynamic fee rate ────────────────────────────────────────
+  let feeRate = FALLBACK_FEE_RATE;
+  try {
+    const resp = await fetch(`${getMempoolBase(network)}/v1/fees/recommended`);
+    if (resp.ok) {
+      const fees = await resp.json();
+      feeRate = Math.max(MIN_FEE_RATE, fees.economyFee || fees.hourFee || FALLBACK_FEE_RATE);
+    }
+  } catch (_) { /* use fallback */ }
+  status(`Using fee rate: ${feeRate} sat/vB`);
+
+  // ── Step 5: Send to prover ────────────────────────────────────────────────
   status('Generating ZK proof (this can take 5–10 min)…');
   const payload = {
     spell: normalizedSpellHex,
@@ -83,7 +94,7 @@ export async function proveCharmTransfer(params) {
     binaries: {},
     prev_txs: prevTxs,
     change_address: changeAddress,
-    fee_rate: DEFAULT_FEE_RATE,
+    fee_rate: feeRate,
     chain: 'bitcoin',
     collateral_utxo: null,
   };
