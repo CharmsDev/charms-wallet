@@ -90,13 +90,15 @@ window.addEventListener('message', (event) => {
     });
   }
 
-  // Check extension status request
+  // Check extension status request — query background for wallet presence
   if (event.data && event.data.type === 'CHARMS_WALLET_CHECK_EXTENSION') {
-    console.log('Charms Wallet Extension: Extension detected by web page');
-    window.postMessage({
-      type: 'CHARMS_WALLET_EXTENSION_DETECTED',
-      version: chrome.runtime.getManifest().version
-    }, '*');
+    chrome.runtime.sendMessage({ type: 'CHECK_WALLET_STATUS' }, (response) => {
+      window.postMessage({
+        type: 'CHARMS_WALLET_EXTENSION_DETECTED',
+        version: chrome.runtime.getManifest().version,
+        hasWallet: response?.hasWallet ?? false,
+      }, '*');
+    });
   }
 });
 
@@ -112,8 +114,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Notify web page that extension is ready
-window.postMessage({
-  type: 'CHARMS_WALLET_EXTENSION_READY',
-  version: chrome.runtime.getManifest().version
-}, '*');
+// Notify web page that extension is ready (with wallet status)
+chrome.runtime.sendMessage({ type: 'CHECK_WALLET_STATUS' }, (response) => {
+  window.postMessage({
+    type: 'CHARMS_WALLET_EXTENSION_READY',
+    version: chrome.runtime.getManifest().version,
+    hasWallet: response?.hasWallet ?? false,
+  }, '*');
+});

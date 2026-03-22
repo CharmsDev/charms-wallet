@@ -705,6 +705,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   
+  // Check if a wallet exists (seed phrase present)
+  if (request.type === 'CHECK_WALLET_STATUS') {
+    chrome.storage.local.get([SK.SEED_PHRASE], (data) => {
+      sendResponse({ hasWallet: !!data[SK.SEED_PHRASE] });
+    });
+    return true;
+  }
+
   // Handle import from web wallet
   if (request.type === 'IMPORT_FROM_WEB') {
     console.log('Background: Received import request from web');

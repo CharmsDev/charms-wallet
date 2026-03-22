@@ -86,6 +86,30 @@ function ExtensionContent() {
     initializeWalletComplete
   } = useWallet();
 
+  const [waitingForTransfer, setWaitingForTransfer] = useState(false);
+
+  // Listen for wallet data arriving via web wallet transfer
+  useEffect(() => {
+    if (!waitingForTransfer) return;
+
+    // Poll chrome.storage for seed phrase arrival (set by IMPORT_FROM_WEB handler)
+    const interval = setInterval(async () => {
+      try {
+        const data = await new Promise(resolve =>
+          chrome.storage.local.get(['wallet:seed_phrase'], resolve)
+        );
+        if (data['wallet:seed_phrase']) {
+          clearInterval(interval);
+          setWaitingForTransfer(false);
+          // Reload to re-trigger wallet check and initialization
+          window.location.reload();
+        }
+      } catch (_) {}
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [waitingForTransfer]);
+
   const handleCreateWallet = async () => {
     try {
       await initializeWalletComplete(null, false, 'bitcoin', 'mainnet');
@@ -100,6 +124,10 @@ function ExtensionContent() {
     } catch (err) {
       console.error('Failed to import wallet:', err);
     }
+  };
+
+  const handleTransferFromWeb = () => {
+    setWaitingForTransfer(true);
   };
 
   // Loading state while checking for existing wallet
@@ -127,6 +155,27 @@ function ExtensionContent() {
     );
   }
 
+  // Waiting for transfer from web wallet
+  if (waitingForTransfer) {
+    return (
+      <div className="flex items-center justify-center h-full bg-dark-950">
+        <div className="text-center px-6 space-y-4">
+          <div className="w-12 h-12 border-4 border-bitcoin-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-white font-medium">Waiting for wallet transfer...</p>
+          <p className="text-sm text-gray-400">
+            Go to <span className="text-bitcoin-400">wallet.charms.dev</span> and click "Transfer Wallet" in the banner at the top.
+          </p>
+          <button
+            onClick={() => setWaitingForTransfer(false)}
+            className="text-sm text-gray-500 hover:text-gray-300 underline mt-4"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // No wallet - show creation screen
   if (!hasWallet || !seedPhrase) {
     return (
@@ -135,6 +184,7 @@ function ExtensionContent() {
           isLoading={isLoading}
           onCreateWallet={handleCreateWallet}
           onImportWallet={handleImportWallet}
+          onTransferFromWeb={handleTransferFromWeb}
         />
       </div>
     );
