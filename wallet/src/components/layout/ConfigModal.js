@@ -11,8 +11,8 @@ const DATA_SOURCES = [
     { data: 'Token Balances',  source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/charms/<addr>' },
     { data: 'Transactions',    source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/transactions/<addr>' },
     { data: 'Fee Estimates',   source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/fee-estimate' },
-    { data: 'Broadcast TX',    source: 'Explorer → QuickNode → Mempool',       badge: 'multi',    endpoint: '/v1/wallet/broadcast (failover)' },
-    { data: 'TX Lookup',       source: 'Explorer → QuickNode → Mempool',       badge: 'multi',    endpoint: '/v1/wallet/tx/<txid> (failover)' },
+    { data: 'Broadcast TX',    source: 'Explorer → Mempool',                   badge: 'multi',    endpoint: '/v1/wallet/broadcast (failover)' },
+    { data: 'TX Lookup',       source: 'Explorer → Mempool',                   badge: 'multi',    endpoint: '/v1/wallet/tx/<txid> (failover)' },
     { data: 'Charm Metadata',  source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/assets/reference-nft/<appId>' },
     { data: 'Spell Proving',   source: 'Charms Prover',                        badge: 'prover',   endpoint: '/spells/prove (POST)' },
     { data: 'BTC Price',       source: 'CoinGecko',                            badge: 'external', endpoint: '/api/v3/simple/price' },
@@ -34,10 +34,6 @@ export default function ConfigModal({ isOpen, onClose }) {
     // APIs
     const explorerApiUrl = EXPLORER_API || '—';
     const walletApiUrl = config.api.wallet || '—';
-
-    // QuickNode
-    const quickNodeUrl = config.bitcoin.getQuickNodeApiUrl(network);
-    const hasQuickNode = config.bitcoin.hasQuickNode(network);
 
     // Mempool
     const mempoolUrl = isTestnet ? 'https://mempool.space/testnet4/api' : 'https://mempool.space/api';
@@ -167,15 +163,8 @@ export default function ConfigModal({ isOpen, onClose }) {
                                         mono
                                     />
                                     <Row
-                                        icon={<ServerIcon />}
-                                        label="QuickNode (failover)"
-                                        value={hasQuickNode ? truncate(quickNodeUrl) : 'Not configured'}
-                                        mono
-                                        className={!hasQuickNode ? 'text-dark-500 italic' : undefined}
-                                    />
-                                    <Row
                                         icon={<GlobeIcon />}
-                                        label="Mempool.space (fallback)"
+                                        label="Mempool.space (failover)"
                                         value={truncate(mempoolUrl)}
                                         mono
                                     />
@@ -226,7 +215,7 @@ export default function ConfigModal({ isOpen, onClose }) {
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className="inline-block w-2 h-2 rounded-full bg-yellow-400" />
-                                            <span><strong className="text-dark-100">Failover:</strong> QuickNode (Blockbook add-on)</span>
+                                            <span><strong className="text-dark-100">Failover:</strong> Mempool.space (public API)</span>
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />

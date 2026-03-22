@@ -54,8 +54,8 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-bold text-white mb-3">3. Network Requests</h2>
             <p>
               To display balances and broadcast transactions, the wallet communicates with public
-              Bitcoin infrastructure including our own Charms Explorer API, QuickNode, and
-              Mempool.space. These requests include Bitcoin addresses and transaction data as required
+              Bitcoin infrastructure including our own Charms Explorer API and
+              Mempool.space (failover). These requests include Bitcoin addresses and transaction data as required
               by the Bitcoin protocol. We do not log or store these requests on our end.
             </p>
           </section>
@@ -96,12 +96,8 @@ export default function PrivacyPage() {
                 UTXO lookups, transaction broadcast
               </li>
               <li>
-                <span className="text-white font-medium">QuickNode</span> — transaction broadcast
-                fallback
-              </li>
-              <li>
-                <span className="text-white font-medium">Mempool.space</span> — transaction broadcast
-                fallback
+                <span className="text-white font-medium">Mempool.space</span> — UTXO and transaction
+                broadcast failover
               </li>
               <li>
                 <span className="text-white font-medium">CoinGecko</span> — BTC price data
