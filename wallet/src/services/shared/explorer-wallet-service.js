@@ -428,18 +428,86 @@ export class ExplorerWalletService {
         return Object.values(map);
     }
 
-    // ── UTXO spent check ─────────────────────────────────────────────────
+    // ── Batch endpoints ─────────────────────────────────────────────────
 
     /**
-     * Check if a UTXO is spent by querying the address UTXOs.
-     * If the UTXO is not in the set, it's spent.
-     * This is a heavier call than mempool's outspend endpoint but works
-     * without an extra API endpoint.
+     * Batch fetch UTXOs for multiple addresses (max 50).
+     * POST /v1/wallet/utxos/batch { addresses: [...], network: "mainnet" }
+     * Returns { results: { "addr": { address, utxos: [...], count } } }
      */
+    async getBatchUTXOs(addresses, network) {
+        const net = (network || 'mainnet').toString().toLowerCase();
+        return this._makeRequest('/v1/wallet/utxos/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ addresses, network: net }),
+        }, network);
+    }
+
+    /**
+     * Batch fetch charm balances for multiple addresses (max 50).
+     * POST /v1/wallet/charms/batch { addresses: [...], network: "mainnet" }
+     * Returns { results: { "addr": { balances: [...], count } } }
+     */
+    async getBatchCharmBalances(addresses, network) {
+        const net = (network || 'mainnet').toString().toLowerCase();
+        return this._makeRequest('/v1/wallet/charms/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ addresses, network: net }),
+        }, network);
+    }
+
+    /**
+     * Aggregate UTXOs from batch endpoint.
+     * Returns flat array of UTXOs (same shape as getAggregateUTXOs).
+     */
+    async getAggregateUTXOsBatch(addresses, network) {
+        const data = await this.getBatchUTXOs(addresses, network);
+        const allUtxos = [];
+        for (const [addr, result] of Object.entries(data.results || {})) {
+            if (result.error) continue;
+            for (const utxo of (result.utxos || [])) {
+                allUtxos.push({ ...utxo, address: utxo.address || addr });
+            }
+        }
+        return allUtxos;
+    }
+
+    /**
+     * Aggregate charm balances from batch endpoint.
+     * Merges by appId (same shape as getAggregateCharmBalances).
+     */
+    async getAggregateCharmBalancesBatch(addresses, network) {
+        const data = await this.getBatchCharmBalances(addresses, network);
+        const map = {};
+        for (const [addr, result] of Object.entries(data.results || {})) {
+            if (result.error) continue;
+            for (const b of (result.balances || [])) {
+                const key = b.appId || b.app_id;
+                if (!map[key]) {
+                    map[key] = {
+                        appId: key,
+                        assetType: b.assetType || b.asset_type || 'token',
+                        symbol: b.symbol || '',
+                        confirmed: 0,
+                        unconfirmed: 0,
+                        total: 0,
+                        utxos: [],
+                    };
+                }
+                map[key].confirmed += b.confirmed || 0;
+                map[key].unconfirmed += b.unconfirmed || 0;
+                map[key].total += b.total || 0;
+                map[key].utxos.push(...(b.utxos || []).map(u => ({ appId: key, ...u })));
+            }
+        }
+        return Object.values(map);
+    }
+
+    // ── UTXO spent check ─────────────────────────────────────────────────
+
     async isUtxoSpent(txid, vout, network) {
-        // We don't have a direct outspend endpoint, so we can't efficiently
-        // check this. Return false (assume unspent) and let the caller
-        // handle it via the UTXO list.
         return false;
     }
 
