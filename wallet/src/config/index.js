@@ -47,42 +47,6 @@ const config = {
         isRegtest: () => config.bitcoin.network === 'regtest',
         isTestnet: () => config.bitcoin.network === 'testnet4',
         isMainnet: () => config.bitcoin.network === 'mainnet',
-        // Direct QuickNode endpoints and API keys (browser will call provider directly)
-        apis: {
-            quicknode: {
-                mainnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_MAINNET_URL,
-                testnet4: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_TESTNET_URL,
-            },
-        },
-        apiKeys: {
-            quicknode: {
-                mainnet: process.env.NEXT_PUBLIC_QUICKNODE_BITCOIN_MAINNET_API_KEY,
-                testnet4: process.env.NEXT_PUBLIC_QUICKNODE_API_KEY,
-            },
-        },
-
-        // Resolve URL by network ('mainnet' | 'testnet4')
-        getQuickNodeApiUrl: (network = null) => {
-            const target = (network || config.bitcoin.network || '').toString().toLowerCase();
-            if (target === 'mainnet') return config.bitcoin.apis.quicknode.mainnet || null;
-            if (target === 'testnet4') return config.bitcoin.apis.quicknode.testnet4 || null;
-            return null;
-        },
-
-        // Resolve API key by network
-        getQuickNodeApiKey: (network = null) => {
-            const target = (network || config.bitcoin.network || '').toString().toLowerCase();
-            if (target === 'mainnet') return config.bitcoin.apiKeys.quicknode.mainnet || null;
-            if (target === 'testnet4') return config.bitcoin.apiKeys.quicknode.testnet4 || null;
-            return null;
-        },
-
-        // Check if QuickNode direct access is available
-        hasQuickNode: (network = null) => {
-            const url = config.bitcoin.getQuickNodeApiUrl(network);
-            const key = config.bitcoin.getQuickNodeApiKey(network);
-            return !!(url && url.trim() !== '' && key && key.trim() !== '');
-        },
     },
 
     // Charms Explorer Wallet API (direct Bitcoin node RPC, no rate limits)
