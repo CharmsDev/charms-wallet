@@ -1,8 +1,18 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAddresses } from '@/stores/addressesStore';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { mempoolService } from '@/services/shared/mempool-service';
+const StorageAdapter = {
+  async get(key) {
+    return new Promise(resolve => chrome.storage.local.get([key], r => resolve(r[key] ?? null)));
+  },
+  async set(key, value) {
+    return new Promise(resolve => chrome.storage.local.set({ [key]: value }, resolve));
+  },
+};
 import { EXPLORER_API } from '@/services/charm-transfer/constants';
+
+const CACHE_KEY_PREFIX = 'activity_txs_';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -11,7 +21,6 @@ function formatDate(blockTime) {
   const txDate = new Date(blockTime * 1000);
   const now = new Date();
 
-  // Compare by calendar day (not raw milliseconds)
   const today = new Date(now); today.setHours(0, 0, 0, 0);
   const txDay = new Date(txDate); txDay.setHours(0, 0, 0, 0);
   const diffDays = Math.round((today - txDay) / 86400000);
@@ -27,7 +36,6 @@ function satsToBtc(sats) {
 }
 
 function tokenAmountDisplay(rawAmount) {
-  // BRO uses 8 decimals (amount 333000000 = 3.33 BRO)
   return (rawAmount / 1e8).toFixed(4).replace(/\.?0+$/, '');
 }
 
@@ -85,7 +93,7 @@ async function enrichWithCharmData(txids) {
       if (r.status !== 'fulfilled' || !r.value) continue;
       const tx = r.value;
       if (tx.assets && tx.assets.length > 0) {
-        const asset = tx.assets[0]; // Primary asset
+        const asset = tx.assets[0];
         charmMap.set(tx.txid, {
           name: asset.name || 'Charm',
           symbol: asset.symbol || asset.name || 'CHARM',
@@ -99,6 +107,22 @@ async function enrichWithCharmData(txids) {
   }
 
   return charmMap;
+}
+
+// ── Cache ───────────────────────────────────────────────────────────────────
+
+async function loadCachedTransactions(network) {
+  try {
+    const raw = await StorageAdapter.get(`${CACHE_KEY_PREFIX}${network}`);
+    if (raw) return JSON.parse(raw);
+  } catch (_) {}
+  return null;
+}
+
+async function saveCachedTransactions(network, transactions) {
+  try {
+    await StorageAdapter.set(`${CACHE_KEY_PREFIX}${network}`, JSON.stringify(transactions));
+  } catch (_) {}
 }
 
 // ── UI Components ───────────────────────────────────────────────────────────
@@ -118,7 +142,6 @@ function TransactionRow({ tx, network }) {
   const isCharm = !!tx.charm;
   const mempoolUrl = getMempoolTxUrl(tx.txid, network);
 
-  // Determine display
   let icon, iconClass, label, amountText, amountClass;
 
   if (isCharm) {
@@ -197,13 +220,31 @@ function SkeletonRows() {
 
 // ── Main Component ──────────────────────────────────────────────────────────
 
-export default function ActivityScreen() {
+export default function ActivityScreen({ onSyncStateChange }) {
   const { addresses } = useAddresses();
   const { activeNetwork } = useNetwork();
 
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const didLoadCache = useRef(false);
+
+  // Notify parent of sync state changes
+  const setSyncing = useCallback((val) => {
+    if (onSyncStateChange) onSyncStateChange(val);
+  }, [onSyncStateChange]);
+
+  // Load cached data on mount — instant, no skeleton on revisit
+  useEffect(() => {
+    didLoadCache.current = false;
+    loadCachedTransactions(activeNetwork).then(cached => {
+      if (cached && cached.length > 0) {
+        setTransactions(cached);
+        setLoading(false);
+        didLoadCache.current = true;
+      }
+    });
+  }, [activeNetwork]);
 
   const fetchTransactions = useCallback(async () => {
     if (!addresses || addresses.length === 0) {
@@ -212,13 +253,16 @@ export default function ActivityScreen() {
     }
 
     try {
-      setLoading(true);
+      // First load with no cache → show skeleton. Otherwise just mark refreshing.
+      if (!didLoadCache.current && transactions.length === 0) {
+        setLoading(true);
+      }
+      setSyncing(true);
       setError(null);
 
       const allAddressSet = new Set(addresses.map(a => a.address));
       const allUniqueAddresses = [...allAddressSet];
 
-      // Get current block height
       let tipHeight = null;
       try {
         const baseUrl = activeNetwork === 'mainnet' ? 'https://mempool.space/api' : 'https://mempool.space/testnet4/api';
@@ -226,7 +270,6 @@ export default function ActivityScreen() {
         if (resp.ok) tipHeight = parseInt(await resp.text(), 10);
       } catch (_) {}
 
-      // Fetch from mempool.space for ALL addresses (batches of 5)
       const BATCH = 5;
       const rawTxMap = new Map();
 
@@ -243,7 +286,6 @@ export default function ActivityScreen() {
         }
       }
 
-      // Analyze each transaction
       const merged = [];
       for (const [txid, rawTx] of rawTxMap) {
         const { direction, amount, fee } = analyzeTransaction(rawTx, allAddressSet);
@@ -257,14 +299,12 @@ export default function ActivityScreen() {
         merged.push({ txid, direction, amount, fee, block_time: blockTime, confirmations });
       }
 
-      // Sort: pending first, then by block_time desc
       merged.sort((a, b) => {
         if (!a.block_time && b.block_time) return -1;
         if (a.block_time && !b.block_time) return 1;
         return (b.block_time || 0) - (a.block_time || 0);
       });
 
-      // Enrich with charm data from Explorer API
       const txids = merged.map(t => t.txid);
       const charmMap = await enrichWithCharmData(txids);
 
@@ -274,30 +314,44 @@ export default function ActivityScreen() {
       }
 
       setTransactions(merged);
+      didLoadCache.current = true;
+      await saveCachedTransactions(activeNetwork, merged);
     } catch (err) {
       console.error('[ActivityScreen] Error fetching transactions:', err);
       setError(err.message || 'Failed to fetch transactions');
     } finally {
       setLoading(false);
+      setSyncing(false);
     }
-  }, [addresses, activeNetwork]);
+  }, [addresses, activeNetwork, transactions.length]);
 
+  // On mount / network change: load cache first (above useEffect), then fetch in background
   useEffect(() => {
     setTransactions([]);
-    fetchTransactions();
-  }, [activeNetwork, fetchTransactions]);
+    didLoadCache.current = false;
+    loadCachedTransactions(activeNetwork).then(cached => {
+      if (cached && cached.length > 0) {
+        setTransactions(cached);
+        setLoading(false);
+        didLoadCache.current = true;
+      }
+      // Always fetch fresh data in background
+      fetchTransactions();
+    });
+  }, [activeNetwork]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="p-4">
       <h2 className="text-lg font-bold gradient-text mb-4">Activity</h2>
 
-      {loading && (
+      {/* First load skeleton — only when no cached data */}
+      {loading && transactions.length === 0 && (
         <div className="card">
           <SkeletonRows />
         </div>
       )}
 
-      {!loading && error && (
+      {!loading && error && transactions.length === 0 && (
         <div className="card p-4">
           <div className="text-red-400 text-sm mb-2">Failed to load transactions</div>
           <div className="text-xs text-dark-500 mb-3">{error}</div>
@@ -315,7 +369,7 @@ export default function ActivityScreen() {
         </div>
       )}
 
-      {!loading && !error && transactions.length > 0 && (
+      {transactions.length > 0 && (
         <div className="card divide-y divide-dark-700/50">
           {transactions.map(tx => (
             <TransactionRow key={tx.txid} tx={tx} network={activeNetwork} />

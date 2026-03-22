@@ -23,6 +23,7 @@ export default function ExtensionDashboard() {
   const { syncFullWallet, syncUTXOs, isSyncing, syncPhase } = useExtensionWalletSync();
   const { loadUTXOs } = useUTXOs();
   const [activeScreen, setActiveScreen] = useState('home');
+  const [activitySyncing, setActivitySyncing] = useState(false);
 
   // Lazy P2WPKH derivation for wallets created before the update
   const didLazyDerive = useRef(false);
@@ -66,7 +67,7 @@ export default function ExtensionDashboard() {
       <DashboardHeader
         activeNetwork={activeNetwork}
         networkLabel={networkLabel}
-        isSyncing={isSyncing}
+        isSyncing={isSyncing || activitySyncing}
         syncPhase={syncPhase}
         lastSynced={lastSynced}
         onSync={handleManualSync}
@@ -83,7 +84,7 @@ export default function ExtensionDashboard() {
           />
         )}
         {activeScreen === 'assets' && <AssetsScreen isSyncing={isSyncing} />}
-        {activeScreen === 'activity' && <ActivityScreen />}
+        {activeScreen === 'activity' && <ActivityScreen onSyncStateChange={setActivitySyncing} />}
         {activeScreen === 'settings' && (
           <SettingsScreen
             activeNetwork={activeNetwork}
