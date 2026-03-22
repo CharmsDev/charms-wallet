@@ -123,40 +123,8 @@ async function fetchFromExplorerAPI(explorerService, addressList, network, skipC
  * Persist balance + charms to storage and Zustand stores.
  */
 async function applyResults(balanceResult, charms, tokenBalances, blockchain, network, onPhase1Complete, onCharmFound) {
-    const { useUTXOStore } = await import('@/stores/utxoStore');
-    useUTXOStore.setState({
-        totalBalance: balanceResult.confirmed || 0,
-        pendingBalance: balanceResult.unconfirmed || 0,
-    });
-
-    if (onPhase1Complete) {
-        onPhase1Complete({
-            spendable: balanceResult.confirmed || 0,
-            pending: balanceResult.unconfirmed || 0,
-            utxosUpdated: 0,
-        });
-    }
-
-    if (onCharmFound) {
-        for (const charm of charms) {
-            await onCharmFound(charm);
-        }
-    }
-
+    // 1. Persist to storage FIRST (always works, no React dependency)
     await saveCharms(charms, blockchain, network);
-
-    try {
-        const { useCharmsStore } = await import('@/stores/charms');
-        useCharmsStore.setState({
-            charms,
-            initialized: true,
-            isLoading: false,
-            currentNetwork: `${blockchain}-${network}`,
-        });
-    } catch (e) {
-        console.warn('[ExplorerWalletSync] Charms store update failed:', e.message);
-    }
-
     await saveBalance(blockchain, network, {
         spendable: balanceResult.confirmed || 0,
         pending: balanceResult.unconfirmed || 0,
@@ -167,6 +135,47 @@ async function applyResults(balanceResult, charms, tokenBalances, blockchain, ne
         runeCount: 0,
         tokens: tokenBalances,
     });
+
+    // 2. Update Zustand stores (may fail outside React context — non-fatal)
+    try {
+        const { useUTXOStore } = await import('@/stores/utxoStore');
+        useUTXOStore.setState({
+            totalBalance: balanceResult.confirmed || 0,
+            pendingBalance: balanceResult.unconfirmed || 0,
+        });
+    } catch (e) {
+        console.warn('[ExplorerWalletSync] UTXO store update skipped:', e.message);
+    }
+
+    try {
+        const { useCharmsStore } = await import('@/stores/charms');
+        useCharmsStore.setState({
+            charms,
+            initialized: true,
+            isLoading: false,
+            currentNetwork: `${blockchain}-${network}`,
+        });
+    } catch (e) {
+        console.warn('[ExplorerWalletSync] Charms store update skipped:', e.message);
+    }
+
+    // 3. Callbacks (may trigger React renders — non-fatal)
+    try {
+        if (onPhase1Complete) {
+            onPhase1Complete({
+                spendable: balanceResult.confirmed || 0,
+                pending: balanceResult.unconfirmed || 0,
+                utxosUpdated: 0,
+            });
+        }
+        if (onCharmFound) {
+            for (const charm of charms) {
+                await onCharmFound(charm);
+            }
+        }
+    } catch (e) {
+        console.warn('[ExplorerWalletSync] Callback error:', e.message);
+    }
 }
 
 // ============================================
@@ -246,24 +255,28 @@ export async function syncWalletExplorer(options = {}) {
         // PRIMARY: Explorer indexed API (instant)
         // ============================================
         if (explorerAvailable && addressList.length > 0) {
+            // Step 1: Fetch data from Explorer API
+            let fetchedData = null;
             try {
                 const t0 = performance.now();
-
-                const { balanceResult, charms, tokenBalances } =
-                    await fetchFromExplorerAPI(explorerWalletService, addressList, network, skipCharms);
-
+                fetchedData = await fetchFromExplorerAPI(explorerWalletService, addressList, network, skipCharms);
                 const ms = (performance.now() - t0).toFixed(0);
-                console.log(`[${_ts()}] [ExplorerWalletSync] ⚡ Explorer API: ${ms}ms — balance=${balanceResult.total} sats, charms=${charms.length}`);
-
-                await applyResults(balanceResult, charms, tokenBalances, blockchain, network, onPhase1Complete, onCharmFound);
-
-                result.totalBalance = balanceResult.total || 0;
-                result.charmsFound = charms.length;
-
+                console.log(`[${_ts()}] [ExplorerWalletSync] ⚡ Explorer API: ${ms}ms — balance=${fetchedData.balanceResult.total} sats, charms=${fetchedData.charms.length}`);
             } catch (err) {
-                console.warn(`[${_ts()}] [ExplorerWalletSync] ⚡ Explorer API failed: ${err.message} — activating fallback`);
+                console.warn(`[${_ts()}] [ExplorerWalletSync] ⚡ Explorer API fetch failed: ${err.message} — activating fallback`);
                 return await runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, result, _ts);
             }
+
+            // Step 2: Apply results to stores (never triggers fallback)
+            try {
+                await applyResults(fetchedData.balanceResult, fetchedData.charms, fetchedData.tokenBalances, blockchain, network, onPhase1Complete, onCharmFound);
+            } catch (err) {
+                console.warn(`[${_ts()}] [ExplorerWalletSync] Store update error (non-fatal): ${err.message}`);
+            }
+
+            result.totalBalance = fetchedData.balanceResult.total || 0;
+            result.charmsFound = fetchedData.charms.length;
+
         } else if (!explorerAvailable) {
             console.log(`[${_ts()}] [ExplorerWalletSync] Explorer unavailable — using fallback`);
             return await runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, result, _ts);
