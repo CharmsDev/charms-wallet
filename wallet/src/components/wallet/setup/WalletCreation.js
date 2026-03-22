@@ -2,21 +2,18 @@
 
 import { useState } from 'react';
 
-export default function WalletCreation({ isLoading, onCreateWallet, onImportWallet }) {
+export default function WalletCreation({ isLoading, onCreateWallet, onImportWallet, onTransferFromWeb }) {
     const [inputSeedPhrase, setInputSeedPhrase] = useState('');
     const [importError, setImportError] = useState('');
 
     const handleImportWallet = async () => {
-        // Reset error state
         setImportError('');
 
-        // Validate input
         if (!inputSeedPhrase.trim()) {
             setImportError('Please enter a seed phrase');
             return;
         }
 
-        // Check if it's likely a valid seed phrase (basic check)
         const words = inputSeedPhrase.trim().split(/\s+/);
         if (words.length !== 12 && words.length !== 24) {
             setImportError('Seed phrase must be 12 or 24 words');
@@ -28,6 +25,13 @@ export default function WalletCreation({ isLoading, onCreateWallet, onImportWall
         } catch (err) {
             setImportError(err.message || 'Failed to import wallet');
         }
+    };
+
+    const handleTransfer = () => {
+        // Generate a simple transfer token and open the web wallet with it
+        const token = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+        window.open(`https://wallet.charms.dev/?transfer=${token}`, '_blank');
+        if (onTransferFromWeb) onTransferFromWeb();
     };
 
     return (
@@ -81,6 +85,30 @@ export default function WalletCreation({ isLoading, onCreateWallet, onImportWall
                         {isLoading ? 'Importing...' : 'Import Wallet'}
                     </button>
                 </div>
+
+                {/* Transfer from Web Wallet — only shown in extension context */}
+                {onTransferFromWeb && (
+                    <>
+                        <div className="relative flex items-center">
+                            <div className="flex-grow border-t border-dark-600"></div>
+                            <span className="flex-shrink mx-4 text-gray-400">or</span>
+                            <div className="flex-grow border-t border-dark-600"></div>
+                        </div>
+
+                        <button
+                            onClick={handleTransfer}
+                            disabled={isLoading}
+                            className="w-full py-3 px-4 rounded-lg border border-bitcoin-500/40 bg-bitcoin-500/10 hover:bg-bitcoin-500/20 text-bitcoin-400 font-medium transition-colors flex items-center justify-center gap-2"
+                        >
+                            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                                <line x1="8" y1="21" x2="16" y2="21" />
+                                <line x1="12" y1="17" x2="12" y2="21" />
+                            </svg>
+                            Transfer from Charms Web Wallet
+                        </button>
+                    </>
+                )}
             </div>
         </div>
     );
