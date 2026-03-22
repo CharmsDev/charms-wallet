@@ -73,9 +73,10 @@ function toCharmObj(utxo, balanceEntry) {
  * Returns { balanceResult, charms, tokenBalances, utxos } or throws on failure.
  */
 async function fetchFromExplorerAPI(explorerService, addressList, network, skipCharms) {
+    // Use batch endpoints (single POST per type) instead of N individual GETs
     const [utxos, charmBalances] = await Promise.all([
-        explorerService.getAggregateUTXOs(addressList, network),
-        skipCharms ? [] : explorerService.getAggregateCharmBalances(addressList, network),
+        explorerService.getAggregateUTXOsBatch(addressList, network),
+        skipCharms ? [] : explorerService.getAggregateCharmBalancesBatch(addressList, network),
     ]);
 
     // Normalize charms first — needed for isCharmUtxo check below
@@ -239,6 +240,7 @@ export async function syncWalletExplorer(options = {}) {
             .map(a => a.address);
 
         console.log(`[${_ts()}] [ExplorerWalletSync] Explorer=${explorerAvailable}, addresses=${addressList.length}`);
+        console.log(`[${_ts()}] [ExplorerWalletSync] Address list:`, addressList);
 
         // ============================================
         // PRIMARY: Explorer indexed API (instant)
