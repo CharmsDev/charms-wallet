@@ -191,6 +191,42 @@ async function applyResults(balanceResult, charms, tokenBalances, blockchain, ne
 }
 
 // ============================================
+// Fallback path (mempool.space + prover)
+// ============================================
+
+async function runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, onCharmProgress, result, _ts) {
+    const { fallbackProvider } = await import('@/services/shared/fallback-provider');
+
+    // Balance from mempool — this should always work
+    const fbBalance = await fallbackProvider.getBalance(addressList, network);
+    console.log(`[${_ts()}] [ExtWalletSync] Fallback balance: ${fbBalance.total} sats`);
+
+    // Charms — may fail (prover down), degrade gracefully
+    let fbCharms = { charms: [], tokenBalances: [], degraded: false };
+    if (!skipCharms) {
+        try {
+            fbCharms = await fallbackProvider.getCharmBalances(addressList, network, {
+                onProgress: onCharmProgress,
+                onCharmFound,
+            });
+            if (fbCharms.degraded) {
+                console.warn(`[${_ts()}] [ExtWalletSync] Prover unavailable — charm data degraded`);
+            }
+        } catch (charmErr) {
+            console.warn(`[${_ts()}] [ExtWalletSync] Charm fallback failed: ${charmErr.message}`);
+            fbCharms = { charms: [], tokenBalances: [], degraded: true };
+        }
+    }
+
+    await applyResults(fbBalance, fbCharms.charms, fbCharms.tokenBalances, blockchain, network, onPhase1Complete, onCharmFound);
+
+    result.totalBalance = fbBalance.total || 0;
+    result.charmsFound = fbCharms.charms.length;
+    result.success = true;
+    return result;
+}
+
+// ============================================
 // Main entry point
 // ============================================
 
@@ -257,42 +293,13 @@ export async function syncWalletExtension(options = {}) {
 
             } catch (err) {
                 console.warn(`[${_ts()}] [ExtWalletSync] ⚡ Explorer API failed: ${err.message}`);
-                console.warn(`[${_ts()}] [ExtWalletSync] Activating failover...`);
-
-                // ── FAILOVER via FallbackProvider ──
-                const { fallbackProvider } = await import('@/services/shared/fallback-provider');
-                const [fbBalance, fbCharms] = await Promise.all([
-                    fallbackProvider.getBalance(addressList, network),
-                    skipCharms
-                        ? { charms: [], tokenBalances: [], degraded: false }
-                        : fallbackProvider.getCharmBalances(addressList, network, { onProgress: onCharmProgress, onCharmFound }),
-                ]);
-
-                await applyResults(fbBalance, fbCharms.charms, fbCharms.tokenBalances, blockchain, network, onPhase1Complete, onCharmFound);
-
-                result.totalBalance = fbBalance.total || 0;
-                result.charmsFound = fbCharms.charms.length;
-                result.success = true;
-                return result;
+                console.warn(`[${_ts()}] [ExtWalletSync] Activating fallback...`);
+                return await runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, onCharmProgress, result, _ts);
             }
         } else {
-            // Explorer not available at all — go straight to fallback
+            // Explorer not available (circuit breaker tripped or not configured)
             console.log(`[${_ts()}] [ExtWalletSync] Explorer unavailable, using fallback...`);
-
-            const { fallbackProvider } = await import('@/services/shared/fallback-provider');
-            const [fbBalance, fbCharms] = await Promise.all([
-                fallbackProvider.getBalance(addressList, network),
-                skipCharms
-                    ? { charms: [], tokenBalances: [], degraded: false }
-                    : fallbackProvider.getCharmBalances(addressList, network, { onProgress: onCharmProgress, onCharmFound }),
-            ]);
-
-            await applyResults(fbBalance, fbCharms.charms, fbCharms.tokenBalances, blockchain, network, onPhase1Complete, onCharmFound);
-
-            result.totalBalance = fbBalance.total || 0;
-            result.charmsFound = fbCharms.charms.length;
-            result.success = true;
-            return result;
+            return await runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, onCharmProgress, result, _ts);
         }
 
         // ============================================

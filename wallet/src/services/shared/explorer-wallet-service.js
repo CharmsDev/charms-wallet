@@ -48,7 +48,7 @@ async function _extensionFetch(url, options = {}) {
  */
 export class ExplorerWalletService {
     constructor() {
-        this.timeout = 30000; // 30s — with parallel requests, server queues them; last in batch may wait
+        this.timeout = 10000; // 10s — fail fast to trigger fallback quickly
         this.tipCache = { value: null, expiry: 0 };
         this.tipCacheTTL = 30 * 1000; // 30s TTL for chain tip
 
