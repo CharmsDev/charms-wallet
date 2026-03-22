@@ -6,7 +6,7 @@
  *   - GET /v1/wallet/charms/{address} → instant charm/token balances
  *   - UTXO sync runs after for spending capability
  *
- * FAILOVER: If Explorer API is unavailable → existing syncUTXOs (UTXO-only, no charms)
+ * FAILOVER: If Explorer API is unavailable → FallbackProvider (mempool.space + prover)
  */
 
 import { getAddresses, saveCharms, saveBalance } from '@/services/storage';
@@ -169,6 +169,37 @@ async function applyResults(balanceResult, charms, tokenBalances, blockchain, ne
 }
 
 // ============================================
+// Fallback path (mempool.space + prover)
+// ============================================
+
+async function runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, result, _ts) {
+    const { fallbackProvider } = await import('@/services/shared/fallback-provider');
+
+    const fbBalance = await fallbackProvider.getBalance(addressList, network);
+    console.log(`[${_ts()}] [ExplorerWalletSync] Fallback balance: ${fbBalance.total} sats`);
+
+    let fbCharms = { charms: [], tokenBalances: [], degraded: false };
+    if (!skipCharms) {
+        try {
+            fbCharms = await fallbackProvider.getCharmBalances(addressList, network);
+            if (fbCharms.degraded) {
+                console.warn(`[${_ts()}] [ExplorerWalletSync] Prover unavailable — charm data degraded`);
+            }
+        } catch (charmErr) {
+            console.warn(`[${_ts()}] [ExplorerWalletSync] Charm fallback failed: ${charmErr.message}`);
+            fbCharms = { charms: [], tokenBalances: [], degraded: true };
+        }
+    }
+
+    await applyResults(fbBalance, fbCharms.charms, fbCharms.tokenBalances, blockchain, network, onPhase1Complete, onCharmFound);
+
+    result.totalBalance = fbBalance.total || 0;
+    result.charmsFound = fbCharms.charms.length;
+    result.success = true;
+    return result;
+}
+
+// ============================================
 // Main entry point
 // ============================================
 
@@ -228,30 +259,12 @@ export async function syncWalletExplorer(options = {}) {
                 result.charmsFound = charms.length;
 
             } catch (err) {
-                console.warn(`[${_ts()}] [ExplorerWalletSync] ⚡ Explorer API failed: ${err.message} — falling back to UTXO-only sync`);
-
-                // FAILOVER: UTXO-only sync (no charm data when Explorer is down)
-                const { result: utxoResult } = await syncUTXOs({
-                    addresses, blockchain, network, fullScan,
-                    onProgress: onUTXOProgress,
-                    updateUTXOStore, addressLimit,
-                });
-                result.utxosUpdated = utxoResult.utxosUpdated;
-                result.success = utxoResult.success;
-                result.error = utxoResult.error || null;
-                return result;
+                console.warn(`[${_ts()}] [ExplorerWalletSync] ⚡ Explorer API failed: ${err.message} — activating fallback`);
+                return await runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, result, _ts);
             }
         } else if (!explorerAvailable) {
-            console.log(`[${_ts()}] [ExplorerWalletSync] Explorer unavailable — UTXO-only sync`);
-
-            const { result: utxoResult } = await syncUTXOs({
-                addresses, blockchain, network, fullScan,
-                onProgress: onUTXOProgress,
-                updateUTXOStore, addressLimit,
-            });
-            result.utxosUpdated = utxoResult.utxosUpdated;
-            result.success = utxoResult.success;
-            return result;
+            console.log(`[${_ts()}] [ExplorerWalletSync] Explorer unavailable — using fallback`);
+            return await runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, result, _ts);
         }
 
         // ============================================
