@@ -259,37 +259,39 @@ export async function syncWalletExtension(options = {}) {
                 console.warn(`[${_ts()}] [ExtWalletSync] ⚡ Explorer API failed: ${err.message}`);
                 console.warn(`[${_ts()}] [ExtWalletSync] Activating failover...`);
 
-                // ── FAILOVER ──
-                const { failoverSync } = await import('./failover/wallet-sync');
-                const legacyResult = await failoverSync({
-                    addresses, blockchain, network, fullScan, skipCharms,
-                    onUTXOProgress, onCharmProgress, onCharmFound,
-                    updateUTXOStore, addressLimit, onPhase1Complete,
-                });
+                // ── FAILOVER via FallbackProvider ──
+                const { fallbackProvider } = await import('@/services/shared/fallback-provider');
+                const [fbBalance, fbCharms] = await Promise.all([
+                    fallbackProvider.getBalance(addressList, network),
+                    skipCharms
+                        ? { charms: [], tokenBalances: [], degraded: false }
+                        : fallbackProvider.getCharmBalances(addressList, network, { onProgress: onCharmProgress, onCharmFound }),
+                ]);
 
-                result.utxosUpdated = legacyResult.utxosUpdated;
-                result.charmsFound = legacyResult.charmsFound;
-                result.charmsRemoved = legacyResult.charmsRemoved;
-                result.totalBalance = legacyResult.totalBalance;
-                result.success = legacyResult.success;
+                await applyResults(fbBalance, fbCharms.charms, fbCharms.tokenBalances, blockchain, network, onPhase1Complete, onCharmFound);
+
+                result.totalBalance = fbBalance.total || 0;
+                result.charmsFound = fbCharms.charms.length;
+                result.success = true;
                 return result;
             }
         } else {
-            // Explorer not available at all — go straight to failover
-            console.log(`[${_ts()}] [ExtWalletSync] Explorer unavailable, using failover...`);
+            // Explorer not available at all — go straight to fallback
+            console.log(`[${_ts()}] [ExtWalletSync] Explorer unavailable, using fallback...`);
 
-            const { failoverSync } = await import('./failover/wallet-sync');
-            const legacyResult = await failoverSync({
-                addresses, blockchain, network, fullScan, skipCharms,
-                onUTXOProgress, onCharmProgress, onCharmFound,
-                updateUTXOStore, addressLimit, onPhase1Complete,
-            });
+            const { fallbackProvider } = await import('@/services/shared/fallback-provider');
+            const [fbBalance, fbCharms] = await Promise.all([
+                fallbackProvider.getBalance(addressList, network),
+                skipCharms
+                    ? { charms: [], tokenBalances: [], degraded: false }
+                    : fallbackProvider.getCharmBalances(addressList, network, { onProgress: onCharmProgress, onCharmFound }),
+            ]);
 
-            result.utxosUpdated = legacyResult.utxosUpdated;
-            result.charmsFound = legacyResult.charmsFound;
-            result.charmsRemoved = legacyResult.charmsRemoved;
-            result.totalBalance = legacyResult.totalBalance;
-            result.success = legacyResult.success;
+            await applyResults(fbBalance, fbCharms.charms, fbCharms.tokenBalances, blockchain, network, onPhase1Complete, onCharmFound);
+
+            result.totalBalance = fbBalance.total || 0;
+            result.charmsFound = fbCharms.charms.length;
+            result.success = true;
             return result;
         }
 
