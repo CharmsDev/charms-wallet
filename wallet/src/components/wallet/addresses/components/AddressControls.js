@@ -5,6 +5,8 @@ export default function AddressControls({
     isCardano,
     addressType,
     onToggleAddressType,
+    bitcoinAddressTab,
+    onBitcoinAddressTabChange,
     filter,
     onFilterChange,
     canGenerateMore,
@@ -16,20 +18,39 @@ export default function AddressControls({
             <h2 className="hidden md:block text-xl font-bold gradient-text">Your Addresses</h2>
             <div className="flex items-center flex-wrap gap-2 sm:gap-3">
                 {!isCardano && (
-                    <div className="flex items-center gap-1 bg-gray-800 rounded-full p-1">
-                        <button
-                            onClick={() => onFilterChange('all')}
-                            className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap ${filter === 'all' ? 'bg-blue-500 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
-                        >
-                            All
-                        </button>
-                        <button
-                            onClick={() => onFilterChange('in-use')}
-                            className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap ${filter === 'in-use' ? 'bg-blue-500 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
-                        >
-                            In Use
-                        </button>
-                    </div>
+                    <>
+                        {/* SegWit / Taproot tabs */}
+                        <div className="flex items-center gap-1 bg-gray-800 rounded-full p-1">
+                            <button
+                                onClick={() => onBitcoinAddressTabChange('segwit')}
+                                className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap ${bitcoinAddressTab === 'segwit' ? 'bg-bitcoin-500 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+                            >
+                                Native SegWit
+                            </button>
+                            <button
+                                onClick={() => onBitcoinAddressTabChange('taproot')}
+                                className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap ${bitcoinAddressTab === 'taproot' ? 'bg-bitcoin-500 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+                            >
+                                Taproot
+                            </button>
+                        </div>
+
+                        {/* All / In Use filter */}
+                        <div className="flex items-center gap-1 bg-gray-800 rounded-full p-1">
+                            <button
+                                onClick={() => onFilterChange('all')}
+                                className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap ${filter === 'all' ? 'bg-blue-500 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+                            >
+                                All
+                            </button>
+                            <button
+                                onClick={() => onFilterChange('in-use')}
+                                className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap ${filter === 'in-use' ? 'bg-blue-500 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+                            >
+                                In Use
+                            </button>
+                        </div>
+                    </>
                 )}
                 {isCardano && (
                     <div className="flex items-center">

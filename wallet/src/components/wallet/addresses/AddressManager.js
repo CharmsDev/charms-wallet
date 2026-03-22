@@ -31,6 +31,7 @@ export default function AddressManager() {
     const [addressError, setAddressError] = useState('');
     const [privateKeys, setPrivateKeys] = useState({});
     const [addressType, setAddressType] = useState('payment'); // 'payment' or 'staking' for Cardano
+    const [bitcoinAddressTab, setBitcoinAddressTab] = useState('taproot'); // 'segwit' or 'taproot'
 
     // Load addresses when component mounts
     useEffect(() => {
@@ -151,10 +152,25 @@ export default function AddressManager() {
         }
     };
 
+    // Helper: detect address type from prefix
+    const isSegwitAddress = (addr) => {
+        const a = typeof addr === 'string' ? addr : addr?.address;
+        return a?.startsWith('bc1q') || a?.startsWith('tb1q') || a?.startsWith('bcrt1q');
+    };
+
+    // Filter addresses by Bitcoin address type tab first
+    const typeFilteredAddresses = useMemo(() => {
+        if (!isBitcoin()) return addresses;
+        if (bitcoinAddressTab === 'segwit') {
+            return addresses.filter(a => isSegwitAddress(a));
+        }
+        // taproot: exclude segwit addresses
+        return addresses.filter(a => !isSegwitAddress(a));
+    }, [addresses, bitcoinAddressTab, isBitcoin]);
+
     const filteredAddresses = useMemo(() => {
         if (filter === 'in-use') {
-            // For "in-use" filter, only show address pairs where at least one address has UTXOs
-            const { addressPairs } = organizeAddresses(addresses);
+            const { addressPairs } = organizeAddresses(typeFilteredAddresses);
             const filteredPairs = [];
 
             Object.entries(addressPairs).forEach(([index, addrGroup]) => {
@@ -164,7 +180,6 @@ export default function AddressManager() {
                 const externalInUse = externalAddr && utxos && utxos[externalAddr.address] && utxos[externalAddr.address].length > 0;
                 const changeInUse = changeAddr && utxos && utxos[changeAddr.address] && utxos[changeAddr.address].length > 0;
 
-                // Include this pair if either address is in use
                 if (externalInUse || changeInUse) {
                     filteredPairs.push(...addrGroup);
                 }
@@ -172,8 +187,8 @@ export default function AddressManager() {
 
             return filteredPairs;
         }
-        return addresses;
-    }, [addresses, filter, utxos]);
+        return typeFilteredAddresses;
+    }, [typeFilteredAddresses, filter, utxos]);
 
     const visibleAddresses = useMemo(() => {
         return filteredAddresses.slice(0, visibleCount);
@@ -194,6 +209,8 @@ export default function AddressManager() {
                 isCardano={isCardano()}
                 addressType={addressType}
                 onToggleAddressType={toggleAddressType}
+                bitcoinAddressTab={bitcoinAddressTab}
+                onBitcoinAddressTabChange={setBitcoinAddressTab}
                 filter={filter}
                 onFilterChange={setFilter}
                 canGenerateMore={canGenerateMore}
