@@ -74,11 +74,11 @@ const useUTXOStore = create((set, get) => ({
             const storedBalance = await getBalance(blockchain, network);
             
             if (storedBalance) {
-                // Use new unified structure
+                // Use stored balance (getBalance returns flat { spendable, pending, ... })
                 set({
                     utxos: deduped,
-                    totalBalance: storedBalance.bitcoin?.spendable || 0,
-                    pendingBalance: storedBalance.bitcoin?.pending || 0,
+                    totalBalance: storedBalance.spendable || storedBalance.bitcoin?.spendable || 0,
+                    pendingBalance: storedBalance.pending || storedBalance.bitcoin?.pending || 0,
                     isLoading: false,
                     initialized: true
                 });
