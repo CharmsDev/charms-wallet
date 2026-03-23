@@ -280,6 +280,12 @@ export async function syncWalletExplorer(options = {}) {
                 await saveUTXOs(utxoMap, blockchain, network);
                 result.utxosUpdated = fetchedData.utxos.length;
                 console.log(`[${_ts()}] [ExplorerWalletSync] UTXOs saved: ${fetchedData.utxos.length} across ${Object.keys(utxoMap).length} addresses`);
+
+                // Update Zustand store so UTXOs tab reflects immediately
+                try {
+                    const { useUTXOStore } = await import('@/stores/utxoStore');
+                    useUTXOStore.setState({ utxos: utxoMap, initialized: true });
+                } catch (e) { /* non-fatal */ }
             } catch (err) {
                 console.warn(`[${_ts()}] [ExplorerWalletSync] UTXO save error (non-fatal): ${err.message}`);
             }
