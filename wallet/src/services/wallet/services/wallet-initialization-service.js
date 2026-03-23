@@ -84,74 +84,19 @@ export class WalletInitializationService {
 
             onStepChange(4, 'Fetching balances...');
 
-            // Use Explorer API for fast balance + charm + UTXO fetch (single round-trip per network)
+            // Use syncWalletExplorer — same flow as refresh button
             try {
-                const { getAddresses } = await import('@/services/storage');
-                const { explorerWalletService } = await import('@/services/shared/explorer-wallet-service');
-                const { syncUTXOs } = await import('@/services/wallet/sync/utxo-sync');
+                const { syncWalletExplorer } = await import('@/services/wallet/sync/explorer-wallet-sync');
 
                 for (const currentNetwork of networks) {
                     try {
-                        const storedAddresses = await getAddresses(blockchain, currentNetwork);
-                        const addressList = storedAddresses.map(a => a.address);
-                        if (addressList.length === 0) continue;
-
-                        const explorerAvailable = explorerWalletService.isAvailable(currentNetwork);
-                        if (explorerAvailable) {
-                            // Fast path: Explorer API aggregate endpoints
-                            const [utxos, charmBalances] = await Promise.all([
-                                explorerWalletService.getAggregateUTXOs(addressList, currentNetwork),
-                                explorerWalletService.getAggregateCharmBalances(addressList, currentNetwork),
-                            ]);
-
-                            // Build set of charm-bearing UTXOs to exclude from BTC balance
-                            const charmUtxoKeys = new Set();
-                            if (Array.isArray(charmBalances)) {
-                                for (const balance of charmBalances) {
-                                    for (const u of (balance.utxos || [])) {
-                                        charmUtxoKeys.add(`${u.txid}:${u.vout}`);
-                                    }
-                                }
-                            }
-
-                            // Calculate BTC balance from UTXOs (excluding charm UTXOs and dust ≤ 1000 sats)
-                            let confirmed = 0, unconfirmed = 0;
-                            for (const u of utxos) {
-                                if (charmUtxoKeys.has(`${u.txid}:${u.vout}`)) continue;
-                                if ((u.value || 0) <= 1000) continue; // Exclude dust/charm outputs
-                                if ((u.confirmations || 0) >= 1) confirmed += u.value || 0;
-                                else unconfirmed += u.value || 0;
-                            }
-
-                            // Update balance store
-                            const { useUTXOStore } = await import('@/stores/utxoStore');
-                            if (currentNetwork === network) {
-                                useUTXOStore.setState({ totalBalance: confirmed, pendingBalance: unconfirmed });
-                            }
-
-                            // Process charms
-                            if (Array.isArray(charmBalances) && charmBalances.length > 0) {
-                                const { saveCharms } = await import('@/services/storage');
-                                const charms = [];
-                                for (const balance of charmBalances) {
-                                    for (const u of (balance.utxos || [])) {
-                                        if (u.mempoolSpent) continue;
-                                        charms.push({
-                                            txid: u.txid, outputIndex: u.vout, address: u.address,
-                                            appId: u.appId || u.app_id, amount: u.amount || 0,
-                                            type: 'token', confirmed: u.confirmed ?? false,
-                                        });
-                                    }
-                                }
-                                await saveCharms(charms, blockchain, currentNetwork);
-                            }
-
-                            console.log(`[WALLET] Explorer API (${currentNetwork}): ${confirmed + unconfirmed} sats, ${charmBalances?.length || 0} token types`);
-                        }
-
-                        // UTXO sync for spending capability (runs after display is ready)
-                        onStepChange(5, 'Syncing UTXOs...');
-                        await syncUTXOs({ blockchain, network: currentNetwork, fullScan: true });
+                        const result = await syncWalletExplorer({
+                            blockchain,
+                            network: currentNetwork,
+                            fullScan: true,
+                            skipCharms: false,
+                        });
+                        console.log(`[WALLET] Sync (${currentNetwork}): balance=${result.totalBalance}, utxos=${result.utxosUpdated}, charms=${result.charmsFound}`);
                     } catch (error) {
                         console.warn(`[WALLET] Scan failed for ${currentNetwork}:`, error.message);
                     }
