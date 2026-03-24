@@ -265,10 +265,20 @@ export default function ActivityScreen({ onSyncStateChange }) {
 
       let tipHeight = null;
       try {
-        const baseUrl = activeNetwork === 'mainnet' ? 'https://mempool.space/api' : 'https://mempool.space/testnet4/api';
-        const resp = await fetch(`${baseUrl}/blocks/tip/height`);
-        if (resp.ok) tipHeight = parseInt(await resp.text(), 10);
-      } catch (_) {}
+        const netParam = activeNetwork === 'mainnet' ? 'mainnet' : 'testnet4';
+        const resp = await fetch(`${EXPLORER_API}/v1/wallet/tip?network=${netParam}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          tipHeight = data.height;
+        }
+      } catch (_) {
+        // Fallback: mempool.space
+        try {
+          const baseUrl = activeNetwork === 'mainnet' ? 'https://mempool.space/api' : 'https://mempool.space/testnet4/api';
+          const resp = await fetch(`${baseUrl}/blocks/tip/height`);
+          if (resp.ok) tipHeight = parseInt(await resp.text(), 10);
+        } catch (__) {}
+      }
 
       const BATCH = 5;
       const rawTxMap = new Map();

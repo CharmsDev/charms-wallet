@@ -39,32 +39,32 @@ export class MempoolService {
     }
 
     /**
-     * Get block timestamp by block height
+     * Get block timestamp by block height — tries Explorer API first
      */
     async getBlockTimestamp(blockHeight, network) {
+        // Primary: Explorer API
+        try {
+            const { explorerWalletService } = await import('./explorer-wallet-service');
+            const targetNetwork = network || config.bitcoin.network;
+            if (explorerWalletService.isAvailable(targetNetwork)) {
+                const tip = await explorerWalletService.getTip(targetNetwork);
+                if (tip?.timestamp) return tip.timestamp;
+            }
+        } catch (_) { /* fall through to mempool */ }
+
+        // Fallback: mempool.space
         try {
             const baseUrl = this._getMempoolUrl(network);
             const hashUrl = `${baseUrl}/block-height/${blockHeight}`;
-            
-            // Apply rate limiting before getting block hash
             await this._rateLimit();
-            
-            // Get block hash first (returns plain text, not JSON)
             const hashResponse = await fetch(hashUrl, {
                 signal: this._createTimeoutSignal(this.timeout),
             });
-            
-            if (!hashResponse.ok) {
-                throw new Error(`Failed to get block hash: ${hashResponse.status}`);
-            }
-            
+            if (!hashResponse.ok) throw new Error(`Failed to get block hash: ${hashResponse.status}`);
             const blockHash = await hashResponse.text();
-            
-            // Then get block details (returns JSON) - _makeHttpRequest has its own rate limiting
             const blockUrl = `${baseUrl}/block/${blockHash}`;
             const block = await this._makeHttpRequest(blockUrl);
-            
-            return block.timestamp; // Unix timestamp in seconds
+            return block.timestamp;
         } catch (error) {
             console.warn(`[Mempool] Failed to get block timestamp for height ${blockHeight}:`, error.message);
             return null;
@@ -143,84 +143,111 @@ export class MempoolService {
     }
 
     /**
-     * Get UTXO information for an address
+     * Get UTXO information for an address — tries Explorer API first
      */
     async getAddressUTXOs(address, network = null) {
+        // Primary: Explorer API
+        try {
+            const { explorerWalletService } = await import('./explorer-wallet-service');
+            const targetNetwork = network || config.bitcoin.network;
+            if (explorerWalletService.isAvailable(targetNetwork)) {
+                const utxos = await explorerWalletService.getAddressUTXOs(address, targetNetwork);
+                if (utxos) return { utxos, currentBlockHeight: null };
+            }
+        } catch (_) { /* fall through to mempool */ }
+
+        // Fallback: mempool.space
         const baseUrl = this._getMempoolUrl(network);
         const url = `${baseUrl}/address/${address}/utxo`;
-        
+
         const utxos = await this._makeHttpRequest(url);
         if (!utxos || utxos.length === 0) {
             return [];
         }
 
-        // Get current block height for confirmations calculation
         let currentBlockHeight = null;
         try {
             const tipUrl = `${baseUrl}/blocks/tip/height`;
             currentBlockHeight = await this._makeHttpRequest(tipUrl);
-        } catch (error) {
-            // If we can't get current height, use confirmed status only
-        }
-        
+        } catch (error) {}
+
         return { utxos, currentBlockHeight };
     }
 
     /**
-     * Check if a specific UTXO is spent
+     * Check if a specific UTXO is spent — tries Explorer API first
      */
     async isUtxoSpent(txid, vout, network = null) {
+        try {
+            const { explorerWalletService } = await import('./explorer-wallet-service');
+            const targetNetwork = network || config.bitcoin.network;
+            if (explorerWalletService.isAvailable(targetNetwork)) {
+                return await explorerWalletService.isUtxoSpent(txid, vout, targetNetwork);
+            }
+        } catch (_) { /* fall through to mempool */ }
+
         const baseUrl = this._getMempoolUrl(network);
         const url = `${baseUrl}/tx/${txid}/outspend/${vout}`;
-        
         const result = await this._makeHttpRequest(url);
         return result.spent === true;
     }
 
     /**
-     * Broadcast a transaction
+     * Broadcast a transaction — tries Explorer API first
      */
     async broadcastTransaction(txHex, network = null) {
+        try {
+            const { explorerWalletService } = await import('./explorer-wallet-service');
+            const targetNetwork = network || config.bitcoin.network;
+            if (explorerWalletService.isAvailable(targetNetwork)) {
+                const result = await explorerWalletService.broadcastTransaction(txHex, targetNetwork);
+                return result;
+            }
+        } catch (_) { /* fall through to mempool */ }
+
         const baseUrl = this._getMempoolUrl(network);
         const url = `${baseUrl}/tx`;
-        
         const response = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'text/plain',
-            },
+            headers: { 'Content-Type': 'text/plain' },
             body: txHex,
             signal: this._createTimeoutSignal(this.timeout),
         });
-
         if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`Broadcast failed: ${response.status} - ${errorText}`);
         }
-
         return await response.text();
     }
 
     /**
-     * Get transaction details
+     * Get transaction details — tries Explorer API first, mempool.space as fallback
      */
     async getTransaction(txid, network = null) {
+        // Primary: Explorer API
+        try {
+            const { explorerWalletService } = await import('./explorer-wallet-service');
+            const targetNetwork = network || config.bitcoin.network;
+            if (explorerWalletService.isAvailable(targetNetwork)) {
+                const data = await explorerWalletService.getTransaction(txid, targetNetwork);
+                if (data) return { tx: data, currentBlockHeight: null };
+            }
+        } catch (_) { /* fall through to mempool */ }
+
+        // Fallback: mempool.space
         const baseUrl = this._getMempoolUrl(network);
         const url = `${baseUrl}/tx/${txid}`;
-        
+
         const tx = await this._makeHttpRequest(url);
 
-        // Get current block height for confirmations calculation
         let currentBlockHeight = null;
         if (tx.status?.confirmed && tx.status?.block_height) {
             try {
                 const tipUrl = `${baseUrl}/blocks/tip/height`;
                 currentBlockHeight = await this._makeHttpRequest(tipUrl);
-            } catch (error) {
-                // Fallback: at least 1 if confirmed
-            }
+            } catch (error) {}
         }
-        
+
         return { tx, currentBlockHeight };
     }
 
@@ -264,7 +291,7 @@ export class MempoolService {
     }
 
     /**
-     * Get raw transaction hex
+     * Get raw transaction hex — tries Explorer API first
      */
     async getTransactionHex(txid, network = null) {
         const targetNetwork = network || config.bitcoin.network;
@@ -283,49 +310,69 @@ export class MempoolService {
         }
 
         const p = (async () => {
+            // Primary: Explorer API
+            try {
+                const { explorerWalletService } = await import('./explorer-wallet-service');
+                if (explorerWalletService.isAvailable(targetNetwork)) {
+                    const hex = await explorerWalletService.getTransactionHex(txid, targetNetwork);
+                    if (hex) {
+                        this.txHexCache.set(key, { value: hex, expiry: now + this.txCacheTTL });
+                        return hex;
+                    }
+                }
+            } catch (_) { /* fall through to mempool */ }
+
+            // Fallback: mempool.space
             const baseUrl = this._getMempoolUrl(targetNetwork);
             const url = `${baseUrl}/tx/${txid}/hex`;
-            
             const response = await fetch(url, {
                 signal: this._createTimeoutSignal(this.timeout),
             });
-
-            if (!response.ok) {
-                throw new Error(`Failed to get transaction hex: ${response.status}`);
-            }
-
+            if (!response.ok) throw new Error(`Failed to get transaction hex: ${response.status}`);
             const result = await response.text();
-            // Cache result
             this.txHexCache.set(key, { value: result, expiry: now + this.txCacheTTL });
             return result;
         })()
-            .finally(() => {
-                // Clear inflight after completion
-                this.inflight.delete(key);
-            });
+            .finally(() => { this.inflight.delete(key); });
 
         this.inflight.set(key, p);
         return p;
     }
 
     /**
-     * Get address transaction history
+     * Get address transaction history — tries Explorer API first
      */
     async getAddressTransactions(address, network = null) {
+        try {
+            const { explorerWalletService } = await import('./explorer-wallet-service');
+            const targetNetwork = network || config.bitcoin.network;
+            if (explorerWalletService.isAvailable(targetNetwork)) {
+                const data = await explorerWalletService.getTransactionHistory(address, targetNetwork);
+                if (data?.transactions) return data.transactions;
+            }
+        } catch (_) { /* fall through to mempool */ }
+
         const baseUrl = this._getMempoolUrl(network);
         const url = `${baseUrl}/address/${address}/txs`;
         return await this._makeHttpRequest(url);
     }
 
     /**
-     * Get current network fee estimates
-     * Returns fee rates in sat/vB for different priority levels
+     * Get current network fee estimates — tries Explorer API first
      */
     async getFeeEstimates(network = null) {
+        try {
+            const { explorerWalletService } = await import('./explorer-wallet-service');
+            const targetNetwork = network || config.bitcoin.network;
+            if (explorerWalletService.isAvailable(targetNetwork)) {
+                const fees = await explorerWalletService.getFeeEstimates(targetNetwork);
+                if (fees) return fees;
+            }
+        } catch (_) { /* fall through to mempool */ }
+
         const baseUrl = this._getMempoolUrl(network);
         const url = `${baseUrl}/v1/fees/recommended`;
         const data = await this._makeHttpRequest(url);
-        
         return {
             fastest: data.fastestFee || 20,
             halfHour: data.halfHourFee || 15,

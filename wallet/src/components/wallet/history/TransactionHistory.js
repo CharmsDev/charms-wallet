@@ -87,7 +87,8 @@ export default function TransactionHistory() {
 
         setIsRefreshing(true);
         try {
-            await refreshUTXOs(activeBlockchain, activeNetwork, 10);
+            const { syncWalletExplorer } = await import('@/services/wallet/sync/explorer-wallet-sync');
+            await syncWalletExplorer({ blockchain: activeBlockchain, network: activeNetwork, fullScan: true, skipCharms: false });
             
             if (utxos && Object.keys(utxos).length > 0) {
                 await processUTXOsForReceivedTransactions(utxos, addresses, activeBlockchain, activeNetwork);

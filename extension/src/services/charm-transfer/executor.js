@@ -18,7 +18,7 @@
  *     → returns { txid }
  */
 
-import { FALLBACK_FEE_RATE, MIN_FEE_RATE, getMempoolBase } from './constants.js';
+import { FALLBACK_FEE_RATE, MIN_FEE_RATE, getMempoolBase, EXPLORER_API, getExplorerNetworkParam } from './constants.js';
 import { buildTransferSpell } from './spell-builder.js';
 import { normalizeSpell } from './spell-normalizer.js';
 import { fetchPrevTxs, fetchTxHex } from './tx-fetcher.js';
@@ -77,12 +77,23 @@ export async function proveCharmTransfer(params) {
   // ── Step 4: Fetch dynamic fee rate ────────────────────────────────────────
   let feeRate = FALLBACK_FEE_RATE;
   try {
-    const resp = await fetch(`${getMempoolBase(network)}/v1/fees/recommended`);
+    // Primary: Explorer API
+    const netParam = getExplorerNetworkParam(network);
+    const resp = await fetch(`${EXPLORER_API}/v1/wallet/fee-estimate?blocks=6&network=${netParam}`);
     if (resp.ok) {
-      const fees = await resp.json();
-      feeRate = Math.max(MIN_FEE_RATE, fees.economyFee || fees.hourFee || FALLBACK_FEE_RATE);
+      const data = await resp.json();
+      feeRate = Math.max(MIN_FEE_RATE, Math.ceil((data.fee_rate || 0) * 100_000) || FALLBACK_FEE_RATE);
     }
-  } catch (_) { /* use fallback */ }
+  } catch (_) {
+    // Fallback: mempool.space
+    try {
+      const resp = await fetch(`${getMempoolBase(network)}/v1/fees/recommended`);
+      if (resp.ok) {
+        const fees = await resp.json();
+        feeRate = Math.max(MIN_FEE_RATE, fees.economyFee || fees.hourFee || FALLBACK_FEE_RATE);
+      }
+    } catch (__) { /* use fallback */ }
+  }
   status(`Using fee rate: ${feeRate} sat/vB`);
 
   // ── Step 5: Send to prover ────────────────────────────────────────────────

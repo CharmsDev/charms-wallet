@@ -26,8 +26,9 @@ export class UTXOCalculations {
             return false;
         }
         
-        // Check if UTXO is unconfirmed
-        const isUnconfirmed = !utxo.status?.confirmed || (utxo.confirmations && utxo.confirmations < 1);
+        // Check if UTXO is unconfirmed (support both status.confirmed and confirmations fields)
+        const hasConfirmations = (utxo.confirmations || 0) >= 1;
+        const isUnconfirmed = utxo.status ? !utxo.status.confirmed : !hasConfirmations;
         if (isUnconfirmed) {
             return false;
         }

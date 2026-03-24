@@ -309,16 +309,7 @@ export async function syncWalletExplorer(options = {}) {
             return await runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, result, _ts);
         }
 
-        // Fallback-only path: UTXO sync when Explorer is unavailable
-        console.log(`[${_ts()}] [ExplorerWalletSync] UTXO sync (fallback path)...`);
-        const { result: utxoResult } = await syncUTXOs({
-            addresses, blockchain, network, fullScan,
-            onProgress: onUTXOProgress,
-            updateUTXOStore, addressLimit,
-        });
-        result.utxosUpdated = utxoResult.utxosUpdated;
-
-        console.log(`[${_ts()}] [ExplorerWalletSync] ■ Complete: balance=${result.totalBalance}, utxos=${result.utxosUpdated}, charms=${result.charmsFound}`);
+        // No addresses — nothing to sync
         result.success = true;
         return result;
 
