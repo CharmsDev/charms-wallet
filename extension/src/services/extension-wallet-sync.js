@@ -1,19 +1,17 @@
 /**
  * Extension Wallet Sync Service
- * 
- * PRIMARY FLOW: Charms Explorer indexed API
- *   - GET /v1/wallet/balance/{address}  → instant BTC balance
- *   - GET /v1/wallet/charms/{address}   → instant charm/token balances
- *   - UTXO sync runs after for spending capability
- * 
- * FAILOVER: If Explorer API is unavailable → failover/legacy-wallet-sync.js
- *   - UTXO scan address-by-address + prover verify for charms
- *   - See failover/README.md for details
+ *
+ * PRIMARY FLOW: Charms Explorer indexed API (2 batch calls)
+ *   - POST /v1/wallet/utxos/batch   → all UTXOs in one request
+ *   - POST /v1/wallet/charms/batch  → all charm balances in one request
+ *   - BTC balance calculated locally from UTXOs (≤1000 sats filtered as dust)
+ *   - UTXOs saved to storage for spending capability
+ *
+ * FAILOVER: If Explorer API is unavailable → FallbackProvider (mempool.space + prover)
  */
 
-import { getAddresses, saveCharms, saveBalance } from '@/services/storage';
+import { getAddresses, saveCharms, saveBalance, saveUTXOs } from '@/services/storage';
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
-import { syncUTXOs } from '@/services/wallet/sync/utxo-sync';
 
 // ============================================
 // Known token metadata
@@ -70,41 +68,57 @@ function toCharmObj(utxo, balanceEntry) {
 // ============================================
 
 /**
- * Fetch balance + charms from the Explorer indexed API.
- * Returns { balanceResult, charms, tokenBalances } or throws on failure.
+ * Fetch UTXOs + charms from the Explorer API using batch endpoints (2 POST calls).
+ * BTC balance is calculated locally from UTXOs (≤1000 sats filtered as dust).
+ * Returns { balanceResult, charms, tokenBalances, utxoMap }.
  */
 async function fetchFromExplorerAPI(explorerService, addressList, network, skipCharms) {
-    // Fetch UTXOs and charm balances in parallel.
-    // BTC balance is calculated locally from the UTXO list (same approach as Cast),
-    // which is more reliable than the /balance endpoint that can return stale data.
-    const [utxos, charmBalances] = await Promise.all([
-        explorerService.getAggregateUTXOs(addressList, network),
-        skipCharms ? [] : explorerService.getAggregateCharmBalances(addressList, network),
+    // 2 batch calls in parallel — replaces 2×N individual GET requests
+    const [batchUtxoData, batchCharmData] = await Promise.all([
+        explorerService.getBatchUTXOs(addressList, network),
+        skipCharms ? { results: {} } : explorerService.getBatchCharmBalances(addressList, network),
     ]);
 
-    // Calculate BTC balance locally from UTXO list (mirrors Cast's btcBalanceSats calculation)
-    const charmUtxoKeys = new Set();
-    if (!skipCharms && Array.isArray(charmBalances)) {
-        for (const balance of charmBalances) {
-            for (const utxo of (balance.utxos || [])) {
-                charmUtxoKeys.add(`${utxo.txid}:${utxo.vout}`);
+    // Flatten batch UTXO results into a flat array + utxoMap keyed by address
+    const allUtxos = [];
+    const utxoMap = {};
+    for (const [addr, result] of Object.entries(batchUtxoData.results || {})) {
+        if (result.error) continue;
+        const utxos = (result.utxos || []).map(u => ({ ...u, address: u.address || addr }));
+        if (utxos.length > 0) {
+            utxoMap[addr] = utxos;
+        }
+        allUtxos.push(...utxos);
+    }
+
+    // Flatten batch charm results into the same format as getAggregateCharmBalances
+    const charmBalances = [];
+    if (!skipCharms) {
+        for (const [, result] of Object.entries(batchCharmData.results || {})) {
+            if (result.error) continue;
+            for (const balance of (result.balances || [])) {
+                charmBalances.push(balance);
             }
         }
     }
 
+    // Build set of charm UTXO keys to exclude from BTC balance
+    const charmUtxoKeys = new Set();
+    for (const balance of charmBalances) {
+        for (const utxo of (balance.utxos || [])) {
+            charmUtxoKeys.add(`${utxo.txid}:${utxo.vout}`);
+        }
+    }
+
+    // Calculate BTC balance locally from UTXOs (same logic as wallet web)
     let confirmed = 0;
     let unconfirmed = 0;
-    for (const utxo of utxos) {
-        // Exclude UTXOs that carry charms — they are not spendable as BTC
+    for (const utxo of allUtxos) {
         const utxoKey = `${utxo.txid}:${utxo.vout}`;
         if (charmUtxoKeys.has(utxoKey)) continue;
-
         const sats = utxo.value || 0;
-        // Exclude dust/charm UTXOs (≤ 1000 sats) — these are non-spendable charm outputs
-        if (sats <= 1000) continue;
-
-        const isConfirmed = (utxo.confirmations || 0) >= 1;
-        if (isConfirmed) {
+        if (sats <= 1000) continue; // dust filter
+        if ((utxo.confirmations || 0) >= 1) {
             confirmed += sats;
         } else {
             unconfirmed += sats;
@@ -115,26 +129,24 @@ async function fetchFromExplorerAPI(explorerService, addressList, network, skipC
     // Normalize charms
     const charms = [];
     const seenKeys = new Set();
-    if (!skipCharms && Array.isArray(charmBalances)) {
-        for (const balance of charmBalances) {
-            for (const utxo of (balance.utxos || [])) {
-                const key = `${utxo.txid}:${utxo.vout}`;
-                if (seenKeys.has(key)) continue;
-                seenKeys.add(key);
-                charms.push(toCharmObj(utxo, balance));
-            }
+    for (const balance of charmBalances) {
+        for (const utxo of (balance.utxos || [])) {
+            const key = `${utxo.txid}:${utxo.vout}`;
+            if (seenKeys.has(key)) continue;
+            seenKeys.add(key);
+            charms.push(toCharmObj(utxo, balance));
         }
     }
 
     // Build token balance summary
-    const tokenBalances = (Array.isArray(charmBalances) ? charmBalances : []).map(b => ({
+    const tokenBalances = charmBalances.map(b => ({
         appId: b.appId,
         name: KNOWN_TOKENS[b.appId]?.name || b.symbol || 'Unknown',
         ticker: KNOWN_TOKENS[b.appId]?.ticker || b.symbol || 'TOKEN',
         amount: b.total || 0,
     }));
 
-    return { balanceResult, charms, tokenBalances, utxos };
+    return { balanceResult, charms, tokenBalances, utxoMap };
 }
 
 /**
@@ -232,16 +244,12 @@ async function runFallback(addressList, network, skipCharms, blockchain, onPhase
 
 export async function syncWalletExtension(options = {}) {
     const {
-        addresses = null,
         blockchain = BLOCKCHAINS.BITCOIN,
         network = NETWORKS.BITCOIN.MAINNET,
         fullScan = false,
         skipCharms = false,
-        onUTXOProgress = null,
         onCharmProgress = null,
         onCharmFound = null,
-        updateUTXOStore = null,
-        addressLimit = null,
         onPhase1Complete = null,
     } = options;
 
@@ -272,47 +280,38 @@ export async function syncWalletExtension(options = {}) {
         if (addressList.length > 0) console.log(`[${_ts()}] [ExtWalletSync] First address:`, addressList[0]);
 
         // ============================================
-        // PRIMARY: Explorer indexed API (instant)
+        // PRIMARY: Explorer API batch (2 POST calls)
         // ============================================
         if (explorerAvailable && addressList.length > 0) {
             try {
                 const t0 = performance.now();
 
-                const { balanceResult, charms, tokenBalances } =
+                const { balanceResult, charms, tokenBalances, utxoMap } =
                     await fetchFromExplorerAPI(explorerWalletService, addressList, network, skipCharms);
 
+                const utxoCount = Object.values(utxoMap).reduce((s, list) => s + list.length, 0);
                 const ms = (performance.now() - t0).toFixed(0);
-                console.log(`[${_ts()}] [ExtWalletSync] ⚡ Explorer API: ${ms}ms — balance=${balanceResult.total} sats, charms=${charms.length}`);
-                console.log(`[${_ts()}] [ExtWalletSync] tokenBalances:`, JSON.stringify(tokenBalances));
-                if (charms.length > 0) console.log(`[${_ts()}] [ExtWalletSync] charms[0]:`, JSON.stringify(charms[0]));
+                console.log(`[${_ts()}] [ExtWalletSync] ⚡ Explorer batch: ${ms}ms — balance=${balanceResult.total} sats, utxos=${utxoCount}, charms=${charms.length}`);
+                if (tokenBalances.length > 0) console.log(`[${_ts()}] [ExtWalletSync] tokenBalances:`, JSON.stringify(tokenBalances));
+
+                // Save UTXOs to storage (for spending capability)
+                await saveUTXOs(utxoMap, blockchain, network);
 
                 await applyResults(balanceResult, charms, tokenBalances, blockchain, network, onPhase1Complete, onCharmFound);
 
                 result.totalBalance = balanceResult.total || 0;
+                result.utxosUpdated = utxoCount;
                 result.charmsFound = charms.length;
 
             } catch (err) {
-                console.warn(`[${_ts()}] [ExtWalletSync] ⚡ Explorer API failed: ${err.message}`);
+                console.warn(`[${_ts()}] [ExtWalletSync] ⚡ Explorer batch failed: ${err.message}`);
                 console.warn(`[${_ts()}] [ExtWalletSync] Activating fallback...`);
                 return await runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, onCharmProgress, result, _ts);
             }
         } else {
-            // Explorer not available (circuit breaker tripped or not configured)
             console.log(`[${_ts()}] [ExtWalletSync] Explorer unavailable, using fallback...`);
             return await runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, onCharmProgress, result, _ts);
         }
-
-        // ============================================
-        // UTXO sync (needed for spending, runs after display is ready)
-        // ============================================
-        console.log(`[${_ts()}] [ExtWalletSync] UTXO sync starting...`);
-        const { result: utxoResult } = await syncUTXOs({
-            addresses, blockchain, network, fullScan,
-            onProgress: onUTXOProgress,
-            updateUTXOStore, addressLimit,
-        });
-        result.utxosUpdated = utxoResult.utxosUpdated;
-        console.log(`[${_ts()}] [ExtWalletSync] UTXO sync done: ${result.utxosUpdated} UTXOs`);
 
         console.log(`[${_ts()}] [ExtWalletSync] ■ Complete: balance=${result.totalBalance}, utxos=${result.utxosUpdated}, charms=${result.charmsFound}`);
         result.success = true;

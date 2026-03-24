@@ -55,11 +55,25 @@ export function useTransactionFlow(formState, onClose) {
 
             formState.setError('');
             setShowPreparing(true);
+            setPreparingStatus('Refreshing UTXOs from network...');
+
+            // CRITICAL: Refresh UTXOs from Explorer API before selecting — never trust localStorage alone
+            try {
+                const { syncWalletExplorer } = await import('@/services/wallet/sync/explorer-wallet-sync');
+                await syncWalletExplorer({ blockchain: 'bitcoin', network: activeNetwork, fullScan: true, skipCharms: true });
+            } catch (e) {
+                console.warn('[SendFlow] UTXO refresh failed, using cached:', e.message);
+            }
+
+            // Re-read fresh UTXOs from store after sync
+            const { useUTXOStore } = await import('@/stores/utxoStore');
+            const freshUtxos = useUTXOStore.getState().utxos;
+
             setPreparingStatus('Selecting UTXOs and calculating fees...');
-            
+
             // CRITICAL: getSpendableUtxos filters out charms, ordinals, runes - NEVER use raw utxos for transactions
             const { utxoCalculations } = await import('@/services/utxo/utils/calculations');
-            const spendableUtxos = utxoCalculations.getSpendableUtxos(utxos, charms);
+            const spendableUtxos = utxoCalculations.getSpendableUtxos(freshUtxos, charms);
             const allUtxos = Object.entries(spendableUtxos).flatMap(([address, addressUtxos]) => 
                 addressUtxos.map(utxo => ({ ...utxo, address }))
             );

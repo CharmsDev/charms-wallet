@@ -303,14 +303,20 @@ export class ExplorerWalletService {
     // ── Broadcast ────────────────────────────────────────────────────────
 
     async broadcastTransaction(txHex, network) {
-        const data = await this._makeRequest('/v1/wallet/broadcast', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ raw_tx: txHex }),
-        }, network);
-
-        if (data.error) throw new Error(data.error);
-        return data.txid;
+        try {
+            const data = await this._makeRequest('/v1/wallet/broadcast', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ raw_tx: txHex }),
+            }, network);
+            if (data.error) throw new Error(data.error);
+            return data.txid;
+        } catch (err) {
+            // Broadcast rejections are NOT API failures — undo circuit breaker count
+            this._consecutiveFailures = Math.max(0, this._consecutiveFailures - 1);
+            this._disabledUntil = 0;
+            throw err;
+        }
     }
 
     // ── UTXOs (indexed, instant) ─────────────────────────────────────────
@@ -435,12 +441,14 @@ export class ExplorerWalletService {
      * POST /v1/wallet/utxos/batch { addresses: [...], network: "mainnet" }
      * Returns { results: { "addr": { address, utxos: [...], count } } }
      */
-    async getBatchUTXOs(addresses, network) {
+    async getBatchUTXOs(addresses, network, { minValue = null } = {}) {
         const net = (network || 'mainnet').toString().toLowerCase();
+        const payload = { addresses, network: net };
+        if (minValue) payload.min_value = minValue;
         return this._makeRequest('/v1/wallet/utxos/batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ addresses, network: net }),
+            body: JSON.stringify(payload),
         }, network);
     }
 
@@ -462,8 +470,8 @@ export class ExplorerWalletService {
      * Aggregate UTXOs from batch endpoint.
      * Returns flat array of UTXOs (same shape as getAggregateUTXOs).
      */
-    async getAggregateUTXOsBatch(addresses, network) {
-        const data = await this.getBatchUTXOs(addresses, network);
+    async getAggregateUTXOsBatch(addresses, network, { minValue = null } = {}) {
+        const data = await this.getBatchUTXOs(addresses, network, { minValue });
         const allUtxos = [];
         for (const [addr, result] of Object.entries(data.results || {})) {
             if (result.error) continue;

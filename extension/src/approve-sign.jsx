@@ -280,7 +280,7 @@ function signP2wpkhInput(psbt, inputIndex, keyInfo, network) {
 
   // Set partialSig on the PSBT input (ECDSA path)
   psbt.updateInput(inputIndex, {
-    partialSig: [{ pubkey: publicKey, signature: derSig }],
+    partialSig: [{ pubkey: Buffer.from(publicKey), signature: derSig }],
   });
 
   console.log(`[signP2wpkhInput] input=${inputIndex}: signed OK`);

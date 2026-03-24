@@ -664,7 +664,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     };
     
     if (request.body && request.method !== 'GET') {
-      fetchOptions.body = JSON.stringify(request.body);
+      fetchOptions.body = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
     }
     
     fetch(request.url, fetchOptions)
