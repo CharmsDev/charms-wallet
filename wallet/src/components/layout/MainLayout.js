@@ -9,6 +9,7 @@ import { useNavigation } from '@/contexts/NavigationContext';
 import AddressManager from '@/components/wallet/addresses/AddressManager';
 import UTXOList from '@/components/wallet/utxos/UTXOList';
 import TransactionHistory from '@/components/wallet/history/TransactionHistory';
+import ExtensionInstallGuide from '@/components/extension/ExtensionInstallGuide';
 const CharmsList = lazy(() => import('@/components/wallet/charms/CharmsList'));
 
 export default function MainLayout({ children }) {
@@ -68,6 +69,16 @@ export default function MainLayout({ children }) {
                             <Suspense fallback={<div className="card p-6">Loading charms...</div>}>
                                 <CharmsList />
                             </Suspense>
+                        </div>
+                    )}
+
+                    {/* Extension Install Guide */}
+                    {loadedSections.has('extension-install') && (
+                        <div
+                            className={`pt-6 transition-opacity duration-200 ${activeSection !== "extension-install" ? "opacity-0 hidden" : ""
+                                }`}
+                        >
+                            <ExtensionInstallGuide />
                         </div>
                     )}
 
