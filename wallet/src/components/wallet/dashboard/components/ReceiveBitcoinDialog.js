@@ -19,12 +19,19 @@ export default function ReceiveBitcoinDialog({ isOpen, onClose, assetName = 'Bit
     }, [isOpen, addresses.length, loadAddresses, activeBlockchain, activeNetwork]);
 
     // Set display address when addresses are loaded or index changes
+    // Default to first Taproot (bc1p) address for receiving
     useEffect(() => {
         if (addresses.length > 0) {
-            const address = addresses[currentAddressIndex];
-            setDisplayAddress(address?.address || '');
+            if (currentAddressIndex === 0) {
+                const prefix = activeNetwork === 'mainnet' ? 'bc1p' : 'tb1p';
+                const firstTaproot = addresses.find(a => a.address?.startsWith(prefix) && !a.isChange);
+                setDisplayAddress(firstTaproot?.address || addresses[0]?.address || '');
+            } else {
+                const address = addresses[currentAddressIndex];
+                setDisplayAddress(address?.address || '');
+            }
         }
-    }, [addresses, currentAddressIndex]);
+    }, [addresses, currentAddressIndex, activeNetwork]);
 
     // Reset index when dialog closes
     useEffect(() => {
