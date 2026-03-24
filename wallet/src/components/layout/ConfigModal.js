@@ -107,7 +107,7 @@ export default function ConfigModal({ isOpen, onClose }) {
                                     <Row
                                         icon={<TagIcon />}
                                         label="Charms Version"
-                                        value="v0.10.0"
+                                        value="v0.12.0"
                                         highlight
                                     />
                                     <Row
@@ -190,22 +190,6 @@ export default function ConfigModal({ isOpen, onClose }) {
                                     />
                                 </Section>
 
-                                {/* Prover Endpoints */}
-                                <Section title="Prover Endpoints">
-                                    <Row
-                                        icon={<ServerIcon />}
-                                        label="Mainnet"
-                                        value={truncate(PROVER_URL_MAINNET)}
-                                        mono
-                                    />
-                                    <Row
-                                        icon={<ServerIcon />}
-                                        label="Testnet4"
-                                        value={truncate(PROVER_URL_TESTNET)}
-                                        mono
-                                    />
-                                </Section>
-
                                 {/* Data Provider Architecture */}
                                 <Section title="Provider Architecture">
                                     <div className="space-y-2 text-xs text-dark-300">
@@ -216,10 +200,6 @@ export default function ConfigModal({ isOpen, onClose }) {
                                         <div className="flex items-center gap-2">
                                             <span className="inline-block w-2 h-2 rounded-full bg-yellow-400" />
                                             <span><strong className="text-dark-100">Failover:</strong> Mempool.space (public API)</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />
-                                            <span><strong className="text-dark-100">Fallback:</strong> Mempool.space (public API)</span>
                                         </div>
                                     </div>
                                 </Section>
