@@ -239,9 +239,19 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
     if (!canSubmit) return;
     setError('');
     setStep(STEP.PROVING);
-    setStatusMessage('Preparing transfer…');
+    setStatusMessage('Refreshing UTXOs from network…');
 
     try {
+      // Refresh UTXOs from Explorer API before selecting — never trust cache alone
+      try {
+        const { syncWalletExplorer } = await import('@/services/wallet/sync/explorer-wallet-sync');
+        await syncWalletExplorer({ blockchain: 'bitcoin', network: activeNetwork, fullScan: true, skipCharms: false });
+      } catch (e) {
+        console.warn('[SendCharmScreen] UTXO refresh failed, using cached:', e.message);
+      }
+
+      setStatusMessage('Preparing transfer…');
+
       const charmInputs = selectCharmInputs();
       if (charmInputs.length === 0) throw new Error('Not enough token UTXOs for this amount');
 

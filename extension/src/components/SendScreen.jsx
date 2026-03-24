@@ -115,10 +115,22 @@ export default function SendScreen({ onClose, syncUTXOs }) {
       const currentFeeRate = Math.max(feeEstimates.fees.halfHour, MIN_FEE_RATE);
       setFeeRate(currentFeeRate);
 
-      // 2. Get spendable UTXOs
+      // 2. Refresh UTXOs from Explorer API before selecting — never trust cache alone
+      setStatusMessage('Refreshing UTXOs from network...');
+      try {
+        const { syncWalletExplorer } = await import('@/services/wallet/sync/explorer-wallet-sync');
+        await syncWalletExplorer({ blockchain: 'bitcoin', network: activeNetwork, fullScan: true, skipCharms: true });
+      } catch (e) {
+        console.warn('[SendScreen] UTXO refresh failed, using cached:', e.message);
+      }
+
+      // Re-read fresh UTXOs from store after sync
+      const { useUTXOStore } = await import('@/stores/utxoStore');
+      const freshUtxos = useUTXOStore.getState().utxos;
+
       setStatusMessage('Selecting UTXOs...');
       const { utxoCalculations } = await import('@/services/utxo/utils/calculations');
-      const spendableUtxos = utxoCalculations.getSpendableUtxos(utxos, charms);
+      const spendableUtxos = utxoCalculations.getSpendableUtxos(freshUtxos, charms);
       const allUtxos = Object.entries(spendableUtxos).flatMap(([address, list]) =>
         list.map(u => ({ ...u, address }))
       );
