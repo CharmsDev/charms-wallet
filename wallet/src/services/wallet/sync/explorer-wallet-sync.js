@@ -75,7 +75,7 @@ function toCharmObj(utxo, balanceEntry) {
 async function fetchFromExplorerAPI(explorerService, addressList, network, skipCharms) {
     // Use batch endpoints (single POST per type) instead of N individual GETs
     const [utxos, charmBalances] = await Promise.all([
-        explorerService.getAggregateUTXOsBatch(addressList, network),
+        explorerService.getAggregateUTXOsBatch(addressList, network, { minValue: 1000 }),
         skipCharms ? [] : explorerService.getAggregateCharmBalancesBatch(addressList, network),
     ]);
 
@@ -159,7 +159,7 @@ async function applyResults(balanceResult, charms, tokenBalances, blockchain, ne
         console.warn('[ExplorerWalletSync] Charms store update skipped:', e.message);
     }
 
-    // 3. Callbacks (may trigger React renders — non-fatal)
+    // 3. Phase1 callback (balance ready notification — no charm iteration to avoid render loops)
     try {
         if (onPhase1Complete) {
             onPhase1Complete({
@@ -167,11 +167,6 @@ async function applyResults(balanceResult, charms, tokenBalances, blockchain, ne
                 pending: balanceResult.unconfirmed || 0,
                 utxosUpdated: 0,
             });
-        }
-        if (onCharmFound) {
-            for (const charm of charms) {
-                await onCharmFound(charm);
-            }
         }
     } catch (e) {
         console.warn('[ExplorerWalletSync] Callback error:', e.message);

@@ -207,7 +207,7 @@ export default function UTXOList() {
                         <Switch
                             checked={showOnlySpendable}
                             onChange={(e) => setShowOnlySpendable(e.target.checked)}
-                            label="Show only spendable"
+                            label="Hide reserved"
                         />
                     </div>
                     {isBitcoin() && (
@@ -314,7 +314,7 @@ export default function UTXOList() {
                                                     {utxo.formattedValue}
                                                 </div>
                                                 <div className="mt-1 flex gap-2">
-                                                    {(utxo.status?.confirmed !== false) ? (
+                                                    {((utxo.confirmations || 0) >= 1 || utxo.status?.confirmed) ? (
                                                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400">
                                                             Confirmed
                                                         </span>

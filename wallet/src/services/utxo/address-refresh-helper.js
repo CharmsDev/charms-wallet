@@ -13,8 +13,9 @@ export async function refreshSpecificAddresses(addresses, blockchain = BLOCKCHAI
         // Get current UTXOs from storage
         const currentUTXOs = await getUTXOs(blockchain, network) || {};
         
-        // Fetch fresh UTXOs for each address
+        // Fetch fresh UTXOs for each address (skip invalid addresses like OP_RETURN outputs)
         for (const address of addresses) {
+            if (!address || !address.startsWith('bc1') && !address.startsWith('tb1')) continue;
             const addressUtxos = await utxoService.getAddressUTXOs(address, blockchain, network);
             
             if (addressUtxos && addressUtxos.length > 0) {

@@ -16,29 +16,19 @@ export class UTXOCalculations {
     isUtxoSpendable(utxo, charms = [], lockedUtxos = null, transactionData = null) {
         const utxoId = `${utxo.txid}:${utxo.vout}`;
         
-        // Check potential charm values first (330, 333, 777, 1000)
+        // Reserved UTXOs: ≤ 1000 sats (charm dust, ordinals, runes)
         if (isPotentialCharm(utxo)) {
             return false;
         }
-        
-        // Check if UTXO has ordinals
+
         if (transactionData && hasOrdinals(transactionData, utxo.vout)) {
             return false;
         }
-        
-        // Check if UTXO is unconfirmed (support both status.confirmed and confirmations fields)
-        const hasConfirmations = (utxo.confirmations || 0) >= 1;
-        const isUnconfirmed = utxo.status ? !utxo.status.confirmed : !hasConfirmations;
-        if (isUnconfirmed) {
-            return false;
-        }
-        
-        // Check if UTXO is a rune
+
         if (isRuneUtxo(utxo, transactionData)) {
             return false;
         }
-        
-        // Check if UTXO is a charm
+
         if (isCharmUtxo(utxo, charms)) {
             return false;
         }
