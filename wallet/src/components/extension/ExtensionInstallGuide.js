@@ -79,7 +79,7 @@ export default function ExtensionInstallGuide() {
           Download the file, unzip it, then load it in Chrome.
         </p>
         <a
-          href="/extension/charms-wallet-v0.8.5.zip"
+          href="/extension/charms-wallet-v0.8.7.zip"
           download
           className="inline-flex items-center gap-2 bg-bitcoin-500 text-black font-bold px-6 py-3 rounded-lg text-sm hover:bg-bitcoin-400 transition-colors mb-4"
         >
