@@ -158,7 +158,7 @@ export default function ExtensionTopBanner() {
             <line x1="12" y1="17" x2="12" y2="21" />
           </svg>
           <span className="text-sm font-semibold">Charms Wallet Extension is now available!</span>
-          <a href="/extension-install" className="text-sm font-bold underline hover:no-underline">Install now</a>
+          <a href="https://chromewebstore.google.com/detail/charms-wallet/cleeoicfddfoaclgacmodgcamdanamab" target="_blank" rel="noopener noreferrer" className="text-sm font-bold underline hover:no-underline">Install from Chrome Web Store</a>
         </div>
         <button onClick={handleDismiss} className="p-1 hover:bg-black/10 rounded transition-colors" aria-label="Close">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
