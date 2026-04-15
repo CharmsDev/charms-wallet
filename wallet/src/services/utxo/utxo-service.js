@@ -185,30 +185,6 @@ export class UTXOService {
     }
 
     // ============================================================================
-    // UTXO LOCKING (for transaction building)
-    // ============================================================================
-
-    lockUtxos(utxos) {
-        this.selector.lockUtxos(utxos);
-    }
-
-    unlockUtxos(utxos) {
-        this.selector.unlockUtxos(utxos);
-    }
-
-    clearAllLocks() {
-        this.selector.clearAllLocks();
-    }
-
-    isUtxoLocked(txid, vout) {
-        return this.selector.isUtxoLocked(txid, vout);
-    }
-
-    getLockStats() {
-        return this.selector.getLockStats();
-    }
-
-    // ============================================================================
     // OPERATION CONTROL
     // ============================================================================
 

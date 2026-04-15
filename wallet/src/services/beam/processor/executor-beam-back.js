@@ -178,6 +178,17 @@ async function proveAndBroadcastCardanoBeamOut({
     ? adaResult.replace(/"/g, '').trim()
     : fixedTx.transaction_hash().to_hex();
 
+  // Mark spent UTXOs as reserved (CNT + funding + collateral) so concurrent
+  // operations don't try to re-select them before next refresh.
+  try {
+    const { useCardano } = await import('@/stores/cardanoStore');
+    useCardano.getState().updateAfterTransaction([
+      { utxoId: cntUtxoId },
+      { utxoId: fundingUtxoId },
+      { utxoId: collateralUtxoId },
+    ]);
+  } catch (e) { console.warn('[BeamBack] mark spent failed:', e?.message); }
+
   return { cardanoBeamOutTxHash, cardanoTxCborHex };
 }
 

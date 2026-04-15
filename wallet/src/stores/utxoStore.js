@@ -235,6 +235,18 @@ const useUTXOStore = create((set, get) => ({
                 refreshProgress: { processed: 0, total: 0, isRefreshing: false }
             });
 
+            // Auto-cleanup: drop reservations no longer on-chain (BTC)
+            try {
+                const { syncWithChain } = await import('@/services/utxo-reservations');
+                const onChainKeys = new Set();
+                for (const list of Object.values(finalUtxos)) {
+                    if (!Array.isArray(list)) continue;
+                    for (const u of list) onChainKeys.add(`${u.txid}:${u.vout}`);
+                }
+                const dropped = syncWithChain('bitcoin', onChainKeys);
+                if (dropped > 0) console.log(`[UtxoStore] Synced reservations: dropped ${dropped} confirmed UTXOs`);
+            } catch {}
+
         } catch (error) {
             set({
                 error: 'Failed to refresh UTXOs: ' + error.message,

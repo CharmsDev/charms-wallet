@@ -4,10 +4,17 @@ import { utxoService } from '@/services/utxo/utxo-service';
 import { getCharms } from '@/services/storage';
 import { utxoCalculations } from '../utils/calculations';
 import { calculateMixedFee } from '@/services/wallet/utils/fee';
+import { markSpent, release, isSpent, getSpentSet, clearChain } from '@/services/utxo-reservations';
 
 export class UTXOSelector {
     constructor() {
-        this.lockedUtxos = new Set();
+        // Backed by services/utxo-reservations (chain='bitcoin').
+        // The `lockedUtxos` getter returns a live snapshot so legacy code
+        // that does `.has()` on it keeps working.
+    }
+
+    get lockedUtxos() {
+        return getSpentSet('bitcoin');
     }
 
     selectUtxosGreedy(utxoMap, amountBtc, feeRate = 1) {
@@ -83,9 +90,8 @@ export class UTXOSelector {
                 break;
             }
 
-            // Skip UTXOs that are already locked
-            const utxoKey = `${utxo.txid}:${utxo.vout}`;
-            if (this.lockedUtxos.has(utxoKey)) {
+            // Skip UTXOs that are already reserved
+            if (isSpent('bitcoin', utxo.txid, utxo.vout)) {
                 continue;
             }
 
@@ -170,8 +176,7 @@ export class UTXOSelector {
         for (const utxo of sortedUtxos) {
             if (totalSelected >= totalNeeded) break;
 
-            const utxoKey = `${utxo.txid}:${utxo.vout}`;
-            this.lockedUtxos.add(utxoKey);
+            markSpent('bitcoin', utxo.txid, utxo.vout);
             selectedUtxos.push(utxo);
             totalSelected += utxo.value;
         }
@@ -190,37 +195,35 @@ export class UTXOSelector {
         return calculateMixedFee(utxos, outputCount, feeRate);
     }
 
+    // ── Reservation API (delegates to utxo-reservations service) ─────────
+    // Kept for backward compat with existing callsites
+    // (BeamOperationsContext, utxoStore, useTransactionFlow).
+
     lockUtxos(utxos) {
-        utxos.forEach(utxo => {
-            const utxoKey = `${utxo.txid}:${utxo.vout}`;
-            this.lockedUtxos.add(utxoKey);
-        });
+        utxos.forEach(u => markSpent('bitcoin', u.txid, u.vout));
     }
 
     unlockUtxos(utxos) {
-        utxos.forEach(utxo => {
-            const utxoKey = `${utxo.txid}:${utxo.vout}`;
-            this.lockedUtxos.delete(utxoKey);
-        });
+        utxos.forEach(u => release('bitcoin', u.txid, u.vout));
     }
 
     clearAllLocks() {
-        this.lockedUtxos.clear();
+        clearChain('bitcoin');
     }
 
     isUtxoLocked(txid, vout) {
-        const utxoKey = `${txid}:${vout}`;
-        return this.lockedUtxos.has(utxoKey);
+        return isSpent('bitcoin', txid, vout);
     }
 
     getLockedUtxos() {
-        return [...this.lockedUtxos];
+        return [...getSpentSet('bitcoin')];
     }
 
     getLockStats() {
+        const set = getSpentSet('bitcoin');
         return {
-            totalLocked: this.lockedUtxos.size,
-            lockedUtxos: [...this.lockedUtxos]
+            totalLocked: set.size,
+            lockedUtxos: [...set],
         };
     }
 }

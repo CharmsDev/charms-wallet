@@ -151,6 +151,16 @@ export async function claimOnCardano({
   const { submitCardanoTx } = await import('@/services/cardano/api');
   const adaClaimTxid = await submitCardanoTx(signedBytes);
 
+  // Reserve placeholder + funding + collateral so concurrent ops skip them
+  try {
+    const { useCardano } = await import('@/stores/cardanoStore');
+    useCardano.getState().updateAfterTransaction([
+      { utxoId: placeholderUtxoIdStr },
+      { utxoId: fundingUtxoId },
+      { utxoId: collateralUtxoId },
+    ]);
+  } catch (e) { console.warn('[Step6Claim] mark spent failed:', e?.message); }
+
   return {
     adaClaimTxid: typeof adaClaimTxid === 'string'
       ? adaClaimTxid.replace(/"/g, '').trim()

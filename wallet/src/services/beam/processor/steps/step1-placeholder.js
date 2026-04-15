@@ -93,6 +93,12 @@ export async function createPlaceholder({ cardanoAddress, seedPhrase, addressInd
   const submittedHash = await submitCardanoTx(fixedTx.to_bytes());
   const finalHash = fixedTx.transaction_hash().to_hex();
 
+  // Reserve the funding UTXO so concurrent ops don't reuse it
+  try {
+    const { useCardano } = await import('@/stores/cardanoStore');
+    useCardano.getState().markUtxoAsSpent(funding.txHash, funding.outputIndex);
+  } catch (e) { console.warn('[Step1Placeholder] mark spent failed:', e?.message); }
+
   return {
     txHash: typeof submittedHash === 'string' ? submittedHash : finalHash,
     outputIndex: 0,

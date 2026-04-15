@@ -6,11 +6,6 @@ import { utxoVerifier } from './core/verifier';
 // Main service export
 export { utxoService };
 
-// Alternative export names (unused, can be removed in future cleanup)
-export const utxoStorageService = utxoService;
-export const utxoVerificationService = utxoVerifier;
-export const utxoManager = utxoService;
-
 // UtxoSelector wrapper class (used by transaction-orchestrator)
 export class UtxoSelector {
     constructor() {
@@ -32,26 +27,6 @@ export class UtxoSelector {
 
     selectUtxosForAmount(availableUtxos, amountInSats, feeRate = 1) {
         return this.selector.selectUtxosForAmount(availableUtxos, amountInSats, feeRate);
-    }
-
-    unlockUtxos(utxos) {
-        this.selector.unlockUtxos(utxos);
-    }
-
-    clearAllLocks() {
-        this.selector.clearAllLocks();
-    }
-
-    getLockStats() {
-        return this.selector.getLockStats();
-    }
-
-    getLockedUtxos() {
-        return this.selector.getLockedUtxos();
-    }
-
-    isUtxoLocked(txid, vout) {
-        return this.selector.isUtxoLocked(txid, vout);
     }
 }
 

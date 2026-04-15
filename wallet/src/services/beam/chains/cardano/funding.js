@@ -14,6 +14,7 @@
  */
 
 import { fetchUtxos, getProtocolParams, submitCardanoTx } from '@/services/cardano/api';
+import { getSpentSet } from '@/services/utxo-reservations';
 
 /** Minimum lovelace for collateral. */
 export const MIN_COLLATERAL_LOVELACE = 2_000_000n; // 2 ADA
@@ -30,7 +31,8 @@ export const MIN_FUNDING_LOVELACE = 7_000_000n; // 7 ADA — comfortable margin
  */
 export async function selectCardanoCollateral(address, excludeUtxoIds = []) {
   const utxos = await fetchUtxos(address);
-  const exclude = new Set(excludeUtxoIds);
+  const reserved = getSpentSet('cardano');
+  const exclude = new Set([...excludeUtxoIds, ...reserved]);
 
   const candidates = utxos
     .filter(u => !u.assets || u.assets.length === 0)
@@ -63,7 +65,8 @@ export async function selectCardanoCollateral(address, excludeUtxoIds = []) {
  */
 export async function selectCardanoFunding(address, excludeUtxoIds = [], minLovelace = MIN_FUNDING_LOVELACE) {
   const utxos = await fetchUtxos(address);
-  const exclude = new Set(excludeUtxoIds);
+  const reserved = getSpentSet('cardano');
+  const exclude = new Set([...excludeUtxoIds, ...reserved]);
 
   const candidates = utxos
     .filter(u => !u.assets || u.assets.length === 0)

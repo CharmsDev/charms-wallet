@@ -64,6 +64,59 @@ const useCardanoStore = create((set, get) => ({
   initialized: false,
   currentNetwork: null,
 
+  // ── UTXO reservation (delegates to unified utxo-reservations service) ────
+  // Backed by services/utxo-reservations (chain-agnostic singleton).
+  // Methods kept for backward compat with existing callsites.
+  // The "spentUtxoIds" getter returns a snapshot; do not mutate it.
+  get spentUtxoIds() {
+    // Lazy require to avoid circular deps in SSR
+    try {
+      const { getSpentSet } = require('@/services/utxo-reservations');
+      return getSpentSet('cardano');
+    } catch { return new Set(); }
+  },
+
+  /** Mark a UTXO as spent + remove from UI optimistically. */
+  markUtxoAsSpent: (txHash, outputIndex) => {
+    const { markSpent } = require('@/services/utxo-reservations');
+    const added = markSpent('cardano', txHash, outputIndex);
+    if (!added) return;
+    // UI optimism: drop from utxos array + recalc balance
+    const state = get();
+    const key = `${txHash}:${outputIndex}`;
+    const newUtxos = state.utxos.filter(u => `${u.txHash}:${u.outputIndex}` !== key);
+    const newBalance = newUtxos.reduce((s, u) => s + BigInt(u.lovelace || '0'), 0n).toString();
+    set({ utxos: newUtxos, adaBalance: newBalance });
+  },
+
+  /** Release a previously-reserved UTXO (refresh will restore visibility). */
+  releaseUtxo: (txHash, outputIndex) => {
+    const { release } = require('@/services/utxo-reservations');
+    release('cardano', txHash, outputIndex);
+  },
+
+  /** Check if a UTXO is locally reserved. */
+  isUtxoSpent: (txHash, outputIndex) => {
+    const { isSpent } = require('@/services/utxo-reservations');
+    return isSpent('cardano', txHash, outputIndex);
+  },
+
+  /** Mark all UTXOs from a successful tx as spent in one call.
+   *  Accepts items with shape { utxoId } or { txHash, outputIndex }. */
+  updateAfterTransaction: (spentUtxos) => {
+    const mark = get().markUtxoAsSpent;
+    for (const u of spentUtxos) {
+      let txHash, outputIndex;
+      if (u.utxoId) {
+        const [t, i] = u.utxoId.split(':');
+        txHash = t; outputIndex = parseInt(i, 10);
+      } else {
+        txHash = u.txHash; outputIndex = u.outputIndex;
+      }
+      if (txHash != null && outputIndex != null) mark(txHash, outputIndex);
+    }
+  },
+
   // ── Load from storage (fast, no API calls) ────────────────────────────
 
   loadFromStorage: async (network) => {
@@ -211,11 +264,23 @@ const useCardanoStore = create((set, get) => ({
       });
 
       const newBalance = totalLovelace.toString();
-      console.log(`[CardanoStore] Setting state: balance=${newBalance}, utxos=${allUtxos.length}, assets=${assets.length}`);
+
+      // Auto-cleanup: drop reservations no longer on-chain (confirmed/dropped).
+      const { syncWithChain, getSpentSet } = require('@/services/utxo-reservations');
+      const onChainKeys = new Set(allUtxos.map(u => `${u.txHash}:${u.outputIndex}`));
+      const dropped = syncWithChain('cardano', onChainKeys);
+      if (dropped > 0) console.log(`[CardanoStore] Synced reservations: dropped ${dropped} confirmed UTXOs`);
+      const liveSpent = getSpentSet('cardano');
+
+      // Apply local reservations: hide already-spent UTXOs from store
+      const visibleUtxos = allUtxos.filter(u => !liveSpent.has(`${u.txHash}:${u.outputIndex}`));
+      const visibleBalance = visibleUtxos.reduce((s, u) => s + BigInt(u.lovelace || '0'), 0n).toString();
+
+      console.log(`[CardanoStore] Setting state: balance=${visibleBalance}, utxos=${visibleUtxos.length}/${allUtxos.length}, reserved=${liveSpent.size}, assets=${assets.length}`);
       set({
-        utxos: allUtxos,
+        utxos: visibleUtxos,
         assets,
-        adaBalance: newBalance,
+        adaBalance: visibleBalance,
         assetMetaCache: cache,
         isRefreshing: false,
         initialized: true,

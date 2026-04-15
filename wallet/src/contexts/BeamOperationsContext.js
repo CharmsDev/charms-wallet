@@ -93,31 +93,27 @@ export function BeamOperationsProvider({ children }) {
 
   // Lock BTC UTXOs used by a beam so concurrent ops don't reuse them
   const lockBeamUtxos = useCallback(async (payload) => {
-    const { utxoSelector } = await import('@/services/utxo/core/selector');
+    const { markBatch } = await import('@/services/utxo-reservations');
     const toLock = [];
-    if (payload.fundingUtxo?.utxoId) {
-      const [txid, vout] = payload.fundingUtxo.utxoId.split(':');
-      toLock.push({ txid, vout: parseInt(vout) });
-    }
+    if (payload.fundingUtxo?.utxoId) toLock.push({ utxoId: payload.fundingUtxo.utxoId });
     if (payload.charmInputs?.length) {
       for (const ci of payload.charmInputs) {
-        const id = ci.utxoId || `${ci.txid}:${ci.vout}`;
-        const [txid, vout] = id.split(':');
-        toLock.push({ txid, vout: parseInt(vout) });
+        toLock.push({ utxoId: ci.utxoId || `${ci.txid}:${ci.vout}` });
       }
     }
-    if (payload.btcInputUtxo) {
-      const [txid, vout] = payload.btcInputUtxo.split(':');
-      toLock.push({ txid, vout: parseInt(vout) });
-    }
-    if (toLock.length) utxoSelector.lockUtxos(toLock);
+    if (payload.btcInputUtxo) toLock.push({ utxoId: payload.btcInputUtxo });
+    if (toLock.length) markBatch('bitcoin', toLock);
     return toLock;
   }, []);
 
   const unlockBeamUtxos = useCallback(async (locked) => {
     if (locked?.length) {
-      const { utxoSelector } = await import('@/services/utxo/core/selector');
-      utxoSelector.unlockUtxos(locked);
+      const { release } = await import('@/services/utxo-reservations');
+      for (const u of locked) {
+        const id = u.utxoId || `${u.txid}:${u.vout}`;
+        const [txid, vout] = id.split(':');
+        release('bitcoin', txid, parseInt(vout));
+      }
     }
   }, []);
 
