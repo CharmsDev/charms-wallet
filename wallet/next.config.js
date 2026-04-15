@@ -40,7 +40,11 @@ const nextConfig = {
             new webpack.ProvidePlugin({
                 Buffer: ['buffer', 'Buffer'],
                 process: 'process/browser',
-            })
+            }),
+            // Suppress @emurgo/cardano-serialization-lib-browser internal dynamic require()
+            new webpack.ContextReplacementPlugin(
+                /@emurgo\/cardano-serialization-lib-browser/
+            )
         );
 
         config.experiments = {

@@ -1,14 +1,12 @@
 'use client';
 
-// This file provides a safe way to import the Cardano serialization library
-// It ensures the library is only loaded in the browser environment
+// This file provides a safe way to import the Cardano serialization library.
+// Uses the asmjs version (pure JS, no WASM) to avoid Next.js bundler issues.
 
 let CardanoWasm = null;
 
-// Only import the library on the client side
 if (typeof window !== 'undefined') {
-    // Use the browser-compatible version
-    import('@emurgo/cardano-serialization-lib-browser')
+    import('@emurgo/cardano-serialization-lib-asmjs')
         .then((module) => {
             CardanoWasm = module;
         })
@@ -17,7 +15,6 @@ if (typeof window !== 'undefined') {
         });
 }
 
-// Function to get the library instance
 export const getCardanoWasm = () => {
     if (!CardanoWasm) {
         throw new Error('Cardano serialization library not loaded yet or failed to load');
@@ -25,12 +22,10 @@ export const getCardanoWasm = () => {
     return CardanoWasm;
 };
 
-// Function to check if the library is loaded
 export const isCardanoWasmLoaded = () => {
     return !!CardanoWasm;
 };
 
-// Function to wait for the library to load
 export const waitForCardanoWasm = async () => {
     if (CardanoWasm) return CardanoWasm;
 
@@ -42,7 +37,6 @@ export const waitForCardanoWasm = async () => {
             }
         }, 100);
 
-        // Timeout after 10 seconds
         setTimeout(() => {
             clearInterval(checkInterval);
             reject(new Error('Timeout waiting for Cardano serialization library to load'));

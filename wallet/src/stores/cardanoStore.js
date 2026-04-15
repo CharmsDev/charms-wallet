@@ -1,0 +1,268 @@
+'use client';
+
+/**
+ * Cardano Store — Zustand store with localStorage persistence.
+ *
+ * Manages: addresses, UTXOs, ADA balance, native assets (CNTs).
+ * Persists to storage using the same key structure as Bitcoin:
+ *   wallet:cardano:<network>:addresses
+ *   wallet:cardano:<network>:utxos
+ *   wallet:cardano:<network>:assets
+ *   wallet:cardano:<network>:asset_meta
+ *
+ * On init: loads from storage (instant UI), then refreshes from Blockfrost.
+ */
+
+import { create } from 'zustand';
+import { fetchUtxos, fetchAssetMeta } from '@/services/cardano/api';
+// Dynamic imports for WASM-dependent Cardano libs (can't be static in Next.js)
+async function deriveCardanoAddr(seedPhrase, index, network) {
+  const { waitForCardanoWasm } = await import('@/lib/cardano/cardanoWasm');
+  await waitForCardanoWasm();
+  const { generateCardanoAddress } = await import('@/lib/cardano/wallet');
+  return generateCardanoAddress(seedPhrase, index, network);
+}
+import { StorageAdapter } from '@/services/storage-adapter';
+import { chainKey, DATA_TYPES } from '@/services/storage-keys';
+
+const BLOCKCHAIN = 'cardano';
+
+// ── Storage helpers ─────────────────────────────────────────────────────────
+
+function storageKey(network, dataType) {
+  return chainKey(BLOCKCHAIN, network, dataType);
+}
+
+async function loadFromStorage(network, dataType) {
+  try {
+    const raw = await StorageAdapter.get(storageKey(network, dataType));
+    if (!raw) return null;
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch { return null; }
+}
+
+async function saveToStorage(network, dataType, data) {
+  try {
+    await StorageAdapter.set(storageKey(network, dataType), JSON.stringify(data));
+  } catch (err) {
+    console.warn(`[CardanoStore] Failed to save ${dataType}:`, err.message);
+  }
+}
+
+// ── Store ───────────────────────────────────────────────────────────────────
+
+const useCardanoStore = create((set, get) => ({
+  // State
+  addresses: [],         // [{ address, index, isPayment }]
+  utxos: [],             // [{ txHash, outputIndex, lovelace, assets, address }]
+  assets: [],            // [{ unit, policyId, assetName, name, ticker, quantity, decimals, image, ... }]
+  adaBalance: '0',       // Total lovelace string
+  assetMetaCache: {},    // { unit: metadata }
+  isLoading: false,
+  isRefreshing: false,
+  error: null,
+  initialized: false,
+  currentNetwork: null,
+
+  // ── Load from storage (fast, no API calls) ────────────────────────────
+
+  loadFromStorage: async (network) => {
+    const networkKey = `cardano-${network}`;
+    const state = get();
+
+    // Clear on network change
+    if (state.currentNetwork && state.currentNetwork !== networkKey) {
+      set({ utxos: [], assets: [], adaBalance: '0', addresses: [], initialized: false, error: null });
+    }
+    set({ currentNetwork: networkKey, isLoading: true });
+
+    const [addresses, utxos, assets, assetMeta] = await Promise.all([
+      loadFromStorage(network, DATA_TYPES.ADDRESSES),
+      loadFromStorage(network, DATA_TYPES.UTXOS),
+      loadFromStorage(network, DATA_TYPES.ASSETS),
+      loadFromStorage(network, DATA_TYPES.ASSET_META),
+    ]);
+
+    const newState = { isLoading: false };
+    if (addresses?.length) newState.addresses = addresses;
+    if (utxos?.length) {
+      newState.utxos = utxos;
+      newState.adaBalance = utxos.reduce((sum, u) => sum + BigInt(u.lovelace || '0'), BigInt(0)).toString();
+    }
+    if (assets?.length) newState.assets = assets;
+    if (assetMeta && Object.keys(assetMeta).length) newState.assetMetaCache = assetMeta;
+    if (addresses?.length || utxos?.length) newState.initialized = true;
+
+    set(newState);
+  },
+
+  // ── Address derivation ────────────────────────────────────────────────
+
+  deriveAddresses: async (seedPhrase, network, count = 1) => {
+    const networkKey = `cardano-${network}`;
+    const state = get();
+
+    if (state.currentNetwork && state.currentNetwork !== networkKey) {
+      set({ utxos: [], assets: [], adaBalance: '0', addresses: [], initialized: false, error: null });
+    }
+    set({ currentNetwork: networkKey });
+
+    try {
+      const addresses = [];
+      for (let i = 0; i < count; i++) {
+        const addr = await deriveCardanoAddr(seedPhrase, i, network);
+        addresses.push({
+          address: addr,
+          index: i,
+          isChange: false,
+          isStaking: false,
+          isPayment: true,
+          blockchain: 'cardano',
+          created: new Date().toISOString(),
+        });
+      }
+      set({ addresses });
+
+      // Persist addresses (use storage.ts for consistency with addressesStore)
+      const { saveAddresses } = await import('@/services/storage');
+      await saveAddresses(addresses, 'cardano', network);
+
+      return addresses;
+    } catch (err) {
+      set({ error: err.message });
+      return [];
+    }
+  },
+
+  // ── Refresh from Blockfrost (full API refresh) ────────────────────────
+
+  refresh: async () => {
+    const state = get();
+    if (state.isRefreshing) { console.log('[CardanoStore] Skip refresh: already refreshing'); return; }
+    if (!state.addresses.length) { console.log('[CardanoStore] Skip refresh: no addresses'); return; }
+
+    const network = state.currentNetwork?.replace('cardano-', '') || 'mainnet';
+    console.log(`[CardanoStore] Refreshing for ${network}, addresses:`, state.addresses.map(a => a.address?.slice(0, 20) + '...'));
+    set({ isRefreshing: true, error: null });
+
+    try {
+      const allUtxos = [];
+      let totalLovelace = BigInt(0);
+      const assetTotals = new Map(); // unit → BigInt quantity
+      const assetUtxos = new Map(); // unit → [{ txHash, outputIndex, quantity, lovelace }]
+
+      for (const { address } of state.addresses) {
+        const utxos = await fetchUtxos(address);
+        for (const u of utxos) {
+          allUtxos.push({ ...u, address });
+          totalLovelace += BigInt(u.lovelace);
+          for (const asset of u.assets) {
+            const prev = assetTotals.get(asset.unit) || BigInt(0);
+            assetTotals.set(asset.unit, prev + BigInt(asset.quantity));
+            // Track which UTXO holds this asset
+            if (!assetUtxos.has(asset.unit)) assetUtxos.set(asset.unit, []);
+            assetUtxos.get(asset.unit).push({
+              txHash: u.txHash,
+              outputIndex: u.outputIndex,
+              quantity: asset.quantity,
+              lovelace: u.lovelace,
+            });
+          }
+        }
+      }
+
+      console.log(`[CardanoStore] Fetched ${allUtxos.length} UTXOs, total: ${totalLovelace.toString()} lovelace (${Number(totalLovelace) / 1e6} ADA), assets: ${assetTotals.size}`);
+
+      // Fetch metadata for assets missing name/image (re-fetch if stale)
+      const cache = { ...state.assetMetaCache };
+      const newUnits = [...assetTotals.keys()].filter(u => !cache[u] || !cache[u].image);
+      for (let i = 0; i < newUnits.length; i += 5) {
+        const batch = newUnits.slice(i, i + 5);
+        const results = await Promise.all(batch.map(u => fetchAssetMeta(u).catch(() => null)));
+        for (let j = 0; j < batch.length; j++) {
+          if (results[j]) cache[batch[j]] = results[j];
+        }
+      }
+
+      // Build asset list (with UTXO tracking for beam-back)
+      const assets = [...assetTotals.entries()].map(([unit, quantity]) => {
+        const meta = cache[unit] || {};
+        const utxosForAsset = assetUtxos.get(unit) || [];
+        // Pick the largest UTXO for this asset (where most of the tokens are)
+        const primaryUtxo = utxosForAsset.sort((a, b) =>
+          Number(BigInt(b.quantity) - BigInt(a.quantity))
+        )[0];
+        return {
+          unit,
+          policyId: meta.policyId || unit.slice(0, 56),
+          assetName: meta.assetName || unit.slice(56),
+          name: meta.name || unit.slice(0, 16) + '...',
+          ticker: meta.ticker || '',
+          quantity: quantity.toString(),
+          decimals: meta.decimals || 0,
+          image: meta.image || '',
+          description: meta.description || '',
+          fingerprint: meta.fingerprint || '',
+          // UTXO tracking for beam-back
+          utxoTxHash: primaryUtxo?.txHash,
+          utxoOutputIndex: primaryUtxo?.outputIndex,
+          utxos: utxosForAsset,
+        };
+      });
+
+      const newBalance = totalLovelace.toString();
+      console.log(`[CardanoStore] Setting state: balance=${newBalance}, utxos=${allUtxos.length}, assets=${assets.length}`);
+      set({
+        utxos: allUtxos,
+        assets,
+        adaBalance: newBalance,
+        assetMetaCache: cache,
+        isRefreshing: false,
+        initialized: true,
+      });
+
+      // Persist everything to storage
+      await Promise.all([
+        saveToStorage(network, DATA_TYPES.UTXOS, allUtxos),
+        saveToStorage(network, DATA_TYPES.ASSETS, assets),
+        saveToStorage(network, DATA_TYPES.ASSET_META, cache),
+      ]);
+    } catch (err) {
+      set({ error: err.message, isRefreshing: false });
+    }
+  },
+
+  // ── Computed helpers ───────────────────────────────────────────────────
+
+  getAdaDisplay: () => {
+    const { adaBalance } = get();
+    const ada = Number(BigInt(adaBalance)) / 1_000_000;
+    return ada.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+  },
+
+  getAssetDisplay: (unit) => {
+    const { assets } = get();
+    const asset = assets.find(a => a.unit === unit);
+    if (!asset) return '0';
+    const divisor = Math.pow(10, asset.decimals || 0);
+    const val = Number(BigInt(asset.quantity)) / divisor;
+    return val.toLocaleString(undefined, { maximumFractionDigits: asset.decimals || 0 });
+  },
+
+  // ── Reset ─────────────────────────────────────────────────────────────
+
+  reset: () => set({
+    addresses: [],
+    utxos: [],
+    assets: [],
+    adaBalance: '0',
+    isLoading: false,
+    isRefreshing: false,
+    error: null,
+    initialized: false,
+    currentNetwork: null,
+  }),
+}));
+
+export const useCardano = useCardanoStore;
+export default useCardanoStore;

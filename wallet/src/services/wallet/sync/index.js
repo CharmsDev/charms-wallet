@@ -25,6 +25,11 @@ export async function syncWallet(options = {}) {
         onPhase1Complete = null,
     } = options;
 
+    // Cardano uses its own sync via cardanoStore.refresh() — skip Bitcoin explorer
+    if (blockchain === BLOCKCHAINS.CARDANO) {
+        return { success: true, totalBalance: 0, utxosUpdated: 0, charmsFound: 0 };
+    }
+
     return syncWalletExplorer({
         addresses,
         blockchain,
@@ -64,6 +69,11 @@ export async function syncAfterTransfer(transferData, blockchain, network, onCha
  * UTXO-only sync (for UTXO tab)
  */
 export async function syncUTXOsOnly(blockchain, network, updateUTXOStore, addressLimit = null) {
+    // Cardano handled by cardanoStore.refresh()
+    if (blockchain === BLOCKCHAINS.CARDANO) {
+        return { success: true, totalBalance: 0, utxosUpdated: 0 };
+    }
+
     return await syncWallet({
         blockchain,
         network,

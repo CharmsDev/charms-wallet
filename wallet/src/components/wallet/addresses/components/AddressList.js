@@ -23,7 +23,25 @@ export default function AddressList({
     }
 
     if (isCardano) {
-        // ... (Cardano implementation remains the same)
+        const { paymentAddresses, stakingAddresses } = organizeCardanoAddresses(addresses);
+        const displayAddresses = filter === 'staking' ? stakingAddresses : paymentAddresses;
+
+        if (displayAddresses.length === 0) {
+            return <p className="text-dark-400 p-4 text-center">No Cardano addresses found.</p>;
+        }
+
+        return (
+            <div className="space-y-3">
+                {displayAddresses.map((addr, i) => (
+                    <CardanoAddress
+                        key={addr.address || i}
+                        address={addr}
+                        privateKeys={privateKeys || {}}
+                        onDerivePrivateKey={onDerivePrivateKey}
+                    />
+                ))}
+            </div>
+        );
     }
 
     const { addressPairs, customAddresses } = organizeAddresses(addresses);

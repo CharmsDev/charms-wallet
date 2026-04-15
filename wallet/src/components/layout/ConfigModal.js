@@ -6,30 +6,53 @@ import packageJson from '../../../package.json';
 import { SPELL_VERSION, EXPLORER_API, PROVER_URL_MAINNET, PROVER_URL_TESTNET } from '@/services/charm-transfer/constants';
 
 const DATA_SOURCES = [
-    { data: 'UTXOs',           source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/utxos/<addr>' },
-    { data: 'Balance',         source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/balance/<addr>' },
-    { data: 'Token Balances',  source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/charms/<addr>' },
-    { data: 'Transactions',    source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/transactions/<addr>' },
-    { data: 'Fee Estimates',   source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/fee-estimate' },
-    { data: 'Broadcast TX',    source: 'Explorer → Mempool',                   badge: 'multi',    endpoint: '/v1/wallet/broadcast (failover)' },
-    { data: 'TX Lookup',       source: 'Explorer → Mempool',                   badge: 'multi',    endpoint: '/v1/wallet/tx/<txid> (failover)' },
+    // Bitcoin
+    { data: 'BTC UTXOs',       source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/utxos/<addr>' },
+    { data: 'BTC Balance',     source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/balance/<addr>' },
+    { data: 'BTC Charms',      source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/charms/<addr>' },
+    { data: 'BTC Transactions',source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/transactions/<addr>' },
+    { data: 'BTC Fee Estimates',source: 'Explorer API',                         badge: 'explorer', endpoint: '/v1/wallet/fee-estimate' },
+    { data: 'BTC Broadcast TX',source: 'Explorer → Mempool',                   badge: 'multi',    endpoint: '/v1/wallet/broadcast (failover)' },
+    { data: 'BTC TX Lookup',   source: 'Explorer → Mempool',                   badge: 'multi',    endpoint: '/v1/wallet/tx/<txid> (failover)' },
     { data: 'Charm Metadata',  source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/assets/reference-nft/<appId>' },
     { data: 'Spell Proving',   source: 'Charms Prover',                        badge: 'prover',   endpoint: '/spells/prove (POST)' },
     { data: 'BTC Price',       source: 'CoinGecko',                            badge: 'external', endpoint: '/api/v3/simple/price' },
+    // Cardano
+    { data: 'ADA UTXOs',       source: 'Blockfrost',                            badge: 'cardano',  endpoint: '/addresses/<addr>/utxos' },
+    { data: 'ADA Balance',     source: 'Blockfrost',                            badge: 'cardano',  endpoint: '/addresses/<addr>' },
+    { data: 'ADA Assets',      source: 'Blockfrost',                            badge: 'cardano',  endpoint: '/assets/<unit>' },
+    { data: 'ADA Transactions',source: 'Blockfrost',                            badge: 'cardano',  endpoint: '/addresses/<addr>/transactions' },
+    { data: 'ADA Submit TX',   source: 'Blockfrost',                            badge: 'cardano',  endpoint: '/tx/submit (POST CBOR)' },
+    { data: 'ADA Protocol',    source: 'Blockfrost',                            badge: 'cardano',  endpoint: '/epochs/latest/parameters' },
 ];
 
 export default function ConfigModal({ isOpen, onClose }) {
     const [activeTab, setActiveTab] = useState('config');
+    const [proverOverride, setProverOverride] = useState(() => {
+        if (typeof window === 'undefined') return '';
+        try { return localStorage.getItem('wallet:prover:override') || ''; } catch { return ''; }
+    });
 
     if (!isOpen) return null;
 
     const network = config.bitcoin.network || '—';
     const isTestnet = config.bitcoin.isTestnet();
 
-    // Prover — use constants.js (source of truth, already v10)
-    const proverUrl = network === 'mainnet' ? PROVER_URL_MAINNET : PROVER_URL_TESTNET;
+    // Prover — runtime override takes precedence
+    const effectiveProverUrl = proverOverride || (network === 'mainnet' ? PROVER_URL_MAINNET : PROVER_URL_TESTNET);
+    const proverUrl = effectiveProverUrl;
     const isLocalProver = proverUrl?.includes('localhost') || proverUrl?.includes('127.0.0.1');
     const zkpIsReal = !isLocalProver && proverUrl !== '—';
+
+    const setLocalProver = () => {
+        const local = 'http://localhost:17784/spells/prove';
+        localStorage.setItem('wallet:prover:override', local);
+        setProverOverride(local);
+    };
+    const clearProverOverride = () => {
+        localStorage.removeItem('wallet:prover:override');
+        setProverOverride('');
+    };
 
     // APIs
     const explorerApiUrl = EXPLORER_API || '—';
@@ -44,11 +67,18 @@ export default function ConfigModal({ isOpen, onClose }) {
         return `${str.slice(0, len)}...${str.slice(-len)}`;
     };
 
+    // Cardano config
+    const cardanoNetwork = config.cardano.network || '—';
+    const blockfrostUrl = config.cardano.getBlockfrostApiUrl() || '—';
+    const blockfrostId = config.cardano.blockfrostProjectId;
+    const hasBlockfrost = !!blockfrostId && blockfrostId !== '—';
+
     const badgeClasses = {
         explorer: 'bg-blue-500/15 text-blue-400',
         multi:    'bg-emerald-500/15 text-emerald-400',
         prover:   'bg-purple-500/15 text-purple-400',
         external: 'bg-yellow-500/15 text-yellow-400',
+        cardano:  'bg-cardano-500/15 text-cardano-400',
     };
 
     return (
@@ -132,6 +162,20 @@ export default function ConfigModal({ isOpen, onClose }) {
                                         value={truncate(proverUrl)}
                                         mono
                                     />
+                                    <div className="mt-2 flex gap-2 text-xs">
+                                        <button
+                                            onClick={setLocalProver}
+                                            className={`px-2 py-1 rounded border ${isLocalProver ? 'bg-purple-500/20 border-purple-500/40 text-purple-300' : 'bg-dark-800 border-dark-700 text-dark-400 hover:text-white'}`}
+                                        >
+                                            Local (17784)
+                                        </button>
+                                        <button
+                                            onClick={clearProverOverride}
+                                            className={`px-2 py-1 rounded border ${!isLocalProver && !proverOverride ? 'bg-purple-500/20 border-purple-500/40 text-purple-300' : 'bg-dark-800 border-dark-700 text-dark-400 hover:text-white'}`}
+                                        >
+                                            Remote (default)
+                                        </button>
+                                    </div>
                                     <Row
                                         icon={<ShieldIcon />}
                                         label="Proof Mode"
@@ -190,16 +234,42 @@ export default function ConfigModal({ isOpen, onClose }) {
                                     />
                                 </Section>
 
-                                {/* Data Provider Architecture */}
+                                {/* Cardano */}
+                                <Section title="Cardano">
+                                    <Row
+                                        icon={<NetworkIcon />}
+                                        label="Network"
+                                        value={cardanoNetwork.toUpperCase()}
+                                        className={cardanoNetwork === 'mainnet' ? 'text-emerald-400' : 'text-yellow-400'}
+                                    />
+                                    <Row
+                                        icon={<DatabaseIcon />}
+                                        label="Blockfrost API"
+                                        value={truncate(blockfrostUrl)}
+                                        mono
+                                    />
+                                    <Row
+                                        icon={<ShieldIcon />}
+                                        label="Blockfrost Project"
+                                        value={hasBlockfrost ? `${blockfrostId.slice(0, 8)}...` : 'Not configured'}
+                                        className={hasBlockfrost ? 'text-emerald-400' : 'text-red-400'}
+                                    />
+                                </Section>
+
+                                {/* Provider Architecture */}
                                 <Section title="Provider Architecture">
                                     <div className="space-y-2 text-xs text-dark-300">
                                         <div className="flex items-center gap-2">
                                             <span className="inline-block w-2 h-2 rounded-full bg-blue-400" />
-                                            <span><strong className="text-dark-100">Primary:</strong> Explorer API (direct node RPC)</span>
+                                            <span><strong className="text-dark-100">Bitcoin:</strong> Explorer API → Mempool.space</span>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <span className="inline-block w-2 h-2 rounded-full bg-yellow-400" />
-                                            <span><strong className="text-dark-100">Failover:</strong> Mempool.space (public API)</span>
+                                            <span className="inline-block w-2 h-2 rounded-full bg-cardano-400" />
+                                            <span><strong className="text-dark-100">Cardano:</strong> Blockfrost API</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="inline-block w-2 h-2 rounded-full bg-purple-400" />
+                                            <span><strong className="text-dark-100">Beaming:</strong> Charms Prover (handles proofs + Cardano signing)</span>
                                         </div>
                                     </div>
                                 </Section>

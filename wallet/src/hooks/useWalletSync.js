@@ -8,6 +8,7 @@ import { syncWallet, syncAfterTransfer, syncUTXOsOnly } from '@/services/wallet/
 import { useUTXOs } from '@/stores/utxoStore';
 import { useCharmsStore } from '@/stores/charms';
 import { useBlockchain } from '@/stores/blockchainStore';
+import { useCardano } from '@/stores/cardanoStore';
 
 export function useWalletSync() {
     const [isSyncing, setIsSyncing] = useState(false);
@@ -17,7 +18,8 @@ export function useWalletSync() {
 
     const { refreshUTXOs } = useUTXOs();
     const addCharm = useCharmsStore(state => state.addCharm);
-    const { activeBlockchain, activeNetwork } = useBlockchain();
+    const { activeBlockchain, activeNetwork, isCardano } = useBlockchain();
+    const cardanoRefresh = useCardano(state => state.refresh);
 
     /**
      * Full wallet sync (Dashboard)
@@ -32,12 +34,20 @@ export function useWalletSync() {
         setSyncProgress({ phase: 'utxos', current: 0, total: 0 });
 
         try {
+            // Cardano: use cardanoStore.refresh() instead of Bitcoin sync
+            if (isCardano()) {
+                setSyncProgress({ phase: 'utxos', current: 0, total: 1 });
+                await cardanoRefresh();
+                setSyncProgress({ phase: 'utxos', current: 1, total: 1 });
+                return { success: true };
+            }
+
             const result = await syncWallet({
                 blockchain: activeBlockchain,
                 network: activeNetwork,
                 fullScan: true,
                 skipCharms: false,
-                addressLimit: 12,  // Limit to 12 addresses for fast refresh
+                addressLimit: 12,
                 onUTXOProgress: (progress) => {
                     setSyncProgress({
                         phase: 'utxos',
@@ -65,7 +75,7 @@ export function useWalletSync() {
             setIsSyncing(false);
             setSyncProgress({ phase: null, current: 0, total: 0 });
         }
-    }, [activeBlockchain, activeNetwork, refreshUTXOs, addCharm]);
+    }, [activeBlockchain, activeNetwork, refreshUTXOs, addCharm, isCardano, cardanoRefresh]);
 
     /**
      * Charms-only refresh (Charms tab)
@@ -80,12 +90,19 @@ export function useWalletSync() {
         setSyncError(null);
 
         try {
+            if (isCardano()) {
+                setSyncProgress({ phase: 'utxos', current: 0, total: 1 });
+                await cardanoRefresh();
+                setSyncProgress({ phase: 'utxos', current: 1, total: 1 });
+                return { success: true };
+            }
+
             const result = await syncWallet({
                 blockchain: activeBlockchain,
                 network: activeNetwork,
-                fullScan: true,  // Refresh UTXOs first
+                fullScan: true,
                 skipCharms: false,
-                addressLimit: 12,  // Limit to 12 addresses for fast refresh
+                addressLimit: 12,
                 onUTXOProgress: (progress) => {
                     setSyncProgress({
                         phase: 'utxos',
@@ -113,7 +130,7 @@ export function useWalletSync() {
             setIsSyncing(false);
             setSyncProgress({ phase: null, current: 0, total: 0 });
         }
-    }, [activeBlockchain, activeNetwork, refreshUTXOs, addCharm]);
+    }, [activeBlockchain, activeNetwork, refreshUTXOs, addCharm, isCardano, cardanoRefresh]);
 
     /**
      * UTXO-only refresh (UTXOs tab)
@@ -127,6 +144,11 @@ export function useWalletSync() {
         setSyncError(null);
 
         try {
+            if (isCardano()) {
+                await cardanoRefresh();
+                return { success: true };
+            }
+
             const result = await syncUTXOsOnly(
                 activeBlockchain,
                 activeNetwork,
@@ -146,7 +168,7 @@ export function useWalletSync() {
             syncingRef.current = false;
             setIsSyncing(false);
         }
-    }, [activeBlockchain, activeNetwork, refreshUTXOs]);
+    }, [activeBlockchain, activeNetwork, refreshUTXOs, isCardano, cardanoRefresh]);
 
     /**
      * Post-transfer sync

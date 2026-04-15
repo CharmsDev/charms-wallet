@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useCharms } from '@/stores/charmsStore';
 import TransferCharmWizard from './transfer/TransferCharmWizard';
+import BeamDialog from '@/components/beam/BeamDialog';
 
 /**
  * Card component for displaying grouped Charm Tokens by APP ID
@@ -10,6 +11,7 @@ import TransferCharmWizard from './transfer/TransferCharmWizard';
  */
 export default function CharmTokenCard({ groupedToken }) {
     const [showTransferDialog, setShowTransferDialog] = useState(false);
+    const [showBeamDialog, setShowBeamDialog] = useState(false);
     const [imageError, setImageError] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const { getPendingByAppId } = useCharms();
@@ -161,8 +163,16 @@ export default function CharmTokenCard({ groupedToken }) {
                     )}
                 </div>
 
-                {/* Send Button */}
-                <div className="mt-auto pt-4 border-t border-dark-700 flex justify-end">
+                {/* Action Buttons */}
+                <div className="mt-auto pt-4 border-t border-dark-700 flex justify-end gap-2">
+                    <button
+                        onClick={() => setShowBeamDialog(true)}
+                        className="px-4 py-1.5 text-sm btn btn-rounded"
+                        style={{ background: 'linear-gradient(135deg, #9333ea, #7c3aed)', color: '#fff' }}
+                        title="Beam to Cardano"
+                    >
+                        Beam
+                    </button>
                     <button
                         onClick={handleTransferTokenClick}
                         className="px-4 py-1.5 text-sm btn btn-primary"
@@ -184,6 +194,17 @@ export default function CharmTokenCard({ groupedToken }) {
                     onClose={() => {
                         setShowTransferDialog(false);
                     }}
+                />
+            )}
+
+            {showBeamDialog && (
+                <BeamDialog
+                    charm={{
+                        ...groupedToken.tokenUtxos[0],
+                        totalAmount: groupedToken.totalAmount,
+                        allUtxos: groupedToken.tokenUtxos
+                    }}
+                    onClose={() => setShowBeamDialog(false)}
                 />
             )}
         </div>

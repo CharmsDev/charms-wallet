@@ -5,6 +5,7 @@ import { NetworkProvider } from "@/contexts/NetworkContext";
 import { NavigationProvider } from "@/contexts/NavigationContext";
 import { UTXOProvider } from "@/stores/utxoStore";
 import { CharmsProvider } from "@/stores/charmsStore";
+import { BeamOperationsProvider } from "@/contexts/BeamOperationsContext";
 import ExtensionTopBanner from "@/components/extension/ExtensionTopBanner";
 import Script from 'next/script';
 
@@ -23,9 +24,11 @@ export default function RootLayout({ children }) {
             <NavigationProvider>
               <UTXOProvider>
                 <CharmsProvider>
-                  <MainLayout>
-                    {children}
-                  </MainLayout>
+                  <BeamOperationsProvider>
+                    <MainLayout>
+                      {children}
+                    </MainLayout>
+                  </BeamOperationsProvider>
                 </CharmsProvider>
               </UTXOProvider>
             </NavigationProvider>

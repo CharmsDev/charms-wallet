@@ -1,20 +1,26 @@
 'use client';
 
+import { useBlockchain } from '@/stores/blockchainStore';
+
 export default function QuickActionsPanel({ onSend, onReceive }) {
+    const { isCardano } = useBlockchain();
+    const asset = isCardano() ? 'ADA' : 'BTC';
+    const chain = isCardano() ? 'Cardano' : 'Bitcoin';
+
     const actions = [
         {
             id: 'send',
-            label: 'Send BTC',
+            label: `Send ${asset}`,
             icon: '↗',
             onClick: onSend,
-            description: 'Send Bitcoin'
+            description: `Send ${chain}`
         },
         {
             id: 'receive',
-            label: 'Receive BTC',
+            label: `Receive ${asset}`,
             icon: '↙',
             onClick: onReceive,
-            description: 'Receive Bitcoin'
+            description: `Receive ${chain}`
         }
     ];
 

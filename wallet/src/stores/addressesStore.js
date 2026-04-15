@@ -14,7 +14,7 @@ const useAddressesStore = create((set, get) => ({
     initialized: false,
     currentNetwork: null,
 
-    // Simplified address loader
+    // Simplified address loader — works for both Bitcoin and Cardano
     loadAddresses: async (blockchain, network) => {
         const networkKey = `${blockchain}-${network}`;
 
@@ -28,28 +28,44 @@ const useAddressesStore = create((set, get) => ({
                 error: null
             });
         } else {
-            // Update current network (no change needed to other fields)
             set({ currentNetwork: networkKey });
         }
 
-        // Re-read state AFTER any resets above (avoid stale closure)
         const freshState = get();
-
-        // Prevent multiple loads for same network
-        if (freshState.loading || freshState.initialized) {
-            return;
-        }
+        if (freshState.loading || freshState.initialized) return;
 
         set({ loading: true, error: null });
 
         try {
-            const storedAddresses = await getAddresses(blockchain, network);
+            let storedAddresses = await getAddresses(blockchain, network);
 
-            // Use a small delay for better UX, allowing the loader to be visible and prevent flickering
+            // If Cardano and no addresses found, derive on the fly from seed
+            if (blockchain === 'cardano' && (!storedAddresses || storedAddresses.length === 0)) {
+                const seedPhrase = await getSeedPhrase();
+                if (seedPhrase) {
+                    try {
+                        const { generateCardanoAddress } = await import('@/lib/cardano/wallet');
+                        const addr = await generateCardanoAddress(seedPhrase, 0, network);
+                        const newAddresses = [{
+                            address: addr,
+                            index: 0,
+                            isChange: false,
+                            isStaking: false,
+                            blockchain: 'cardano',
+                            created: new Date().toISOString(),
+                        }];
+                        await saveAddresses(newAddresses, blockchain, network);
+                        storedAddresses = newAddresses;
+                    } catch (err) {
+                        console.warn('[ADDRESSES] Cardano address derivation failed:', err.message);
+                    }
+                }
+            }
+
             await new Promise(resolve => setTimeout(resolve, 200));
 
             set({
-                addresses: storedAddresses,
+                addresses: storedAddresses || [],
                 loading: false,
                 initialized: true
             });
@@ -85,28 +101,45 @@ const useAddressesStore = create((set, get) => ({
             const startIndex = maxIndex + 1;
             const newAddresses = [];
 
-            for (let i = startIndex; i < startIndex + count; i++) {
-                const [externalAddress, changeAddress] = await Promise.all([
-                    generateTaprootAddress(seedPhrase, i, false),
-                    generateTaprootAddress(seedPhrase, i, true)
-                ]);
-
-                newAddresses.push(
-                    {
-                        address: externalAddress,
+            if (activeBlockchain === 'cardano') {
+                // Cardano: derive payment addresses (no change addresses in Cardano model)
+                const { generateCardanoAddress } = await import('@/lib/cardano/wallet');
+                for (let i = startIndex; i < startIndex + count; i++) {
+                    const addr = await generateCardanoAddress(seedPhrase, i, activeNetwork);
+                    newAddresses.push({
+                        address: addr,
                         index: i,
                         isChange: false,
+                        isStaking: false,
+                        blockchain: activeBlockchain,
                         created: new Date().toISOString(),
-                        blockchain: activeBlockchain
-                    },
-                    {
-                        address: changeAddress,
-                        index: i,
-                        isChange: true,
-                        created: new Date().toISOString(),
-                        blockchain: activeBlockchain
-                    }
-                );
+                    });
+                }
+            } else {
+                // Bitcoin: derive external + change Taproot pairs
+                for (let i = startIndex; i < startIndex + count; i++) {
+                    const [externalAddress, changeAddress] = await Promise.all([
+                        generateTaprootAddress(seedPhrase, i, false),
+                        generateTaprootAddress(seedPhrase, i, true)
+                    ]);
+
+                    newAddresses.push(
+                        {
+                            address: externalAddress,
+                            index: i,
+                            isChange: false,
+                            created: new Date().toISOString(),
+                            blockchain: activeBlockchain
+                        },
+                        {
+                            address: changeAddress,
+                            index: i,
+                            isChange: true,
+                            created: new Date().toISOString(),
+                            blockchain: activeBlockchain
+                        }
+                    );
+                }
             }
 
             const allAddresses = [...currentAddresses, ...newAddresses];

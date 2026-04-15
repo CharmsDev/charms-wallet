@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { BLOCKCHAINS } from '@/stores/blockchainStore';
 import { useNetworkDropdown } from '@/hooks/useNetworkDropdown';
+import { useBeamOperations } from '@/contexts/BeamOperationsContext';
 
 export default function Header({ activeSection, setActiveSection }) {
     const {
@@ -20,6 +21,8 @@ export default function Header({ activeSection, setActiveSection }) {
         getNetworkDisplayName,
         getBlockchainClass,
     } = useNetworkDropdown();
+
+    const { hasActiveOperations, togglePanel } = useBeamOperations();
 
     return (
         <div className="fixed-header">
@@ -56,13 +59,12 @@ export default function Header({ activeSection, setActiveSection }) {
                                 >
                                     Bitcoin
                                 </button>
-                                {/* Cardano button temporarily hidden */}
-                                {/* <button
+                                <button
                                     className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getBlockchainClass(BLOCKCHAINS.CARDANO)}`}
                                     onClick={() => handleBlockchainSelect(BLOCKCHAINS.CARDANO)}
                                 >
                                     Cardano
-                                </button> */}
+                                </button>
                             </div>
 
                             {/* Network dropdown */}
@@ -80,6 +82,18 @@ export default function Header({ activeSection, setActiveSection }) {
 
 
                             </div>
+
+                            {/* Beam operations button */}
+                            <button
+                                className={`beam-ops-btn${hasActiveOperations ? ' beam-ops-btn--active' : ''}`}
+                                onClick={togglePanel}
+                                title="Beam Operations"
+                            >
+                                {hasActiveOperations && <span className="beam-ops-spinner-ring" />}
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                                </svg>
+                            </button>
                         </div>
                     </div>
 
@@ -186,10 +200,10 @@ export default function Header({ activeSection, setActiveSection }) {
                             style={{paddingTop: '6px', paddingBottom: '6px'}}
                             onClick={() => setActiveSection("charms")}
                         >
-                            Charms
+                            {isBitcoin() ? 'Charms' : 'Assets'}
                         </button>
                     </div>
-                    
+
                     {/* Mobile navigation - reduced height */}
                     <div className="sm:hidden flex space-x-4 overflow-x-auto">
                         <button
@@ -235,7 +249,7 @@ export default function Header({ activeSection, setActiveSection }) {
                                 }`}
                             onClick={() => setActiveSection("charms")}
                         >
-                            Charms
+                            {isBitcoin() ? 'Charms' : 'Assets'}
                         </button>
                     </div>
                 </div>

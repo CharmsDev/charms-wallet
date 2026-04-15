@@ -3,17 +3,22 @@
 import { Suspense, lazy } from 'react';
 import Header from './Header';
 import Footer from './Footer';
+import BeamPanel from '@/components/beam/BeamPanel';
 import { useNavigation } from '@/contexts/NavigationContext';
+import { useBlockchain } from '@/stores/blockchainStore';
 
 // Import AddressManager and UTXOList directly for instant loading, lazy load others
 import AddressManager from '@/components/wallet/addresses/AddressManager';
 import UTXOList from '@/components/wallet/utxos/UTXOList';
 import TransactionHistory from '@/components/wallet/history/TransactionHistory';
 import ExtensionInstallGuide from '@/components/extension/ExtensionInstallGuide';
+import CardanoTransactionHistory from '@/components/wallet/cardano/CardanoTransactionHistory';
 const CharmsList = lazy(() => import('@/components/wallet/charms/CharmsList'));
+const CardanoAssetView = lazy(() => import('@/components/wallet/cardano/CardanoAssetView'));
 
 export default function MainLayout({ children }) {
     const { activeSection, setActiveSection, loadedSections } = useNavigation();
+    const { isCardano } = useBlockchain();
 
     return (
         <div className="min-h-screen flex flex-col bg-dark-950 relative">
@@ -30,13 +35,13 @@ export default function MainLayout({ children }) {
                         {children}
                     </div>
 
-                    {/* History section - instant loading */}
+                    {/* History section - chain-aware */}
                     {loadedSections.has('history') && (
                         <div
                             className={`pt-6 transition-opacity duration-200 ${activeSection !== "history" ? "opacity-0 hidden" : ""
                                 }`}
                         >
-                            <TransactionHistory />
+                            {isCardano() ? <CardanoTransactionHistory /> : <TransactionHistory />}
                         </div>
                     )}
 
@@ -60,14 +65,14 @@ export default function MainLayout({ children }) {
                         </div>
                     )}
 
-                    {/* Charms section - lazy loaded */}
+                    {/* Charms / Assets section - lazy loaded, chain-aware */}
                     {loadedSections.has('charms') && (
                         <div
                             className={`pt-6 transition-opacity duration-200 ${activeSection !== "charms" ? "opacity-0 hidden" : ""
                                 }`}
                         >
-                            <Suspense fallback={<div className="card p-6">Loading charms...</div>}>
-                                <CharmsList />
+                            <Suspense fallback={<div className="card p-6">Loading assets...</div>}>
+                                {isCardano() ? <CardanoAssetView /> : <CharmsList />}
                             </Suspense>
                         </div>
                     )}
@@ -98,6 +103,7 @@ export default function MainLayout({ children }) {
             </main>
 
             <Footer />
+            <BeamPanel />
         </div>
     );
 }

@@ -69,9 +69,16 @@ const config = {
             },
         },
 
-        // Get the appropriate API URL based on current network
+        // Get the appropriate API URL based on current runtime network
         getBlockfrostApiUrl: () => {
-            return config.cardano.apis.blockfrost[config.cardano.network || 'mainnet'];
+            let net = config.cardano.network || 'mainnet';
+            if (typeof window !== 'undefined') {
+                const blockchain = localStorage.getItem('wallet:active_blockchain');
+                const stored = localStorage.getItem('wallet:active_network');
+                if (blockchain === 'cardano' && (stored === 'mainnet' || stored === 'preprod')) net = stored;
+                else if (blockchain === 'bitcoin') net = stored === 'mainnet' ? 'mainnet' : 'preprod';
+            }
+            return config.cardano.apis.blockfrost[net] || config.cardano.apis.blockfrost.mainnet;
         },
 
         // Blockfrost project ID

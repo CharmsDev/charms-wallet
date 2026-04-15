@@ -87,6 +87,7 @@ export default function TransactionHistory() {
 
         setIsRefreshing(true);
         try {
+            if (activeBlockchain === 'cardano') { setIsRefreshing(false); return; }
             const { syncWalletExplorer } = await import('@/services/wallet/sync/explorer-wallet-sync');
             await syncWalletExplorer({ blockchain: activeBlockchain, network: activeNetwork, fullScan: true, skipCharms: false });
             

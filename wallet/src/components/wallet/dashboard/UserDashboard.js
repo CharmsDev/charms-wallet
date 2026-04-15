@@ -18,9 +18,12 @@ import ReceiveBitcoinDialog from './components/ReceiveBitcoinDialog';
 import SettingsDialog from './components/SettingsDialog';
 import BroMintingBanner from './components/BroMintingBanner';
 import TransferCharmWizard from '../charms/transfer/TransferCharmWizard';
+import BeamDialog from '@/components/beam/BeamDialog';
+import EbtcBeamDialog from '@/components/beam/EbtcBeamDialog';
 import { useWalletSync } from '@/hooks/useWalletSync';
 import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
 import { useNavigation } from '@/contexts/NavigationContext';
+import { useBeamOperations } from '@/contexts/BeamOperationsContext';
 
 export default function UserDashboard({ seedPhrase, walletInfo, derivationLoading, createSuccess }) {
     const [showSendDialog, setShowSendDialog] = useState(false);
@@ -28,6 +31,8 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     const [receiveAsset, setReceiveAsset] = useState('Bitcoin');
     const [showSettingsDialog, setShowSettingsDialog] = useState(false);
     const [showBroTransferDialog, setShowBroTransferDialog] = useState(false);
+    const [showBroBeamDialog, setShowBroBeamDialog] = useState(false);
+    const [showEbtcBeamDialog, setShowEbtcBeamDialog] = useState(false);
     const [broCharmToTransfer, setBroCharmToTransfer] = useState(null);
     const [btcPrice, setBtcPrice] = useState(null);
     const [priceLoading, setPriceLoading] = useState(true);
@@ -39,6 +44,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const { syncFullWallet, isSyncing: isRefreshing, syncProgress } = useWalletSync();
     const { setActiveSection } = useNavigation();
+    useBeamOperations();
     
     // Convert syncProgress to refreshProgress format for BalanceDisplay
     const refreshProgress = {
@@ -118,6 +124,25 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
         } else {
             console.warn('No BRO tokens available to send');
         }
+    };
+
+    const handleBeamBro = () => {
+        const broAppId = getBroTokenAppId();
+        const groupedTokens = groupTokensByAppId();
+        const broToken = groupedTokens.find(token => token.appId === broAppId);
+
+        if (broToken && broToken.tokenUtxos.length > 0) {
+            setBroCharmToTransfer({
+                ...broToken.tokenUtxos[0],
+                totalAmount: broToken.totalAmount,
+                allUtxos: broToken.tokenUtxos
+            });
+            setShowBroBeamDialog(true);
+        }
+    };
+
+    const handleEbtcBeam = () => {
+        setShowEbtcBeamDialog(true);
     };
 
     const handleReceiveBro = () => {
@@ -224,7 +249,9 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                             refreshProgress={refreshProgress}
                             onSendBTC={() => setShowSendDialog(true)}
                             onReceiveBTC={() => setShowReceiveDialog(true)}
+                            onEbtcBeam={handleEbtcBeam}
                             onSendBro={handleSendBro}
+                            onBeamBro={handleBeamBro}
                             onReceiveBro={handleReceiveBro}
                         />
 
@@ -288,7 +315,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
             />
 
             {/* BRO Transfer Dialog */}
-            {broCharmToTransfer && (
+            {broCharmToTransfer && showBroTransferDialog && (
                 <TransferCharmWizard
                     charm={broCharmToTransfer}
                     show={showBroTransferDialog}
@@ -297,6 +324,22 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                         setBroCharmToTransfer(null);
                     }}
                 />
+            )}
+
+            {/* BRO Beam Dialog */}
+            {broCharmToTransfer && showBroBeamDialog && (
+                <BeamDialog
+                    charm={broCharmToTransfer}
+                    onClose={() => {
+                        setShowBroBeamDialog(false);
+                        setBroCharmToTransfer(null);
+                    }}
+                />
+            )}
+
+            {/* eBTC Beam Dialog */}
+            {showEbtcBeamDialog && (
+                <EbtcBeamDialog onClose={() => setShowEbtcBeamDialog(false)} />
             )}
         </div>
     );

@@ -9,6 +9,7 @@ import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
 import WalletCreation from '@/components/wallet/setup/WalletCreation';
 import UserDashboard from '@/components/wallet/dashboard/UserDashboard';
+import CardanoDashboard from '@/components/wallet/cardano/CardanoDashboard';
 import WalletInitialization from '@/components/wallet/setup/WalletInitialization';
 import WalletExistsModal from '@/components/wallet/setup/WalletExistsModal';
 import { runMigrations } from '@/migrations';
@@ -148,12 +149,16 @@ export default function Home() {
           onComplete={handleInitializationComplete}
         />
       ) : hasWallet && seedPhrase ? (
-        <UserDashboard
-          seedPhrase={seedPhrase}
-          walletInfo={walletInfo}
-          derivationLoading={derivationLoading}
-          createSuccess={initializationComplete}
-        />
+        activeBlockchain === 'cardano' ? (
+          <CardanoDashboard />
+        ) : (
+          <UserDashboard
+            seedPhrase={seedPhrase}
+            walletInfo={walletInfo}
+            derivationLoading={derivationLoading}
+            createSuccess={initializationComplete}
+          />
+        )
       ) : (
         <WalletCreation
           isLoading={isLoading}

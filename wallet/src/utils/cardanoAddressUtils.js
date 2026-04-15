@@ -1,42 +1,33 @@
 'use client';
 
-import { generateCardanoAddress, deriveCardanoPrivateKey, validateCardanoAddress, getCardanoDerivationPath } from '@/lib/cardano/cardanoSimple';
-import { NETWORKS } from '@/stores/blockchainStore';
+import { getCardanoDerivationPath } from '@/lib/cardano/cardanoSimple';
 import config from '@/config';
 
-// Generates a new Cardano address using the specified derivation path
+// Generates a new Cardano address using the real CSL library (dynamic import)
 export async function generateCardanoAddressFromSeed(seedPhrase, index, isStaking = false) {
-    try {
-        // Get the network from config
-        const network = config.cardano.network;
-
-        // Generate the address
-        const address = await generateCardanoAddress(seedPhrase, index, network);
-
-        return address;
-    } catch (error) {
-        throw error;
-    }
+    const { generateCardanoAddress } = await import('@/lib/cardano/wallet');
+    const network = config.cardano.network;
+    return await generateCardanoAddress(seedPhrase, index, network);
 }
 
 // Derives the private key for a given address index
 export async function deriveCardanoPrivateKeyFromSeed(seedPhrase, index, isStaking = false) {
-    try {
-        // Derive the private key
-        const privateKey = await deriveCardanoPrivateKey(seedPhrase, index, isStaking);
+    const { deriveCardanoPrivateKey } = await import('@/lib/cardano/wallet');
+    return await deriveCardanoPrivateKey(seedPhrase, index, isStaking);
+}
 
-        return privateKey;
-    } catch (error) {
-        throw error;
+// Validates a Cardano address (uses real CSL when available, falls back to prefix check)
+export async function validateCardanoAddressFormat(address) {
+    try {
+        const { validateCardanoAddress } = await import('@/lib/cardano/wallet');
+        return await validateCardanoAddress(address);
+    } catch {
+        // Fallback: basic prefix validation
+        return address?.startsWith('addr1') || address?.startsWith('addr_test1') || false;
     }
 }
 
-// Validates a Cardano address
-export async function validateCardanoAddressFormat(address) {
-    return await validateCardanoAddress(address);
-}
-
-// Gets the derivation path for a Cardano address
+// Gets the derivation path for a Cardano address (pure, no WASM needed)
 export function getCardanoAddressDerivationPath(index, isStaking = false) {
     return getCardanoDerivationPath(index, isStaking);
 }
@@ -46,15 +37,14 @@ export async function copyToClipboard(text) {
     try {
         await navigator.clipboard.writeText(text);
         return true;
-    } catch (err) {
+    } catch {
         return false;
     }
 }
 
-// Organizes Cardano addresses into payment and staking addresses
+// Organizes Cardano addresses into payment and staking addresses (pure, no WASM)
 export function organizeCardanoAddresses(addresses) {
     const paymentAddresses = addresses.filter(addr => !addr.isStaking);
     const stakingAddresses = addresses.filter(addr => addr.isStaking);
-
     return { paymentAddresses, stakingAddresses };
 }

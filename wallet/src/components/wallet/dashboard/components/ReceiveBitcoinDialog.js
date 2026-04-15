@@ -18,20 +18,27 @@ export default function ReceiveBitcoinDialog({ isOpen, onClose, assetName = 'Bit
         }
     }, [isOpen, addresses.length, loadAddresses, activeBlockchain, activeNetwork]);
 
-    // Set display address when addresses are loaded or index changes
-    // Default to first Taproot (bc1p) address for receiving
+    const isCardano = activeBlockchain === 'cardano';
+
+    // Set display address — Taproot for Bitcoin, payment address for Cardano
     useEffect(() => {
         if (addresses.length > 0) {
             if (currentAddressIndex === 0) {
-                const prefix = activeNetwork === 'mainnet' ? 'bc1p' : 'tb1p';
-                const firstTaproot = addresses.find(a => a.address?.startsWith(prefix) && !a.isChange);
-                setDisplayAddress(firstTaproot?.address || addresses[0]?.address || '');
+                let first;
+                if (isCardano) {
+                    const adaPrefix = activeNetwork === 'mainnet' ? 'addr1' : 'addr_test1';
+                    first = addresses.find(a => a.address?.startsWith(adaPrefix) && !a.isChange && !a.isStaking);
+                } else {
+                    const prefix = activeNetwork === 'mainnet' ? 'bc1p' : 'tb1p';
+                    first = addresses.find(a => a.address?.startsWith(prefix) && !a.isChange);
+                }
+                setDisplayAddress(first?.address || addresses[0]?.address || '');
             } else {
                 const address = addresses[currentAddressIndex];
                 setDisplayAddress(address?.address || '');
             }
         }
-    }, [addresses, currentAddressIndex, activeNetwork]);
+    }, [addresses, currentAddressIndex, activeNetwork, isCardano]);
 
     // Reset index when dialog closes
     useEffect(() => {

@@ -8,7 +8,7 @@ import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { formatBTC } from '@/utils/formatters';
 
-export default function BalanceDisplay({ balance, pendingBalance, btcPrice, priceLoading, isLoading, network, onRefresh, isRefreshing, refreshProgress, onSendBTC, onReceiveBTC, onSendBro, onReceiveBro }) {
+export default function BalanceDisplay({ balance, pendingBalance, btcPrice, priceLoading, isLoading, network, onRefresh, isRefreshing, refreshProgress, onSendBTC, onReceiveBTC, onSendBro, onReceiveBro, onBeamBro, onEbtcBeam }) {
     const [showUSD, setShowUSD] = useState(false);
     const [trend, setTrend] = useState(null);
     const { charms, getTotalByAppId, getPendingByAppId, isLoading: charmsLoading } = useCharms();
@@ -145,6 +145,16 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
                             </div>
                             <div className="flex gap-1.5 justify-end mt-auto">
                                 <button
+                                    onClick={onEbtcBeam}
+                                    disabled={balance <= 0}
+                                    className="flex items-center justify-center gap-1 px-2.5 py-1 rounded-md border text-xs font-medium text-white transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                    style={{ background: 'linear-gradient(135deg, rgba(59,130,246,0.6), rgba(147,51,234,0.6))', borderColor: 'rgba(99,102,241,0.5)' }}
+                                    title="Beam BTC to Cardano"
+                                >
+                                    <span>⚡</span>
+                                    <span>Beam</span>
+                                </button>
+                                <button
                                     onClick={onSendBTC}
                                     className="flex items-center justify-center gap-1 px-2.5 py-1 rounded-md bg-gray-700/80 border border-gray-600/60 text-xs font-medium text-white hover:bg-gray-600/80 hover:border-gray-500 transition-all shadow-sm"
                                 >
@@ -200,6 +210,16 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
                                 </div>
                             </div>
                             <div className="flex gap-1.5 justify-end mt-auto">
+                                <button
+                                    onClick={onBeamBro}
+                                    disabled={broBalance <= 0 || charmsLoading}
+                                    className="flex items-center justify-center gap-1 px-2.5 py-1 rounded-md border text-xs font-medium text-white transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                    style={{ background: 'linear-gradient(135deg, rgba(147,51,234,0.6), rgba(124,58,237,0.6))', borderColor: 'rgba(147,51,234,0.5)' }}
+                                    title={broBalance <= 0 ? "No BRO tokens available" : "Beam BRO to Cardano"}
+                                >
+                                    <span>⚡</span>
+                                    <span>Beam</span>
+                                </button>
                                 <button
                                     onClick={onSendBro}
                                     disabled={broBalance <= 0 || charmsLoading}

@@ -127,33 +127,36 @@ export async function signSpellTxMultiKey(
 
   // Build lookup: for each TX input, find its signing info from the map
   // The map uses utxoId format "txid:vout" as keys
+  // Helper: detect script type from prevout script
+  function getScriptType(script) {
+    if (script.length === 34 && script[0] === 0x51) return 'p2tr';
+    if (script.length === 22 && script[0] === 0x00) return 'p2wpkh';
+    return 'p2tr'; // default
+  }
+
   let signedCount = 0;
   for (let i = 0; i < tx.ins.length; i++) {
     const inp = tx.ins[i];
     const prevTxid = Buffer.from(inp.hash).reverse().toString('hex');
     const utxoKey = `${prevTxid}:${inp.index}`;
+    const scriptType = getScriptType(prevoutScripts[i]);
 
     const signingInfo = inputSigningMap[utxoKey];
     if (!signingInfo) {
-      // Not our input (e.g. another party's, or prover-added that we don't own)
-      // The prover adds inputs from change_address — which should be in our map.
-      // If not found, try matching by address from prevout.
       const prevAddr = tryDeriveAddress(prevoutScripts[i], network);
       if (prevAddr) {
-        // Search the map for any entry with this address
         const matchEntry = Object.values(inputSigningMap).find(e => e.address === prevAddr);
         if (matchEntry) {
-          // Found — sign with this key
-          const key = await getCachedKey(keyCache, matchEntry.index, matchEntry.isChange, seedPhrase, networkName);
+          const key = await getCachedKey(keyCache, matchEntry.index, matchEntry.isChange, seedPhrase, networkName, scriptType);
           signInput(tx, i, prevoutScripts, prevoutValues, key);
           signedCount++;
           continue;
         }
       }
-      continue; // truly not ours
+      continue;
     }
 
-    const key = await getCachedKey(keyCache, signingInfo.index, signingInfo.isChange, seedPhrase, networkName);
+    const key = await getCachedKey(keyCache, signingInfo.index, signingInfo.isChange, seedPhrase, networkName, scriptType);
     signInput(tx, i, prevoutScripts, prevoutValues, key);
     signedCount++;
   }
@@ -175,21 +178,69 @@ function tryDeriveAddress(script, network) {
   }
 }
 
-async function getCachedKey(cache, index, isChange, seedPhrase, networkName) {
-  const cacheKey = `${index}:${isChange}`;
-  if (cache.has(cacheKey)) return cache.get(cacheKey);
-  const { tweakedPrivateKey } = await deriveKeyForAddress(seedPhrase, networkName, index, isChange);
-  cache.set(cacheKey, tweakedPrivateKey);
-  return tweakedPrivateKey;
+/**
+ * Derive BIP84 P2WPKH key (for bc1q... addresses).
+ */
+async function deriveKeyForP2WPKH(seedPhrase, networkName, addressIndex, isChange = false) {
+  const network = getNetwork(networkName);
+  const seed = await bip39.mnemonicToSeed(seedPhrase);
+  const root = bip32.fromSeed(seed, network);
+  const coinType = networkName === 'mainnet' ? 0 : 1;
+  const path = `m/84'/${coinType}'/0'/${isChange ? 1 : 0}/${addressIndex}`;
+  const child = root.derivePath(path);
+  if (!child.privateKey) throw new Error('No private key derived');
+  return {
+    privateKey: Buffer.from(child.privateKey),
+    publicKey: child.publicKey,
+    // For P2WPKH, tweakedPrivateKey not needed but include for compat
+    tweakedPrivateKey: null,
+  };
 }
 
-function signInput(tx, inputIndex, prevoutScripts, prevoutValues, tweakedPrivateKey) {
-  const sighash = tx.hashForWitnessV1(
-    inputIndex,
-    prevoutScripts,
-    prevoutValues,
-    bitcoin.Transaction.SIGHASH_DEFAULT,
-  );
-  const sig = ecc.signSchnorr(sighash, tweakedPrivateKey, Buffer.alloc(32));
-  tx.ins[inputIndex].witness = [Buffer.from(sig)];
+async function getCachedKey(cache, index, isChange, seedPhrase, networkName, scriptType) {
+  const cacheKey = `${index}:${isChange}:${scriptType || 'tr'}`;
+  if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+  let keyData;
+  if (scriptType === 'p2wpkh') {
+    keyData = await deriveKeyForP2WPKH(seedPhrase, networkName, index, isChange);
+  } else {
+    keyData = await deriveKeyForAddress(seedPhrase, networkName, index, isChange);
+  }
+  cache.set(cacheKey, keyData);
+  return keyData;
+}
+
+function signInput(tx, inputIndex, prevoutScripts, prevoutValues, keyData) {
+  const script = prevoutScripts[inputIndex];
+  const isP2TR = script.length === 34 && script[0] === 0x51; // OP_1 <32bytes>
+  const isP2WPKH = script.length === 22 && script[0] === 0x00; // OP_0 <20bytes>
+
+  if (isP2TR) {
+    // Taproot: Schnorr signature
+    const tweakedKey = keyData.tweakedPrivateKey || keyData;
+    const sighash = tx.hashForWitnessV1(inputIndex, prevoutScripts, prevoutValues, bitcoin.Transaction.SIGHASH_DEFAULT);
+    const sig = ecc.signSchnorr(sighash, tweakedKey, Buffer.alloc(32));
+    tx.ins[inputIndex].witness = [Buffer.from(sig)];
+  } else if (isP2WPKH) {
+    // P2WPKH: ECDSA signature with BIP143 sighash
+    const pubkey = keyData.publicKey;
+    const privateKey = keyData.privateKey;
+    if (!pubkey || !privateKey) {
+      // Fallback: try as Taproot anyway (backward compat)
+      const sighash = tx.hashForWitnessV1(inputIndex, prevoutScripts, prevoutValues, bitcoin.Transaction.SIGHASH_DEFAULT);
+      const sig = ecc.signSchnorr(sighash, keyData.tweakedPrivateKey || keyData, Buffer.alloc(32));
+      tx.ins[inputIndex].witness = [Buffer.from(sig)];
+      return;
+    }
+    const scriptCode = bitcoin.payments.p2pkh({ pubkey: Buffer.from(pubkey) }).output;
+    const sighash = tx.hashForWitnessV0(inputIndex, scriptCode, prevoutValues[inputIndex], bitcoin.Transaction.SIGHASH_ALL);
+    const sig = bitcoin.script.signature.encode(Buffer.from(ecc.sign(sighash, privateKey)), bitcoin.Transaction.SIGHASH_ALL);
+    tx.ins[inputIndex].witness = [sig, Buffer.from(pubkey)];
+  } else {
+    // Unknown — try Taproot as default
+    const sighash = tx.hashForWitnessV1(inputIndex, prevoutScripts, prevoutValues, bitcoin.Transaction.SIGHASH_DEFAULT);
+    const sig = ecc.signSchnorr(sighash, keyData.tweakedPrivateKey || keyData, Buffer.alloc(32));
+    tx.ins[inputIndex].witness = [Buffer.from(sig)];
+  }
 }

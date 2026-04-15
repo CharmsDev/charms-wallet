@@ -10,7 +10,7 @@ import { getNetwork } from '@/utils/addressUtils';
  */
 export class WalletInitializationService {
     constructor() {
-        this.totalSteps = 7;
+        this.totalSteps = 8;
     }
 
     /**
@@ -82,7 +82,34 @@ export class WalletInitializationService {
                 });
             }
 
-            onStepChange(4, 'Fetching balances...');
+            onStepChange(4, 'Generating Cardano addresses...');
+
+            // Derive Cardano addresses (same seed phrase, BIP44 path m/1852'/1815'/0')
+            try {
+                const { generateCardanoAddress } = await import('@/lib/cardano/wallet');
+                const { saveAddresses: saveAddr } = await import('@/services/storage');
+                const cardanoNetworks = ['mainnet', 'preprod'];
+
+                for (const cardanoNet of cardanoNetworks) {
+                    const cardanoAddresses = [];
+                    for (let i = 0; i < 1; i++) {  // 1 payment address per network
+                        const addr = await generateCardanoAddress(finalSeedPhrase, i, cardanoNet);
+                        cardanoAddresses.push({
+                            address: addr,
+                            index: i,
+                            isChange: false,
+                            isStaking: false,
+                            blockchain: 'cardano',
+                        });
+                    }
+                    await saveAddr(cardanoAddresses, 'cardano', cardanoNet);
+                }
+            } catch (error) {
+                console.warn('[WALLET] Cardano address derivation failed:', error.message);
+                // Non-fatal — Cardano addresses can be derived later on demand
+            }
+
+            onStepChange(5, 'Fetching balances...');
 
             // Use syncWalletExplorer — same flow as refresh button
             try {
@@ -105,7 +132,7 @@ export class WalletInitializationService {
                 console.warn('[WALLET] Balance fetch error:', error.message);
             }
 
-            onStepChange(7, 'Finalizing setup...');
+            onStepChange(8, 'Finalizing setup...');
 
             return finalSeedPhrase;
 

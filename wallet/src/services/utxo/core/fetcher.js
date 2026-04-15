@@ -53,8 +53,11 @@ export class UTXOFetcher {
             const data = await response.json();
             return data.map(utxo => ({
                 txid: utxo.tx_hash,
-                vout: utxo.output_index,
-                value: parseInt(utxo.amount[0].quantity, 10),
+                vout: utxo.output_index ?? utxo.tx_index,
+                value: parseInt(utxo.amount.find(a => a.unit === 'lovelace')?.quantity || '0', 10),
+                assets: utxo.amount
+                    .filter(a => a.unit !== 'lovelace')
+                    .map(a => ({ unit: a.unit, quantity: a.quantity })),
                 status: {
                     confirmed: true
                 }

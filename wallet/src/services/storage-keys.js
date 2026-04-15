@@ -30,6 +30,8 @@ export const DATA_TYPES = {
   UTXOS:        'utxos',
   TRANSACTIONS: 'transactions',
   CHARMS:       'charms',
+  ASSETS:       'assets',       // Cardano native assets (CNTs, proxy tokens)
+  ASSET_META:   'asset_meta',   // Cardano asset metadata cache
   INFO:         'info',
 };
 
