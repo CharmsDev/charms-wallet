@@ -61,6 +61,15 @@ export default function ConfigModal({ isOpen, onClose }) {
     // Mempool
     const mempoolUrl = isTestnet ? 'https://mempool.space/testnet4/api' : 'https://mempool.space/api';
 
+    // Environment variables (shows what was injected at build time)
+    const envVars = {
+        proverMainnet: process.env.NEXT_PUBLIC_PROVER_MAINNET_URL || '(fallback)',
+        proverTestnet: process.env.NEXT_PUBLIC_PROVER_TESTNET4_URL || '(fallback)',
+        explorerApi: process.env.NEXT_PUBLIC_EXPLORER_WALLET_API_URL || '(fallback)',
+        btcNetwork: process.env.NEXT_PUBLIC_BITCOIN_NETWORK || '(fallback)',
+        cardanoNetwork: process.env.NEXT_PUBLIC_CARDANO_NETWORK || '(fallback)',
+    };
+
     const truncate = (str, len = 22) => {
         if (!str || str === '—') return '—';
         if (str.length <= len * 2) return str;
@@ -196,6 +205,14 @@ export default function ConfigModal({ isOpen, onClose }) {
                                             </div>
                                         }
                                     />
+                                </Section>
+
+                                {/* Build Environment */}
+                                <Section title="Build Environment">
+                                    <Row icon={<ServerIcon />} label="Prover (env)" value={truncate(envVars.proverMainnet, 28)} mono />
+                                    <Row icon={<DatabaseIcon />} label="Explorer (env)" value={truncate(envVars.explorerApi, 28)} mono />
+                                    <Row icon={<NetworkIcon />} label="BTC Network (env)" value={envVars.btcNetwork} />
+                                    <Row icon={<NetworkIcon />} label="ADA Network (env)" value={envVars.cardanoNetwork} />
                                 </Section>
 
                                 {/* Bitcoin Data Sources */}
