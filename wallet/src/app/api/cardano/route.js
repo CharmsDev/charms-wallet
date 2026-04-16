@@ -9,6 +9,8 @@
 
 import { NextResponse } from 'next/server';
 
+export const runtime = 'edge';
+
 const KOIOS_BASE = {
   mainnet: 'https://api.koios.rest/api/v1',
   preprod: 'https://preprod.koios.rest/api/v1',

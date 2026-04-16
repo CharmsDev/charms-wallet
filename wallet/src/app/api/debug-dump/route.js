@@ -1,20 +1,9 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 
-const DUMP_DIR = '/Users/ricartjuncadella/Documents/Prj/bitcoinos/_rjj/tmp';
+export const runtime = 'edge';
 
-export async function POST(req) {
-  if (process.env.NODE_ENV !== 'development') {
-    return NextResponse.json({ ok: false, error: 'debug-dump disabled in production' }, { status: 403 });
-  }
-  try {
-    const { filename, data } = await req.json();
-    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const filePath = path.join(DUMP_DIR, safeName);
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    return NextResponse.json({ ok: true, path: filePath });
-  } catch (err) {
-    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
-  }
+export async function POST() {
+  // Debug dump is local-dev only (uses fs which doesn't exist on edge/Cloudflare).
+  // In production, return silently — the caller already has .catch(() => {}).
+  return NextResponse.json({ ok: false, error: 'debug-dump not available in production' }, { status: 204 });
 }
