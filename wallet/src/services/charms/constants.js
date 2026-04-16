@@ -4,7 +4,7 @@
  */
 
 // Spell protocol version
-export const SPELL_VERSION = 13;
+export const SPELL_VERSION = 14;
 
 // Minimum sats for outputs
 export const MIN_SATS = 330;

@@ -137,7 +137,7 @@ export default function ConfigModal({ isOpen, onClose }) {
                                     <Row
                                         icon={<TagIcon />}
                                         label="Charms Version"
-                                        value="v0.12.0"
+                                        value="v14.0.0"
                                         highlight
                                     />
                                     <Row
