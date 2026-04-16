@@ -29,7 +29,7 @@ const EBTC_POLICY_ID = '552b22f4989ea698fabbf6314b70d2e5edb49c1fdbdeb6096e8c84b6
 const VAULT_ADDR = 'bc1qrn970793udj0ugc3pj0hyrptts4rw5n7qxeya2';
 const VAULT_DEST = '00141ccbe7f8b1e364fe23110c9f720c2b5c2a37527e';
 const VAULT_NONCE = 1129595493;
-const SCROLLS_BTC_API = 'https://scrolls-v11.charms.dev';
+const SCROLLS_BTC_API = 'https://scrolls-v13.charms.dev';
 const DUST_PER_VAULT = 300;
 const DUST_PLACEHOLDER = 546;
 const FEE_RATE = 2;
@@ -109,8 +109,9 @@ export async function executeEbtcRedeem(params) {
   // ═══ Step 1: Create BTC placeholder ════════════════════════════════════
   if (!ctx.placeholderUtxo) {
     onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, 'Creating BTC placeholder...');
+    // Placeholder tx must be created from OUR own BTC address, not the dest
     const ph = await createBtcPlaceholder({
-      btcAddress: ctx.btcAddress,
+      btcAddress: ctx.btcOwnAddress || ctx.btcAddress,
       seedPhrase: ctx.seedPhrase,
       network: ctx.network,
       onStatus: m => onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, m),
@@ -122,10 +123,12 @@ export async function executeEbtcRedeem(params) {
     console.log('[eBTC-redeem] Placeholder:', ctx.placeholderUtxo);
   }
 
-  // Wait for placeholder confirmation
-  onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, 'Waiting for placeholder confirmation...');
-  await waitForBtcInMempool(ctx.placeholderTxid, ctx.network, signal);
-  save(BEAM_PHASE.PROVING);
+  // Wait for placeholder confirmation (skip if we already progressed past this point)
+  if (!ctx.beamToHash && !ctx.cardanoBeamOutTxHash) {
+    onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, 'Waiting for placeholder confirmation...');
+    await waitForBtcInMempool(ctx.placeholderTxid, ctx.network, signal);
+    save(BEAM_PHASE.PROVING);
+  }
 
   // ═══ Step 2: ADA beam-out ══════════════════════════════════════════════
   if (!ctx.cardanoBeamOutTxHash) {
@@ -144,9 +147,9 @@ export async function executeEbtcRedeem(params) {
     console.log('[eBTC-redeem] ADA beam-out:', ctx.cardanoBeamOutTxHash);
   }
 
-  // Wait for Mithril finality
+  // Wait for Cardano finality (Mithril certification)
   if (!ctx.finalitySig) {
-    onPhase(BEAM_PHASE.WAITING_FINALITY, 'Waiting for Cardano finality (Mithril, 20-60 min)...');
+    onPhase(BEAM_PHASE.WAITING_FINALITY, 'Waiting for Cardano finality (typically 20-60 min)...');
     ctx.finalitySig = await waitForMithrilFinality(ctx.cardanoTxCborHex, signal,
       m => onPhase(BEAM_PHASE.WAITING_FINALITY, m));
     save(BEAM_PHASE.CLAIMING_DEST);
@@ -163,6 +166,14 @@ export async function executeEbtcRedeem(params) {
         onStatus: m => onPhase(BEAM_PHASE.CLAIMING_DEST, m),
       });
       ctx.redeemSpellTxHex = r.unsignedTxHex;
+      // Persist re-verified / reselected resources so retry / next run uses fresh values
+      ctx.vaultUtxo = r.resolvedVaultUtxo;
+      ctx.vaultSats = r.resolvedVaultSats;
+      ctx.remainingVault = r.resolvedRemainingVault;
+      ctx.btcFundingUtxos = r.resolvedFundingUtxos;
+      // Legacy single-field kept in sync for any consumer still reading it
+      ctx.btcFundingUtxo = r.resolvedFundingUtxos?.[0]?.utxo || null;
+      ctx.btcFundingSats = r.resolvedFundingUtxos?.[0]?.sats || null;
       save(BEAM_PHASE.CLAIMING_DEST);
     }
 
@@ -242,16 +253,21 @@ async function createBtcPlaceholder({ btcAddress, seedPhrase, network, onStatus 
 }
 
 async function waitForBtcInMempool(txid, network, signal) {
-  const mempoolBase = getMempoolBase(network);
+  // Use wallet's mempool-service (routes through Charms Explorer first,
+  // falls back to mempool.space) instead of hitting mempool.space directly.
+  const { mempoolService } = await import('@/services/shared/mempool-service');
   for (let i = 0; i < 60; i++) {
     if (signal?.aborted) throw new Error('Cancelled');
     try {
-      const r = await fetch(`${mempoolBase}/tx/${txid}`);
-      if (r.ok) return;
+      const data = await mempoolService.getTransaction(txid, network === 'mainnet' ? 'bitcoin' : 'testnet4');
+      if (data) return;
     } catch {}
     await new Promise(r => setTimeout(r, 5000));
   }
-  throw new Error('Placeholder not found in mempool after 5 min');
+  throw Object.assign(
+    new Error('Placeholder transaction not yet visible. Click Retry to keep waiting — the transaction was broadcast and should propagate shortly.'),
+    { code: 'BTC_MEMPOOL_TIMEOUT' }
+  );
 }
 
 // ── Step 2: ADA beam-out ────────────────────────────────────────────────────
@@ -263,26 +279,25 @@ async function proveAndBroadcastAdaBeamOut({
   const ownAddr = cardanoOwnAddress || cardanoAddress;
   const remainingEbtc = ebtcBalance - redeemAmount;
 
-  // Fetch fresh ADA UTXOs and select collateral + funding
-  const koios = 'https://api.koios.rest/api/v1';
+  // Fetch fresh ADA UTXOs and select collateral + funding via wallet's cardano API
+  // (goes through /api/cardano proxy to avoid CORS on Koios)
+  const { fetchUtxos: fetchCardanoUtxos, getCardanoTxCbor, submitCardanoTx } = await import('@/services/cardano/api');
   onStatus?.('Selecting Cardano collateral + funding...');
-  const utxos = await fetch(`${koios}/address_utxos`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ _addresses: [ownAddr], _extended: true }),
-  }).then(r => r.json());
+  const adaUtxos = await fetchCardanoUtxos(ownAddr);
 
-  const cntU = utxos.find(u => `${u.tx_hash}:${u.tx_index}` === cntUtxo);
+  // fetchUtxos returns normalized shape: { txHash, outputIndex, lovelace, assets, ... }
+  const cntU = adaUtxos.find(u => `${u.txHash}:${u.outputIndex}` === cntUtxo);
   if (!cntU) throw new Error('CNT UTXO not found in latest fetch');
 
-  const pureAda = utxos.filter(u => (!u.asset_list || u.asset_list.length === 0) && `${u.tx_hash}:${u.tx_index}` !== cntUtxo);
-  const collateral = pureAda.filter(u => BigInt(u.value) >= 2_000_000n).sort((a, b) => parseInt(a.value) - parseInt(b.value))[0];
+  const pureAda = adaUtxos.filter(u => (!u.assets || u.assets.length === 0) && `${u.txHash}:${u.outputIndex}` !== cntUtxo);
+  const collateral = pureAda.filter(u => BigInt(u.lovelace) >= 2_000_000n).sort((a, b) => Number(BigInt(a.lovelace) - BigInt(b.lovelace)))[0];
   if (!collateral) throw new Error('No collateral UTXO ≥ 2 ADA');
-  const funding = pureAda.filter(u => `${u.tx_hash}:${u.tx_index}` !== `${collateral.tx_hash}:${collateral.tx_index}`)
-    .filter(u => BigInt(u.value) >= 7_000_000n).sort((a, b) => parseInt(b.value) - parseInt(a.value))[0];
+  const funding = pureAda.filter(u => `${u.txHash}:${u.outputIndex}` !== `${collateral.txHash}:${collateral.outputIndex}`)
+    .filter(u => BigInt(u.lovelace) >= 7_000_000n).sort((a, b) => Number(BigInt(b.lovelace) - BigInt(a.lovelace)))[0];
   if (!funding) throw new Error('No funding UTXO ≥ 7 ADA');
 
-  const collateralUtxoId = `${collateral.tx_hash}:${collateral.tx_index}`;
-  const fundingUtxoId = `${funding.tx_hash}:${funding.tx_index}`;
+  const collateralUtxoId = `${collateral.txHash}:${collateral.outputIndex}`;
+  const fundingUtxoId = `${funding.txHash}:${funding.outputIndex}`;
   console.log('[eBTC-redeem:ada-out] collateral:', collateralUtxoId, 'funding:', fundingUtxoId);
 
   // Build CBOR spell
@@ -312,18 +327,11 @@ async function proveAndBroadcastAdaBeamOut({
 
   const spellHex = cborToHex(normalizedSpell);
 
-  // Fetch prev txs CBOR
-  async function getTxCbor(txHash) {
-    const r = await fetch(`${koios}/tx_cbor`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ _tx_hashes: [txHash] }),
-    });
-    return (await r.json())[0]?.cbor;
-  }
-  const cntCbor = await getTxCbor(cntU.tx_hash);
-  const fundingCbor = funding.tx_hash === cntU.tx_hash ? cntCbor : await getTxCbor(funding.tx_hash);
+  // Fetch prev txs CBOR (via proxy)
+  const cntCbor = await getCardanoTxCbor(cntU.txHash);
+  const fundingCbor = funding.txHash === cntU.txHash ? cntCbor : await getCardanoTxCbor(funding.txHash);
   const prevTxs = [{ cardano: cntCbor }];
-  if (funding.tx_hash !== cntU.tx_hash) prevTxs.push({ cardano: fundingCbor });
+  if (funding.txHash !== cntU.txHash) prevTxs.push({ cardano: fundingCbor });
 
   const payload = {
     spell: spellHex,
@@ -363,39 +371,189 @@ async function proveAndBroadcastAdaBeamOut({
   const signedBytes = fixedTx.to_bytes();
   const cardanoBeamOutTxHash = fixedTx.transaction_hash().to_hex();
 
-  // Submit
+  // Submit via proxy
   onStatus?.('Submitting to Cardano...');
-  const submitResp = await fetch(`${koios}/submittx`, {
-    method: 'POST', headers: { 'Content-Type': 'application/cbor' }, body: Buffer.from(signedBytes),
-  });
-  if (!submitResp.ok) throw new Error(`Cardano submit failed: ${await submitResp.text()}`);
+  try {
+    await submitCardanoTx(signedBytes);
+  } catch (err) {
+    throw new Error(`Cardano submit failed: ${err.message}`);
+  }
 
   return { cardanoBeamOutTxHash, cardanoTxCborHex };
 }
 
 async function waitForMithrilFinality(cardanoTxCborHex, signal, onStatus) {
   const { certifyFinal } = await import('@/services/scrolls/scrolls-cardano');
+  // Typical finality: 20-60 min. Extreme cases (network congestion, epoch
+  // boundaries) can take hours. We poll for 30 min per attempt; on timeout
+  // we throw MITHRIL_TIMEOUT and the UI offers Retry — clicking resumes
+  // polling for another 30 min. Nothing on-chain is lost, since the
+  // Cardano beam-out is durable and we just need the certificate.
   const MAX = 30;
   for (let i = 1; i <= MAX; i++) {
     if (signal?.aborted) throw new Error('Cancelled');
-    onStatus?.(`Mithril attempt ${i}/${MAX}...`);
+    // Friendly status — no technical "Mithril" jargon
+    const mins = i;
+    onStatus?.(`Waiting for Cardano finality... (${mins} min elapsed)`);
     try {
       return await certifyFinal(cardanoTxCborHex);
     } catch (err) {
-      if (!err.message?.includes('no certified transaction')) console.warn('[eBTC-redeem] Mithril:', err.message);
+      if (!err.message?.includes('no certified transaction')) console.warn('[eBTC-redeem] finality check:', err.message);
     }
     await new Promise(r => setTimeout(r, 60_000));
   }
-  throw new Error('Mithril finality timed out after 30 min');
+  throw Object.assign(
+    new Error('Cardano finality is taking longer than usual. Click Retry to keep waiting — the Cardano beam-out is safely on-chain and the redeem will complete as soon as finality arrives.'),
+    { code: 'MITHRIL_TIMEOUT' }
+  );
 }
 
 // ── Step 3: Combined BTC redeem ─────────────────────────────────────────────
 
 async function proveCombinedRedeem({
-  placeholderUtxo, vaultUtxo, vaultSats, redeemAmount, remainingVault,
+  placeholderUtxo, placeholderVout, vaultUtxo, vaultSats, redeemAmount, remainingVault,
+  btcFundingUtxo, btcFundingSats, btcFundingUtxos, // single (legacy) or array [{utxo, sats}]
   cardanoBeamOutTxHash, cardanoTxCborHex, finalitySig,
-  btcAddress, network, onStatus,
+  btcAddress, btcOwnAddress, network, onStatus,
 }) {
+  const mempoolBase0 = getMempoolBase(network);
+
+  // ── Re-verify placeholder is still unspent ──────────────────────────────
+  // The ADA beam-out has already committed to this exact placeholder hash.
+  // If the user spent it, the redeem is unrecoverable — we must detect this
+  // early with a clear error instead of letting the prover fail cryptically.
+  onStatus?.('Verifying placeholder UTXO...');
+  try {
+    const phOutspend = await fetch(`${mempoolBase0}/tx/${placeholderUtxo.split(':')[0]}/outspend/${placeholderVout ?? placeholderUtxo.split(':')[1]}`).then(r => r.json());
+    if (phOutspend?.spent) {
+      throw Object.assign(new Error('Placeholder UTXO has been spent. This redeem is unrecoverable — the ADA beam-out already committed to it. Please contact support.'), { code: 'PLACEHOLDER_SPENT' });
+    }
+  } catch (e) {
+    if (e.code === 'PLACEHOLDER_SPENT') throw e;
+    console.warn('[eBTC-redeem:prove] Placeholder check failed (continuing):', e.message);
+  }
+
+  // ── Re-verify vault UTXO (or re-select) ─────────────────────────────────
+  onStatus?.('Re-verifying vault UTXO...');
+  const vaultList = await fetch(`${mempoolBase0}/address/${VAULT_ADDR}/utxo`).then(r => r.json()).catch(() => []);
+  const currentVaultIds = new Set(vaultList.filter(u => u.status?.confirmed).map(u => `${u.txid}:${u.vout}`));
+  if (!currentVaultIds.has(vaultUtxo)) {
+    console.warn('[eBTC-redeem:prove] Stored vault UTXO no longer available, reselecting:', vaultUtxo);
+    const minSats = redeemAmount + DUST_PER_VAULT;
+    const fresh = vaultList
+      .filter(u => u.status?.confirmed && u.value >= minSats)
+      .sort((a, b) => a.value - b.value)[0];
+    if (!fresh) throw Object.assign(new Error(`No confirmed vault UTXO ≥ ${minSats} sats available`), { code: 'NO_VAULT_UTXO' });
+    vaultUtxo = `${fresh.txid}:${fresh.vout}`;
+    vaultSats = fresh.value;
+    remainingVault = vaultSats - redeemAmount;
+    console.log('[eBTC-redeem:prove] Re-selected vault UTXO:', vaultUtxo, vaultSats, 'sats');
+  } else {
+    console.log('[eBTC-redeem:prove] Vault UTXO valid:', vaultUtxo, vaultSats, 'sats, remaining:', remainingVault);
+  }
+
+  // ── Funding UTXOs: verify + select (supports multi-UTXO consolidation) ──
+  // Target: ≥ FUNDING_TARGET sats total across one or more confirmed P2WPKH UTXOs.
+  //
+  // IMPORTANT: Scrolls fee formula is
+  //   fee = 895 + 64*num_inputs + (10/10000)*total_input_sats  (10 bps of total)
+  // So a huge funding input inflates the required Scrolls fee disproportionately,
+  // and the prover's auto-allocated Scrolls fee output falls short, causing
+  // "insufficient fee" rejections. Strategy: pick the SMALLEST combination of
+  // UTXOs that clears target. Prefer a single UTXO just above target over a
+  // mega-UTXO. Keeps total_input small → Scrolls fee stays predictable.
+  const FUNDING_TARGET = 6000;
+  let fundingUtxos = []; // [{utxo, sats}]
+
+  // Normalize incoming payload: accept array, legacy single, or nothing
+  if (Array.isArray(btcFundingUtxos) && btcFundingUtxos.length) {
+    fundingUtxos = btcFundingUtxos.map(u => ({ utxo: u.utxo, sats: u.sats }));
+  } else if (btcFundingUtxo) {
+    fundingUtxos = [{ utxo: btcFundingUtxo, sats: btcFundingSats }];
+  }
+
+  if (btcOwnAddress) {
+    onStatus?.('Verifying BTC funding UTXOs...');
+    let ownList = [];
+    try {
+      ownList = await fetch(`${mempoolBase0}/address/${btcOwnAddress}/utxo`).then(r => r.json()).catch(() => []);
+    } catch (e) {
+      console.warn('[eBTC-redeem:prove] Could not fetch own UTXOs:', e.message);
+    }
+    const ownMap = new Map();
+    for (const u of ownList) {
+      if (u.status?.confirmed) ownMap.set(`${u.txid}:${u.vout}`, u.value);
+    }
+
+    // Re-verify each stored funding UTXO is still confirmed + unspent
+    const validStored = fundingUtxos.filter(f => ownMap.has(f.utxo));
+    if (validStored.length !== fundingUtxos.length) {
+      console.warn('[eBTC-redeem:prove] Some stored funding UTXOs no longer available:',
+        fundingUtxos.filter(f => !ownMap.has(f.utxo)).map(f => f.utxo));
+    }
+    fundingUtxos = validStored;
+
+    // Compute deficit and top up with SMALLEST viable combination:
+    //  1. First try: single UTXO ≥ target, picking the smallest that qualifies
+    //     (minimizes total_input → minimizes Scrolls fee).
+    //  2. Fallback: accumulate smallest-first until target reached (consolidates
+    //     dust without grabbing the mega-UTXO).
+    const phId = placeholderUtxo;
+    const vId = vaultUtxo;
+    const usedIds = new Set(fundingUtxos.map(f => f.utxo));
+    const available = Array.from(ownMap.entries())
+      .filter(([id]) => id !== phId && id !== vId && !usedIds.has(id))
+      .map(([utxo, sats]) => ({ utxo, sats }))
+      .sort((a, b) => a.sats - b.sats); // smallest first
+
+    let total = fundingUtxos.reduce((s, f) => s + f.sats, 0);
+    if (total < FUNDING_TARGET) {
+      // Preferred: single smallest UTXO that clears target by itself
+      const singleSufficient = available.find(u => u.sats >= FUNDING_TARGET);
+      if (singleSufficient) {
+        fundingUtxos.push(singleSufficient);
+        total += singleSufficient.sats;
+      } else {
+        // Accumulate smallest-first to build up without grabbing huge UTXOs
+        for (const cand of available) {
+          if (total >= FUNDING_TARGET) break;
+          fundingUtxos.push(cand);
+          total += cand.sats;
+        }
+      }
+    }
+
+    if (fundingUtxos.length === 0) {
+      console.warn('[eBTC-redeem:prove] No funding UTXOs available in', btcOwnAddress);
+    } else {
+      console.log('[eBTC-redeem:prove] Funding UTXOs:', fundingUtxos.length, 'total:', total, 'sats');
+      fundingUtxos.forEach((f, i) => console.log(`  [${i}]`, f.utxo, f.sats, 'sats'));
+    }
+  }
+
+  // Hard requirement: without enough funding the spell has no fee budget.
+  const fundingTotal = fundingUtxos.reduce((s, f) => s + f.sats, 0);
+  if (fundingTotal < FUNDING_TARGET) {
+    // Tally total available (even below target) to tell user how much to add
+    let available = 0;
+    try {
+      const ownList = await fetch(`${mempoolBase0}/address/${btcOwnAddress}/utxo`).then(r => r.json()).catch(() => []);
+      for (const u of ownList) {
+        if (u.status?.confirmed && `${u.txid}:${u.vout}` !== placeholderUtxo && `${u.txid}:${u.vout}` !== vaultUtxo) {
+          available += u.value;
+        }
+      }
+    } catch {}
+    const needed = FUNDING_TARGET - available;
+    throw Object.assign(
+      new Error(`Insufficient BTC for fees. You have ${available} sats available, need at least ${FUNDING_TARGET}. Add ~${needed} sats to your wallet and click Retry.`),
+      { code: 'INSUFFICIENT_FUNDS', available, needed, target: FUNDING_TARGET }
+    );
+  }
+
+  // Load eBTC WASM. Required because this tx combines beam-claim with vault
+  // release (burn semantics) — the prover needs the app binary to verify
+  // token_delta == vault_delta. (Pure beams don't need it; redeem does.)
   onStatus?.('Loading ebtc.wasm...');
   const wasmResp = await fetch('/wasm/ebtc.wasm');
   if (!wasmResp.ok) throw new Error('Failed to load ebtc.wasm');
@@ -412,13 +570,21 @@ async function proveCombinedRedeem({
   appPublicInputs.set(appToCborTuple(EBTC_VAULT_APP), null);
   appPublicInputs.set(appToCborTuple(EBTC_TOKEN_APP), null);
 
-  const outs = [new Map([[0, null]])];  // remaining vault state only (no token output = burn)
+  // outs + coins must be same length (prover constraint, per reference script
+  // and burn.mjs). Both describe the vault state output and its sat amount.
+  // The prover auto-adds Scrolls fee, user redeem, user change, and OP_RETURN
+  // based on the eBTC WASM app's internal fee model — do NOT declare them here.
+  const outs = [new Map([[0, null]])];
   const coins = [{ amount: remainingVault, dest: destToBytes(VAULT_DEST) }];
+
+  // Inputs: placeholder (beamed_from) + vault + user funding(s) (covers fees)
+  const ins = [utxoIdToBytes(placeholderUtxo), utxoIdToBytes(vaultUtxo)];
+  for (const f of fundingUtxos) ins.push(utxoIdToBytes(f.utxo));
 
   const normalizedSpell = {
     version: SPELL_VERSION,
     tx: {
-      ins: [utxoIdToBytes(placeholderUtxo), utxoIdToBytes(vaultUtxo)],
+      ins,
       outs,
       coins,
     },
@@ -428,20 +594,41 @@ async function proveCombinedRedeem({
   const spellHex = cborToHex(normalizedSpell);
   console.log('[eBTC-redeem:prove] spell:', spellHex.length, 'chars');
 
-  // Fetch prev txs
+  // Fetch prev txs (dedup by txid to avoid sending duplicates to prover)
   const mempoolBase = getMempoolBase(network);
   const [phTxid] = placeholderUtxo.split(':');
   const [vaultTxid] = vaultUtxo.split(':');
-  const phPrevHex = await fetch(`${mempoolBase}/tx/${phTxid}/hex`).then(r => r.text());
-  const vaultPrevHex = phTxid === vaultTxid ? phPrevHex : await fetch(`${mempoolBase}/tx/${vaultTxid}/hex`).then(r => r.text());
+
+  const prevTxIds = new Set();
+  const prevTxs = [];
+  async function addPrev(txid) {
+    if (!txid || prevTxIds.has(txid)) return;
+    const hex = await fetch(`${mempoolBase}/tx/${txid}/hex`).then(r => r.text());
+    prevTxs.push({ bitcoin: hex });
+    prevTxIds.add(txid);
+  }
+  await addPrev(phTxid);
+  await addPrev(vaultTxid);
+  for (const f of fundingUtxos) await addPrev(f.utxo.split(':')[0]);
 
   const cardanoPrevTx = { cardano: { tx: cardanoTxCborHex, signature: finalitySig } };
-  const prevTxs = [{ bitcoin: phPrevHex }];
-  if (phTxid !== vaultTxid) prevTxs.push({ bitcoin: vaultPrevHex });
   prevTxs.push(cardanoPrevTx);
 
   const txInsBeamedSourceUtxos = { 0: [`${cardanoBeamOutTxHash}:0`, null] };
 
+  const totalInput = 546 + vaultSats + fundingTotal;
+  console.log('[eBTC-redeem:prove] placeholder:', placeholderUtxo, '(546 sats)');
+  console.log('[eBTC-redeem:prove] vault:', vaultUtxo, '(', vaultSats, 'sats)');
+  fundingUtxos.forEach((f, i) => console.log(`[eBTC-redeem:prove] funding[${i}]:`, f.utxo, '(', f.sats, 'sats) ← covers fees'));
+  console.log('[eBTC-redeem:prove] remainingVault:', remainingVault, 'sats');
+  console.log('[eBTC-redeem:prove] redeem:', redeemAmount, 'eBTC →', redeemAmount, 'sats');
+  console.log('[eBTC-redeem:prove] total input:', totalInput, 'sats, coin out:', remainingVault, 'sats');
+  console.log('[eBTC-redeem:prove] fee budget:', totalInput - remainingVault, 'sats (scrolls + miner + user change)');
+
+  // Send the eBTC WASM (compiled with sp1-5.2.4 per ebtc-repo Cargo.lock).
+  // Required because the spell declares vault + token contracts in
+  // app_public_inputs — the prover must execute their logic to generate
+  // the ZK proof. Server SP1 runtime must be compatible with our binary.
   const payload = {
     spell: spellHex,
     app_private_inputs: { [EBTC_VAULT_APP]: 'f6', [EBTC_TOKEN_APP]: 'f6' },
@@ -454,17 +641,60 @@ async function proveCombinedRedeem({
     collateral_utxo: null,
   };
 
+  // Debug dump payload (without wasm) to help diagnose failures
+  try {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const totalInputSats = 546 + vaultSats + fundingTotal;
+    const insDesc = [
+      placeholderUtxo + ' (placeholder, 546 sats, beamed_from ADA)',
+      vaultUtxo + ' (vault, ' + vaultSats + ' sats)',
+    ];
+    fundingUtxos.forEach((f, i) => insDesc.push(f.utxo + ` (funding[${i}], ${f.sats} sats)`));
+    const debugData = {
+      spell_human: {
+        version: SPELL_VERSION,
+        ins: insDesc,
+        outs: ['{0: null} (vault state)'],
+        coins: [remainingVault + ' sats → vault (prover auto-adds Scrolls fee, user redeem, change)'],
+        beamed_from_source: cardanoBeamOutTxHash + ':0',
+        apps: [EBTC_VAULT_APP + ' (tag 0)', EBTC_TOKEN_APP + ' (tag 1)'],
+        total_input_sats: totalInputSats,
+        funding_count: fundingUtxos.length,
+        funding_total_sats: fundingTotal,
+        total_coin_output_sats: remainingVault,
+        fee_budget_sats: totalInputSats - remainingVault,
+        user_should_get_approx_sats: redeemAmount,
+      },
+      spell_hex: spellHex,
+      change_address: btcAddress,
+      fee_rate: FEE_RATE,
+      finality_sig_len: finalitySig?.length,
+      cardano_tx_cbor_len: cardanoTxCborHex?.length,
+    };
+    await fetch('/api/debug-dump', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: `ebtc-redeem-btc-${ts}.json`, data: debugData }),
+    }).catch(() => {});
+    console.log('[eBTC-redeem:prove] debug dumped to _rjj/tmp/');
+  } catch {}
+
   onStatus?.('Proving (5-10 min)...');
   const proverUrl = getProverUrl(network);
   const t0 = Date.now();
-  const resp = await fetch(proverUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const payloadJson = JSON.stringify(payload);
+  const resp = await fetch(proverUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payloadJson });
   console.log(`[eBTC-redeem:prove] response: ${resp.status} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
-  if (!resp.ok) throw new Error(`Prover failed: ${await resp.text()}`);
+  if (!resp.ok) {
+    const err = await resp.text();
+    console.error('[eBTC-redeem:prove] prover error:', err);
+    throw new Error(`Prover failed: ${err}`);
+  }
 
   const result = await resp.json();
   const unsignedTxHex = Array.isArray(result) ? result[0]?.bitcoin : result?.bitcoin;
   if (!unsignedTxHex) throw new Error('No unsigned tx in response');
-  return { unsignedTxHex };
+  return { unsignedTxHex, resolvedVaultUtxo: vaultUtxo, resolvedVaultSats: vaultSats, resolvedRemainingVault: remainingVault, resolvedFundingUtxos: fundingUtxos };
 }
 
 async function signScrollsAndBroadcastRedeem({
@@ -534,11 +764,23 @@ async function signScrollsAndBroadcastRedeem({
   tx.setWitness(vaultIdx, []);
   const ourSignedHex = tx.toHex();
 
-  // Scrolls signs vault input
+  // Scrolls signs vault input — needs prev_tx for EVERY input in tx order.
+  // Fetch all prev_txs by iterating tx.ins, deduplicating by txid to avoid
+  // redundant network calls (same source tx can fund multiple inputs).
   onStatus?.('Scrolls signing vault input...');
-  const vaultPrevHex = phTxid === vaultTxid ? phPrevHex : await fetch(`${mempoolBase}/tx/${vaultTxid}/hex`).then(r => r.text());
-  const scrollsPrevTxs = [vaultPrevHex];
-  if (phTxid !== vaultTxid) scrollsPrevTxs.unshift(phPrevHex);
+  const prevHexCache = new Map();
+  prevHexCache.set(phTxid, phPrevHex);
+  const scrollsPrevTxs = [];
+  for (const inp of tx.ins) {
+    const inpTxid = Buffer.from(inp.hash).reverse().toString('hex');
+    let hex = prevHexCache.get(inpTxid);
+    if (!hex) {
+      hex = await fetch(`${mempoolBase}/tx/${inpTxid}/hex`).then(r => r.text());
+      prevHexCache.set(inpTxid, hex);
+    }
+    scrollsPrevTxs.push(hex);
+  }
+  console.log(`[eBTC-redeem:sign] Scrolls prev_txs: ${scrollsPrevTxs.length} (one per input)`);
 
   const scrollsResp = await fetch(`${SCROLLS_BTC_API}/main/sign`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -580,6 +822,10 @@ function snapshot(ctx) {
     cardanoAddress: ctx.cardanoAddress,
     cardanoOwnAddress: ctx.cardanoOwnAddress,
     btcAddress: ctx.btcAddress,
+    btcOwnAddress: ctx.btcOwnAddress,
+    btcFundingUtxo: ctx.btcFundingUtxo,
+    btcFundingSats: ctx.btcFundingSats,
+    btcFundingUtxos: ctx.btcFundingUtxos,
     btcNetwork: ctx.network,
     placeholderUtxo: ctx.placeholderUtxo,
     placeholderTxid: ctx.placeholderTxid,

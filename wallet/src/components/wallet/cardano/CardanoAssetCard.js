@@ -106,7 +106,7 @@ export default function CardanoAssetCard({ asset, onBeamBack, onRedeem }) {
               <button
                 onClick={() => onRedeem(asset)}
                 className="w-full py-1.5 rounded text-xs font-medium bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-700 hover:to-yellow-700 text-white transition-all"
-                title="Burn eBTC and release real BTC from vault"
+                title="Move eBTC back to Bitcoin"
               >
                 Redeem to Bitcoin
               </button>

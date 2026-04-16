@@ -67,10 +67,27 @@ function reducer(state, action) {
         ...state,
         operations: state.operations.map(op =>
           op.id === action.id
-            ? { ...op, phase: BEAM_PHASE.ERROR, error: action.error, completedAt: Date.now(), statusMessage: action.error }
+            ? { ...op, phase: BEAM_PHASE.ERROR, error: action.error, errorCode: action.errorCode, completedAt: Date.now(), statusMessage: action.error }
             : op
         ),
       };
+    case 'RETRY': {
+      // Clear error state + reset the active step's timer so the user sees
+      // a fresh wait. The executor is idempotent and will re-enter from the
+      // last saved checkpoint, skipping already-completed steps.
+      return {
+        ...state,
+        operations: state.operations.map(op => {
+          if (op.id !== action.id) return op;
+          const steps = [...(op.steps || [])];
+          const lastIdx = steps.length - 1;
+          if (lastIdx >= 0 && steps[lastIdx].phase === action.phase) {
+            steps[lastIdx] = { ...steps[lastIdx], startedAt: Date.now(), completedAt: null, message: 'Retrying...' };
+          }
+          return { ...op, phase: action.phase, error: null, errorCode: null, completedAt: null, statusMessage: 'Retrying...', steps };
+        }),
+      };
+    }
     case 'DISMISS':
       return { ...state, operations: state.operations.filter(op => op.id !== action.id) };
     case 'SET_PANEL':
@@ -212,10 +229,59 @@ export function BeamOperationsProvider({ children }) {
         dispatch({ type: 'COMPLETE', id, btcTxid: result.btcTxid, adaClaimTxid: result.adaClaimTxid });
         refreshAllBalances().catch(() => {});
       } catch (err) {
-        dispatch({ type: 'ERROR', id, error: err?.message || 'eBTC redeem failed' });
+        dispatch({ type: 'ERROR', id, error: err?.message || 'eBTC redeem failed', errorCode: err?.code });
       }
     })();
   }, [refreshAllBalances]);
+
+  // Retry: re-run an errored beam from its last saved checkpoint.
+  // The executor is idempotent (skips steps with already-persisted results),
+  // so retry picks up exactly where it left off. Used when e.g. the user
+  // added more BTC funds after an INSUFFICIENT_FUNDS error.
+  //
+  // IMPORTANT: if the cached Bitcoin spell tx exists (redeemSpellTxHex), it
+  // references a specific set of input UTXOs. If the error was Scrolls
+  // "insufficient fee" or similar spell-level issue, we must invalidate the
+  // cached tx so the executor rebuilds with fresh funding selection.
+  const retryBeam = useCallback(async (id) => {
+    const op = state.operations.find(o => o.id === id);
+    if (!op) return;
+    const { loadBeamState, saveBeamState } = await import('@/services/beam/core/persistence');
+    const saved = loadBeamState(id);
+    if (!saved) {
+      console.warn('[retryBeam] No saved state for', id);
+      return;
+    }
+    const { getSeedPhrase } = await import('@/services/storage');
+    const seedPhrase = await getSeedPhrase();
+    if (!seedPhrase) {
+      console.warn('[retryBeam] No seed phrase available');
+      return;
+    }
+    // If the error occurred after the spell tx was built, invalidate it so
+    // the retry reconstructs the spell with current strategy (e.g. smaller
+    // funding UTXOs to keep Scrolls fee predictable).
+    const shouldRebuildSpell =
+      op.errorCode === 'INSUFFICIENT_FUNDS' ||
+      (saved.redeemSpellTxHex && /Scrolls|insufficient fee|prev_tx|prover/i.test(op.error || ''));
+    if (shouldRebuildSpell) {
+      console.log('[retryBeam] Invalidating cached redeem spell tx to force rebuild');
+      saved.redeemSpellTxHex = null;
+      // Also clear stored funding so the executor picks fresh UTXOs
+      saved.btcFundingUtxos = null;
+      saved.btcFundingUtxo = null;
+      saved.btcFundingSats = null;
+      saveBeamState(id, saved);
+    }
+    // Reset to the last saved phase (not ERROR) so executor re-enters naturally
+    dispatch({ type: 'RETRY', id, phase: saved.phase || BEAM_PHASE.CREATING_PLACEHOLDER });
+    const resumePayload = { ...saved, seedPhrase, network: saved.btcNetwork || 'mainnet' };
+    const direction = saved.direction || op.payload?.direction;
+    if (direction === 'ebtc-ada-to-btc') runEbtcRedeem(id, resumePayload);
+    else if (direction === 'ebtc-btc-to-ada') runEbtcBeam(id, resumePayload);
+    else if (direction === 'ada-to-btc') runBeamBack(id, resumePayload);
+    else runBeam(id, resumePayload);
+  }, [state.operations, runEbtcRedeem, runEbtcBeam, runBeamBack, runBeam]);
 
   const startEbtcRedeem = useCallback((label, payload) => {
     const id = crypto.randomUUID();
@@ -276,12 +342,20 @@ export function BeamOperationsProvider({ children }) {
 
       for (const { id, state: saved } of incomplete) {
         const direction = saved.direction || 'btc-to-ada';
-        const isEbtc = direction === 'ebtc-btc-to-ada';
-        const label = isEbtc
-          ? `${saved.lockSats?.toLocaleString() || '?'} sats → eBTC → Cardano`
-          : saved.beamAmount
+        let label;
+        if (direction === 'ebtc-ada-to-btc') {
+          const amt = saved.redeemAmount ?? 0;
+          label = `${(amt / 1e8).toFixed(8)} eBTC → Bitcoin`;
+        } else if (direction === 'ebtc-btc-to-ada') {
+          label = `${saved.lockSats?.toLocaleString() || '?'} sats → eBTC → Cardano`;
+        } else if (direction === 'ada-to-btc') {
+          const amt = saved.beamAmount ?? 0;
+          label = `${(amt / 1e8).toFixed(2)} → Bitcoin`;
+        } else {
+          label = saved.beamAmount
             ? `${(saved.beamAmount / 1e8).toFixed(2)} → Cardano`
             : 'Beam → Cardano';
+        }
 
         dispatch({
           type: 'QUEUE',
@@ -306,6 +380,29 @@ export function BeamOperationsProvider({ children }) {
           seedPhrase,
           network: saved.btcNetwork || 'mainnet',
         };
+
+        // For any redeem that has a cached spell tx but was never broadcast,
+        // invalidate it. The last attempt failed somewhere (Scrolls, sign,
+        // broadcast) so the cached tx is stale. Forces the executor to
+        // rebuild with current strategy (correct Scrolls fee, fresh funding).
+        // Once btcRedeemTxid is set, we preserve everything (success).
+        console.log(`[auto-resume] direction=${direction} phase=${saved.phase} hasSpell=${!!saved.redeemSpellTxHex} hasBtcTxid=${!!saved.btcRedeemTxid}`);
+        if (direction === 'ebtc-ada-to-btc' && !saved.btcRedeemTxid && saved.redeemSpellTxHex) {
+          console.log('[auto-resume] Invalidating cached redeem spell for fresh rebuild');
+          resumePayload.redeemSpellTxHex = null;
+          resumePayload.btcFundingUtxos = null;
+          resumePayload.btcFundingUtxo = null;
+          resumePayload.btcFundingSats = null;
+          // Persist the cleared state so next restart also rebuilds
+          const { saveBeamState } = await import('@/services/beam/core/persistence');
+          saveBeamState(id, {
+            ...saved,
+            redeemSpellTxHex: null,
+            btcFundingUtxos: null,
+            btcFundingUtxo: null,
+            btcFundingSats: null,
+          });
+        }
 
         if (direction === 'ada-to-btc') {
           runBeamBack(id, resumePayload);
@@ -333,7 +430,7 @@ export function BeamOperationsProvider({ children }) {
 
   const value = {
     operations: state.operations, isPanelOpen: state.isPanelOpen,
-    openPanel, closePanel, togglePanel, startBeam, startBeamBack, startEbtcBeam, startEbtcRedeem, dismissBeam, hasActiveOperations,
+    openPanel, closePanel, togglePanel, startBeam, startBeamBack, startEbtcBeam, startEbtcRedeem, dismissBeam, retryBeam, hasActiveOperations,
   };
 
   return <BeamOperationsContext.Provider value={value}>{children}</BeamOperationsContext.Provider>;

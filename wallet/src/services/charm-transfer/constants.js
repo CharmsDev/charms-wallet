@@ -3,7 +3,7 @@
  * Single source of truth for URLs, dust amounts, and limits.
  */
 
-export const SPELL_VERSION = 13;
+export const SPELL_VERSION = 14;
 export const CHARM_DUST = 546;          // sats — relay-safe P2TR dust
 export const FALLBACK_FEE_RATE = 3;     // sat/vB — only if API fails
 export const MIN_FEE_RATE = 2;          // sat/vB — absolute minimum
@@ -16,7 +16,7 @@ export const EXPLORER_API =
     process.env.NEXT_PUBLIC_EXPLORER_WALLET_API_URL || 'https://charms-explorer-api.fly.dev';
 
 export const PROVER_URL_MAINNET =
-    process.env.NEXT_PUBLIC_PROVER_MAINNET_URL || 'https://v13.charms.dev/spells/prove';
+    process.env.NEXT_PUBLIC_PROVER_MAINNET_URL || 'https://v14.charms.dev/spells/prove';
 
 export const PROVER_URL_TESTNET =
     process.env.NEXT_PUBLIC_PROVER_TESTNET4_URL || 'https://prove-t4.charms.dev';
@@ -30,11 +30,11 @@ export function getMempoolBase(network) {
 
 /**
  * Get the prover URL. Supports a runtime override via localStorage key
- * `wallet:prover:override` for switching between remote (v13.charms.dev)
- * and local (`charms server` running on port 17785) without restarting.
+ * `wallet:prover:override` for switching between remote (v14.charms.dev)
+ * and local (`charms-prover server` running on port 17784) without restarting.
  *
  * Set via browser console:
- *   localStorage.setItem('wallet:prover:override', 'http://localhost:17785/spells/prove')
+ *   localStorage.setItem('wallet:prover:override', 'http://localhost:17784/spells/prove')
  * Clear:
  *   localStorage.removeItem('wallet:prover:override')
  */

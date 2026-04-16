@@ -22,10 +22,12 @@ const DUST_PER_VAULT = 300;
 
 // ── Step 1: Form ────────────────────────────────────────────────────────────
 
-function RedeemFormStep({ asset, network, onNext, onClose }) {
+function RedeemFormStep({ asset, ownBtcAddress, onNext, onClose }) {
   const ebtcBalance = parseInt(asset.quantity || '0');
   const [redeemAmount, setRedeemAmount] = useState('');
   const [percentPreset, setPercentPreset] = useState(null);
+  const [useOwnAddress, setUseOwnAddress] = useState(true);
+  const [customAddress, setCustomAddress] = useState('');
 
   const setPercent = (p) => {
     setPercentPreset(p);
@@ -33,7 +35,9 @@ function RedeemFormStep({ asset, network, onNext, onClose }) {
   };
 
   const amt = parseInt(redeemAmount) || 0;
-  const isValid = amt > 0 && amt <= ebtcBalance;
+  const destAddress = useOwnAddress ? ownBtcAddress : customAddress;
+  const isAddressValid = destAddress && (destAddress.startsWith('bc1') || destAddress.startsWith('tb1'));
+  const isValid = amt > 0 && amt <= ebtcBalance && isAddressValid;
   const remainingEbtc = ebtcBalance - amt;
 
   return (
@@ -45,17 +49,17 @@ function RedeemFormStep({ asset, network, onNext, onClose }) {
         </div>
 
         <div className="text-xs text-dark-400 mb-4">
-          Burn eBTC tokens on Cardano and release the equivalent BTC from the Scrolls vault back to your wallet.
+          Move your eBTC from Cardano back to Bitcoin. BTC will be sent to the destination address.
         </div>
 
         <div className="bg-dark-900 rounded-lg p-3 mb-4">
           <div className="text-xs text-dark-400 mb-1">Available eBTC on Cardano</div>
-          <div className="text-xl font-mono text-purple-400">{ebtcBalance.toLocaleString()} eBTC</div>
-          <div className="text-xs text-dark-500">= {ebtcBalance.toLocaleString()} sats backed in vault</div>
+          <div className="text-xl font-mono text-purple-400">{(ebtcBalance / 1e8).toFixed(8)} eBTC</div>
+          <div className="text-xs text-dark-500 font-mono">= {ebtcBalance.toLocaleString()} sats</div>
         </div>
 
         <div className="mb-4">
-          <label className="text-sm text-dark-300 mb-1 block">Amount to redeem</label>
+          <label className="text-sm text-dark-300 mb-1 block">Amount to redeem (sats)</label>
           <input
             type="number"
             value={redeemAmount}
@@ -65,6 +69,9 @@ function RedeemFormStep({ asset, network, onNext, onClose }) {
             max={ebtcBalance}
             className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white text-sm focus:border-purple-500 focus:outline-none"
           />
+          {amt > 0 && (
+            <div className="text-xs text-dark-500 font-mono mt-1">= {(amt / 1e8).toFixed(8)} BTC</div>
+          )}
           <div className="flex gap-2 mt-2">
             {[25, 50, 75, 100].map(p => (
               <button
@@ -76,15 +83,40 @@ function RedeemFormStep({ asset, network, onNext, onClose }) {
           </div>
           {amt > 0 && (
             <div className="text-xs text-purple-400 mt-2">
-              You will receive {amt.toLocaleString()} sats of real BTC.
-              {remainingEbtc > 0 && ` ${remainingEbtc.toLocaleString()} eBTC stays on Cardano.`}
+              You will receive {(amt / 1e8).toFixed(8)} BTC ({amt.toLocaleString()} sats).
+              {remainingEbtc > 0 && ` ${(remainingEbtc / 1e8).toFixed(8)} eBTC stays on Cardano.`}
             </div>
+          )}
+        </div>
+
+        <div className="mb-4">
+          <label className="text-sm text-dark-300 mb-2 block">Destination address</label>
+          <div className="flex gap-2 mb-2">
+            <button
+              onClick={() => { setUseOwnAddress(true); setCustomAddress(''); }}
+              className={`px-3 py-1 rounded text-xs ${useOwnAddress ? 'bg-purple-600 text-white' : 'bg-dark-700 text-dark-400'}`}
+            >My Wallet</button>
+            <button
+              onClick={() => setUseOwnAddress(false)}
+              className={`px-3 py-1 rounded text-xs ${!useOwnAddress ? 'bg-purple-600 text-white' : 'bg-dark-700 text-dark-400'}`}
+            >Other</button>
+          </div>
+          {!useOwnAddress && (
+            <input
+              value={customAddress}
+              onChange={e => setCustomAddress(e.target.value)}
+              placeholder="bc1..."
+              className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white text-sm font-mono focus:border-purple-500 focus:outline-none"
+            />
+          )}
+          {useOwnAddress && ownBtcAddress && (
+            <div className="text-xs text-dark-500 font-mono truncate">{ownBtcAddress}</div>
           )}
         </div>
 
         <div className="flex gap-3">
           <button
-            onClick={() => onNext({ redeemAmount: amt, ebtcBalance, remainingEbtc })}
+            onClick={() => onNext({ redeemAmount: amt, ebtcBalance, remainingEbtc, destAddress })}
             disabled={!isValid}
             className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-all ${
               isValid ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-dark-700 text-dark-500 cursor-not-allowed'
@@ -101,16 +133,32 @@ function RedeemFormStep({ asset, network, onNext, onClose }) {
 
 function RedeemConfirmStep({ asset, formData, seedPhrase, network, onConfirm, onBack, onClose }) {
   const { utxos, refreshUTXOs } = useUTXOs();
-  const { addresses } = useAddresses();
   const cardanoAddr = useCardano(s => s.addresses[0]?.address);
   const adaBalance = useCardano(s => s.adaBalance);
   const cardanoRefresh = useCardano(s => s.refresh);
-  const cardanoLoadFromStorage = useCardano(s => s.loadFromStorage);
 
   const [vaultInfo, setVaultInfo] = useState(null);
+  const [btcAddress, setBtcAddress] = useState('');
+  const [btcUtxos, setBtcUtxos] = useState([]);
 
-  // Refresh both chains on mount
+  // Load BTC address + fresh UTXOs from mempool (Cardano tab has no BTC addresses in useAddresses)
   useEffect(() => {
+    (async () => {
+      try {
+        const { getAddresses } = await import('@/services/storage');
+        const stored = await getAddresses('bitcoin', 'mainnet');
+        const addr = stored?.find(a => a.index === 0 && !a.isChange)?.address || stored?.[0]?.address;
+        if (addr) {
+          setBtcAddress(addr);
+          // Fetch fresh UTXOs directly from mempool for the confirm check
+          const resp = await fetch(`https://mempool.space/api/address/${addr}/utxo`);
+          if (resp.ok) {
+            const list = await resp.json();
+            setBtcUtxos(list.filter(u => u.status?.confirmed));
+          }
+        }
+      } catch {}
+    })();
     refreshUTXOs?.('bitcoin', 'mainnet').catch(() => {});
     cardanoRefresh?.().catch(() => {});
   }, [refreshUTXOs, cardanoRefresh]);
@@ -142,20 +190,50 @@ function RedeemConfirmStep({ asset, formData, seedPhrase, network, onConfirm, on
   const hasEnoughAda = adaLovelace >= MIN_ADA_LOVELACE;
   const adaDisplay = (Number(adaLovelace) / 1_000_000).toFixed(2);
 
-  const btcAddress = addresses?.find(a => a.index === 0 && !a.isChange)?.address;
-  const btcUtxoList = useMemo(() => {
-    return Object.entries(utxos || {}).flatMap(([addr, list]) =>
-      (Array.isArray(list) ? list : []).map(u => ({ ...u, address: u.address || addr }))
-    );
-  }, [utxos]);
-  const hasBtcFunding = btcUtxoList.some(u => u.value >= 2000);
+  // Pick BTC funding UTXOs. Scrolls fee scales with total_input_sats
+  // (formula: 895 + 64*ins + 10bps of total). So we pick the SMALLEST
+  // combination clearing the target, not the largest. Prefer a single
+  // UTXO just above target → keeps total_input compact.
+  const FUNDING_TARGET = 6000;
+  const MIN_PLACEHOLDER_SATS = 2000;
+  const fundingSelection = useMemo(() => {
+    const confirmed = btcUtxos.filter(u => u.status?.confirmed !== false);
+    const totalAvailable = confirmed.reduce((s, u) => s + u.value, 0);
+    // Smallest-first sort
+    const sorted = [...confirmed].sort((a, b) => a.value - b.value);
+    const picked = [];
+    let total = 0;
+    // Preferred: single smallest UTXO that clears target alone
+    const singleSufficient = sorted.find(u => u.value >= FUNDING_TARGET);
+    if (singleSufficient) {
+      picked.push(singleSufficient);
+      total = singleSufficient.value;
+    } else {
+      // Fallback: accumulate smallest-first
+      for (const u of sorted) {
+        if (total >= FUNDING_TARGET) break;
+        picked.push(u);
+        total += u.value;
+      }
+    }
+    return { picked, total, totalAvailable, sufficient: total >= FUNDING_TARGET };
+  }, [btcUtxos]);
+  const placeholderUtxo = useMemo(() => {
+    // Any UTXO ≥ placeholder min, not among funding picks
+    const fundIds = new Set(fundingSelection.picked.map(f => `${f.txid}:${f.vout}`));
+    return btcUtxos.find(u => !fundIds.has(`${u.txid}:${u.vout}`) && u.value >= MIN_PLACEHOLDER_SATS)
+      || fundingSelection.picked[0];
+  }, [btcUtxos, fundingSelection]);
 
   const errors = [];
   if (!hasEnoughAda) errors.push(`Insufficient ADA. Need ≥10 ADA, have ${adaDisplay}`);
-  if (!hasBtcFunding) errors.push('No BTC UTXO ≥2000 sats for placeholder');
-  if (vaultInfo && !vaultInfo.selected) errors.push(`No vault UTXO ≥ ${formData.redeemAmount + DUST_PER_VAULT} sats. Vault may be fragmented.`);
+  if (btcAddress && !fundingSelection.sufficient) {
+    const deficit = FUNDING_TARGET - fundingSelection.totalAvailable;
+    errors.push(`Insufficient BTC for fees. You have ${fundingSelection.totalAvailable} sats, need ${FUNDING_TARGET}. Add ~${deficit} sats to your wallet.`);
+  }
+  if (vaultInfo && !vaultInfo.selected) errors.push(`No vault UTXO available. Vault may be fragmented.`);
 
-  const canStart = errors.length === 0 && vaultInfo && cardanoAddr && btcAddress;
+  const canStart = errors.length === 0 && vaultInfo?.selected && cardanoAddr && btcAddress && fundingSelection.sufficient;
   const remainingVault = vaultInfo?.selected ? vaultInfo.selected.value - formData.redeemAmount : 0;
 
   return (
@@ -168,25 +246,17 @@ function RedeemConfirmStep({ asset, formData, seedPhrase, network, onConfirm, on
 
         <div className="bg-dark-900 rounded-lg p-4 mb-4 space-y-2 text-sm">
           <div className="flex justify-between"><span className="text-dark-400">Direction</span><span className="text-white">Cardano → Bitcoin</span></div>
-          <div className="flex justify-between"><span className="text-dark-400">Redeem</span><span className="font-mono text-white">{formData.redeemAmount.toLocaleString()} eBTC</span></div>
-          <div className="flex justify-between"><span className="text-dark-400">You receive</span><span className="font-mono text-purple-400">{formData.redeemAmount.toLocaleString()} sats BTC</span></div>
-          <div className="flex justify-between"><span className="text-dark-400">eBTC remaining</span><span className="font-mono text-white">{formData.remainingEbtc.toLocaleString()}</span></div>
-          <div className="flex justify-between"><span className="text-dark-400">ADA balance</span><span className={`font-mono text-xs ${!hasEnoughAda ? 'text-red-400' : 'text-white'}`}>{adaDisplay} ADA</span></div>
-          {vaultInfo && (
-            <>
-              <div className="flex justify-between"><span className="text-dark-400">Vault total</span><span className="font-mono text-xs text-white">{vaultInfo.totalSats.toLocaleString()} sats</span></div>
-              {vaultInfo.selected && (
-                <>
-                  <div className="flex justify-between"><span className="text-dark-400">Vault UTXO used</span><span className="font-mono text-xs text-dark-300">{vaultInfo.selected.value.toLocaleString()} sats</span></div>
-                  <div className="flex justify-between"><span className="text-dark-400">Vault remaining</span><span className="font-mono text-xs text-white">{remainingVault.toLocaleString()} sats</span></div>
-                </>
-              )}
-            </>
+          <div className="flex justify-between"><span className="text-dark-400">Amount</span><span className="font-mono text-white">{(formData.redeemAmount / 1e8).toFixed(8)} eBTC</span></div>
+          <div className="flex justify-between"><span className="text-dark-400">You receive</span><span className="font-mono text-purple-400">{(formData.redeemAmount / 1e8).toFixed(8)} BTC</span></div>
+          {formData.remainingEbtc > 0 && (
+            <div className="flex justify-between"><span className="text-dark-400">eBTC remaining</span><span className="font-mono text-white">{(formData.remainingEbtc / 1e8).toFixed(8)}</span></div>
           )}
+          <div className="flex justify-between items-start gap-2"><span className="text-dark-400 shrink-0">Destination</span><span className="font-mono text-xs text-white break-all text-right">{formData.destAddress}</span></div>
+          <div className="flex justify-between"><span className="text-dark-400">ADA balance</span><span className={`font-mono text-xs ${!hasEnoughAda ? 'text-red-400' : 'text-white'}`}>{adaDisplay} ADA</span></div>
         </div>
 
         <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-3 mb-4 text-xs text-blue-300">
-          3-tx flow: BTC placeholder → ADA beam-out → BTC redeem (Scrolls signs vault). Takes ~30-60 min (Mithril finality wait). Runs in background.
+          Takes ~30-60 minutes to complete. The process runs in the background — you can close this page.
         </div>
 
         {errors.map((e, i) => (
@@ -202,7 +272,12 @@ function RedeemConfirmStep({ asset, formData, seedPhrase, network, onConfirm, on
               vaultUtxo: `${vaultInfo.selected.txid}:${vaultInfo.selected.vout}`,
               vaultSats: vaultInfo.selected.value,
               remainingVault,
-              btcAddress,
+              btcFundingUtxos: fundingSelection.picked.map(u => ({ utxo: `${u.txid}:${u.vout}`, sats: u.value })),
+              // Legacy single-field for backward compat (first pick)
+              btcFundingUtxo: fundingSelection.picked[0] ? `${fundingSelection.picked[0].txid}:${fundingSelection.picked[0].vout}` : null,
+              btcFundingSats: fundingSelection.picked[0]?.value || null,
+              btcAddress: formData.destAddress,
+              btcOwnAddress: btcAddress,
               cardanoAddress: cardanoAddr,
               cardanoOwnAddress: cardanoAddr,
             })}
@@ -223,6 +298,7 @@ function RedeemConfirmStep({ asset, formData, seedPhrase, network, onConfirm, on
 export default function EbtcRedeemDialog({ asset, onClose }) {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState(null);
+  const [ownBtcAddress, setOwnBtcAddress] = useState('');
   const { seedPhrase } = useWallet();
   const { activeNetwork, activeBlockchain } = useBlockchain();
   const { startEbtcRedeem } = useBeamOperations();
@@ -230,8 +306,21 @@ export default function EbtcRedeemDialog({ asset, onClose }) {
   const btcNetwork = 'mainnet';
   const adaNetwork = 'mainnet';
 
+  // Load BTC address from storage (user may be on Cardano tab; addressesStore
+  // only holds the active blockchain's addresses).
+  useEffect(() => {
+    (async () => {
+      try {
+        const { getAddresses } = await import('@/services/storage');
+        const stored = await getAddresses('bitcoin', btcNetwork);
+        const addr = stored?.find(a => a.index === 0 && !a.isChange)?.address || stored?.[0]?.address;
+        if (addr) setOwnBtcAddress(addr);
+      } catch {}
+    })();
+  }, []);
+
   const handleConfirm = (payload) => {
-    const label = `Redeem ${payload.redeemAmount.toLocaleString()} eBTC → BTC`;
+    const label = `${(payload.redeemAmount / 1e8).toFixed(8)} eBTC → Bitcoin`;
     startEbtcRedeem(label, {
       ...payload,
       seedPhrase,
@@ -245,7 +334,7 @@ export default function EbtcRedeemDialog({ asset, onClose }) {
     return (
       <RedeemFormStep
         asset={asset}
-        network={adaNetwork}
+        ownBtcAddress={ownBtcAddress}
         onNext={(data) => { setFormData(data); setStep(2); }}
         onClose={onClose}
       />
