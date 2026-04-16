@@ -1,8 +1,8 @@
 /**
  * Prover API Client for Charm Transfers
- * Sends a NormalizedProveRequest to the v10 prover and returns the signed TX hex.
+ * Sends a NormalizedProveRequest to the prover and returns the signed TX hex.
  *
- * Prover URL: https://v10.charms.dev/spells/prove
+ * Prover URL: configured via getProverUrl() (default: v14.charms.dev)
  * Response: [{ "bitcoin": "<raw_tx_hex>" }]
  */
 

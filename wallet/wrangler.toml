@@ -1,0 +1,16 @@
+# Cloudflare Pages configuration.
+# All environment variables are NEXT_PUBLIC_* (client-side, no secrets).
+# This file is the single source of truth — overrides any Cloudflare dashboard vars.
+
+name = "charms-wallet"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = ".vercel/output/static"
+
+[vars]
+NEXT_PUBLIC_EXPLORER_WALLET_API_URL = "https://charms-explorer-api.fly.dev"
+NEXT_PUBLIC_BITCOIN_NETWORK = "mainnet"
+NEXT_PUBLIC_PROVER_MAINNET_URL = "https://v14.charms.dev/spells/prove"
+NEXT_PUBLIC_PROVER_TESTNET4_URL = "https://prove-t4.charms.dev"
+NEXT_PUBLIC_CARDANO_NETWORK = "mainnet"
+NEXT_PUBLIC_CARDANO_API_URL = "https://cardano-mainnet.blockfrost.io/api/v0"
+NEXT_PUBLIC_BLOCKFROST_PROJECT_ID = ""
