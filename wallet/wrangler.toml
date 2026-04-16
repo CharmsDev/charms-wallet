@@ -6,6 +6,12 @@ name = "charms-wallet"
 compatibility_date = "2024-09-23"
 pages_build_output_dir = ".vercel/output/static"
 
+[build]
+command = "npx @cloudflare/next-on-pages@1"
+
+[build.environment]
+NODE_VERSION = "20.10.0"
+
 [vars]
 NEXT_PUBLIC_EXPLORER_WALLET_API_URL = "https://charms-explorer-api.fly.dev"
 NEXT_PUBLIC_BITCOIN_NETWORK = "mainnet"
