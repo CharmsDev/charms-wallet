@@ -89,6 +89,15 @@ export default function CardanoDashboard() {
           {!initialized && !isRefreshing && (
             <div className="text-xs text-dark-500 mt-1">Not yet loaded</div>
           )}
+          {/* Send / Receive buttons */}
+          <div className="flex gap-3 mt-4">
+            <button disabled className="btn btn-primary flex-1 py-2.5 opacity-50 cursor-not-allowed">
+              Send ADA
+            </button>
+            <button disabled className="btn btn-secondary flex-1 py-2.5 opacity-50 cursor-not-allowed">
+              Receive
+            </button>
+          </div>
         </div>
 
         {error && (

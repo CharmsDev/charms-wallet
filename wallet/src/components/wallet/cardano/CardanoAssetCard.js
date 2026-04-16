@@ -100,26 +100,37 @@ export default function CardanoAssetCard({ asset, onBeamBack, onRedeem }) {
         </div>
 
         {/* Actions */}
-        {isCharmsProxy && (
-          <div className="mt-2">
-            {asset.policyId === EBTC_POLICY_ID && onRedeem ? (
-              <button
-                onClick={() => onRedeem(asset)}
-                className="w-full py-1.5 rounded text-xs font-medium bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-700 hover:to-yellow-700 text-white transition-all"
-                title="Move eBTC back to Bitcoin"
-              >
-                Redeem to Bitcoin
-              </button>
-            ) : onBeamBack && (
-              <button
-                onClick={() => onBeamBack(asset)}
-                className="w-full py-1.5 rounded text-xs font-medium bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white transition-all"
-              >
-                Beam to Bitcoin
-              </button>
-            )}
-          </div>
-        )}
+        <div className="mt-2 space-y-2">
+          {/* Transfer on Cardano (disabled — coming soon) */}
+          <button
+            disabled
+            className="w-full py-1.5 rounded text-xs font-medium bg-cardano-500/20 text-cardano-400 border border-cardano-500/30 opacity-50 cursor-not-allowed"
+          >
+            Transfer
+          </button>
+
+          {/* Beam / Redeem (existing, Charms proxy only) */}
+          {isCharmsProxy && (
+            <>
+              {asset.policyId === EBTC_POLICY_ID && onRedeem ? (
+                <button
+                  onClick={() => onRedeem(asset)}
+                  className="w-full py-1.5 rounded text-xs font-medium bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-700 hover:to-yellow-700 text-white transition-all"
+                  title="Move eBTC back to Bitcoin"
+                >
+                  Redeem to Bitcoin
+                </button>
+              ) : onBeamBack && (
+                <button
+                  onClick={() => onBeamBack(asset)}
+                  className="w-full py-1.5 rounded text-xs font-medium bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white transition-all"
+                >
+                  Beam to Bitcoin
+                </button>
+              )}
+            </>
+          )}
+        </div>
 
         {/* Explorer link */}
         <div className="mt-2 flex justify-end">
