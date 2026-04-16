@@ -9,7 +9,7 @@
  * - Dismiss removes from localStorage too
  */
 
-import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useRef } from 'react';
 import { BEAM_PHASE, isActivePhase } from '@/services/beam/core/types';
 import { executeBeamOut } from '@/services/beam/processor/executor';
 import { executeBeamBack } from '@/services/beam/processor/executor-beam-back';
@@ -330,10 +330,15 @@ export function BeamOperationsProvider({ children }) {
     return id;
   }, [runBeamBack]);
 
-  // Auto-resume incomplete beams from localStorage on mount
+  // Auto-resume incomplete beams from localStorage on mount.
+  // Guard with a ref to prevent double-resume if useEffect re-fires
+  // due to dependency identity changes (React strict mode, HMR, etc.)
+  const resumedRef = useRef(false);
   useEffect(() => {
+    if (resumedRef.current) return;
     const incomplete = findIncompleteBeams();
     if (!incomplete.length) return;
+    resumedRef.current = true;
 
     (async () => {
       const { getSeedPhrase } = await import('@/services/storage');

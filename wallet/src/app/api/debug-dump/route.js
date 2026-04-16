@@ -5,6 +5,9 @@ import path from 'path';
 const DUMP_DIR = '/Users/ricartjuncadella/Documents/Prj/bitcoinos/_rjj/tmp';
 
 export async function POST(req) {
+  if (process.env.NODE_ENV !== 'development') {
+    return NextResponse.json({ ok: false, error: 'debug-dump disabled in production' }, { status: 403 });
+  }
   try {
     const { filename, data } = await req.json();
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');

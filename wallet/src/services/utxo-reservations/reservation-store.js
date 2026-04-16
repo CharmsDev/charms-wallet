@@ -1,17 +1,47 @@
 /**
  * UTXO Reservation Store — internal singleton.
  *
- * In-memory only. No localStorage. Resets on page reload (intended).
- * Mirrors the WalletContext pattern from charms-cast/webapp.
+ * Persisted to localStorage so reservations survive page reloads.
+ * This is critical for multi-minute beam operations: the beam state
+ * persists in localStorage, and the UTXOs it locked must also persist,
+ * otherwise a refresh could allow a concurrent send to double-spend them.
  *
  * Per-chain Set<string> keyed by "txid:vout" (or "txHash:outputIndex").
- * Both Bitcoin and Cardano use the same key shape since they're both
- * "<32-byte-hex>:<integer>".
+ * Both Bitcoin and Cardano use the same key shape.
  *
  * Do not import this file directly — use the public API in `./index.js`.
  */
 
-const sets = new Map();  // chain → Set<string>
+const STORAGE_KEY = 'charms_utxo_reservations';
+
+/** Load persisted state from localStorage. */
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return new Map();
+    const obj = JSON.parse(raw);
+    const m = new Map();
+    for (const [chain, arr] of Object.entries(obj)) {
+      m.set(chain, new Set(arr));
+    }
+    return m;
+  } catch {
+    return new Map();
+  }
+}
+
+/** Persist current state to localStorage. */
+function saveToStorage() {
+  try {
+    const obj = {};
+    for (const [chain, s] of sets) {
+      obj[chain] = [...s];
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+  } catch {}
+}
+
+const sets = loadFromStorage();
 
 /** Get-or-create a Set for the given chain. */
 function setForChain(chain) {
@@ -37,7 +67,7 @@ function add(chain, txid, vout) {
   const key = makeKey(txid, vout);
   if (s.has(key)) return false;
   s.add(key);
-  console.log(`[Reservations] mark ${chain} ${key} (total reserved on ${chain}: ${s.size})`);
+  saveToStorage();
   return true;
 }
 
@@ -47,7 +77,7 @@ function remove(chain, txid, vout) {
   const key = makeKey(txid, vout);
   if (!s.has(key)) return false;
   s.delete(key);
-  console.log(`[Reservations] release ${chain} ${key}`);
+  saveToStorage();
   return true;
 }
 
@@ -64,13 +94,13 @@ function snapshot(chain) {
   return s ? new Set(s) : new Set();
 }
 
-/** Clear all reservations for a chain (debug/test). */
+/** Clear all reservations for a chain. */
 function clearChain(chain) {
   const s = sets.get(chain);
   if (!s) return 0;
   const n = s.size;
   s.clear();
-  console.log(`[Reservations] cleared ${chain} (${n} entries)`);
+  saveToStorage();
   return n;
 }
 

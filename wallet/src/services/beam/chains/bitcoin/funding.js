@@ -6,6 +6,7 @@
  */
 
 import { isCharmUtxo, isPotentialCharm } from '@/services/utxo/utils/charms';
+import { isSpent } from '@/services/utxo-reservations';
 
 /** Minimum sats for a usable funding UTXO. */
 export const MIN_FUNDING_SATS = 5000;
@@ -44,6 +45,7 @@ export function selectBtcFunding(utxos, charms = [], opts = {}) {
     if (value < minSats) return false;
     if (isPotentialCharm(u)) return false;
     if (isCharmUtxo(u, charms)) return false;
+    if (isSpent('bitcoin', txid, vout)) return false;
     return true;
   });
 

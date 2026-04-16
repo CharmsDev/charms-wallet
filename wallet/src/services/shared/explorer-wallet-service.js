@@ -516,7 +516,13 @@ export class ExplorerWalletService {
     // ── UTXO spent check ─────────────────────────────────────────────────
 
     async isUtxoSpent(txid, vout, network) {
-        return false;
+        // Try the Explorer outspend endpoint. If the Explorer doesn't support
+        // it (404), throw so mempoolService falls through to mempool.space.
+        const resp = await this._makeRequest(
+            `/v1/tx/${txid}/outspend/${vout}?network=${network}`,
+            { method: 'GET' }
+        );
+        return resp?.spent === true;
     }
 
     // ── Transaction history (indexed, paginated) ─────────────────────────

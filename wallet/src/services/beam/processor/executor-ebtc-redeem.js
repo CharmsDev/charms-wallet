@@ -719,6 +719,15 @@ async function signScrollsAndBroadcastRedeem({
   const tx = bitcoin.Transaction.fromHex(redeemSpellTxHex);
   console.log(`[eBTC-redeem:sign] inputs=${tx.ins.length} outputs=${tx.outs.length}`);
 
+  // Validate prover output: verify vault output goes to vault address and
+  // at least one output goes to our address. Prevents rogue prover from
+  // crafting a tx that steals funds.
+  const VAULT_SCRIPT = Buffer.from(VAULT_DEST, 'hex');
+  const hasVaultOut = tx.outs.some(o => Buffer.compare(o.script, VAULT_SCRIPT) === 0);
+  const hasOurOut = tx.outs.some(o => Buffer.compare(o.script, p2wpkh.output) === 0);
+  if (!hasVaultOut) throw new Error('Prover output validation failed: no vault output found');
+  if (!hasOurOut) throw new Error('Prover output validation failed: no output to our address');
+
   const mempoolBase = getMempoolBase(network);
   const [phTxid] = placeholderUtxo.split(':');
   const [vaultTxid, vaultVoutStr] = vaultUtxo.split(':');
@@ -803,6 +812,7 @@ async function signScrollsAndBroadcastRedeem({
   const bResp = await fetch(`${mempoolBase}/tx`, { method: 'POST', body: fullySignedHex });
   if (!bResp.ok) throw new Error(`Broadcast failed: ${await bResp.text()}`);
   const btcRedeemTxid = (await bResp.text()).trim();
+  privkey.fill(0); // zero sensitive key material
   return { btcRedeemTxid };
 }
 

@@ -3,9 +3,12 @@
 /**
  * Beam Test Dashboard — config + links to individual step tests.
  * URL: /beam-test
+ * DEVELOPMENT ONLY — returns empty page in production.
  */
 
 import { useState, useEffect } from 'react';
+
+const IS_DEV = process.env.NODE_ENV === 'development';
 
 const STORAGE_KEY = 'beam_test_context';
 
@@ -37,6 +40,7 @@ function saveConfig(cfg) {
 }
 
 export default function BeamTestDashboard() {
+  if (!IS_DEV) return <div style={{padding:'2rem',color:'#666'}}>Beam test dashboard is only available in development mode.</div>;
   const [cfg, setCfg] = useState(DEFAULT_CONFIG);
   const [saved, setSaved] = useState(false);
 
