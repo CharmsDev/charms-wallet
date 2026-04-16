@@ -39,21 +39,8 @@ export function getMempoolBase(network) {
  *   localStorage.removeItem('wallet:prover:override')
  */
 export function getProverUrl(network) {
-    if (typeof window !== 'undefined') {
-        try {
-            const override = localStorage.getItem('wallet:prover:override');
-            if (override) {
-                // Auto-clear stale v12 overrides
-                if (override.includes('v12.')) {
-                    console.warn('[getProverUrl] Clearing stale v12 override:', override);
-                    localStorage.removeItem('wallet:prover:override');
-                } else {
-                    console.log('[getProverUrl] Override active:', override);
-                    return override;
-                }
-            }
-        } catch { /* */ }
-    }
+    // Always use the env var. No localStorage override — prevents stale URLs
+    // from old deploys persisting across versions.
     return network === 'mainnet' ? PROVER_URL_MAINNET : PROVER_URL_TESTNET;
 }
 

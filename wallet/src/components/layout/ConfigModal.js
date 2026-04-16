@@ -44,15 +44,10 @@ export default function ConfigModal({ isOpen, onClose }) {
     const isLocalProver = proverUrl?.includes('localhost') || proverUrl?.includes('127.0.0.1');
     const zkpIsReal = !isLocalProver && proverUrl !== '—';
 
-    const setLocalProver = () => {
-        const local = 'http://localhost:17784/spells/prove';
-        localStorage.setItem('wallet:prover:override', local);
-        setProverOverride(local);
-    };
-    const clearProverOverride = () => {
-        localStorage.removeItem('wallet:prover:override');
-        setProverOverride('');
-    };
+    // Clean up any stale prover override from old versions
+    if (typeof window !== 'undefined') {
+        try { localStorage.removeItem('wallet:prover:override'); } catch {}
+    }
 
     // APIs
     const explorerApiUrl = EXPLORER_API || '—';
@@ -171,20 +166,6 @@ export default function ConfigModal({ isOpen, onClose }) {
                                         value={truncate(proverUrl)}
                                         mono
                                     />
-                                    <div className="mt-2 flex gap-2 text-xs">
-                                        <button
-                                            onClick={setLocalProver}
-                                            className={`px-2 py-1 rounded border ${isLocalProver ? 'bg-purple-500/20 border-purple-500/40 text-purple-300' : 'bg-dark-800 border-dark-700 text-dark-400 hover:text-white'}`}
-                                        >
-                                            Local (17784)
-                                        </button>
-                                        <button
-                                            onClick={clearProverOverride}
-                                            className={`px-2 py-1 rounded border ${!isLocalProver && !proverOverride ? 'bg-purple-500/20 border-purple-500/40 text-purple-300' : 'bg-dark-800 border-dark-700 text-dark-400 hover:text-white'}`}
-                                        >
-                                            Remote (default)
-                                        </button>
-                                    </div>
                                     <Row
                                         icon={<ShieldIcon />}
                                         label="Proof Mode"
