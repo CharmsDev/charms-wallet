@@ -53,6 +53,15 @@ function reducer(state, action) {
           return { ...op, phase: action.phase, statusMessage: action.statusMessage, startedAt: op.startedAt ?? Date.now(), steps, interrupted: false };
         }),
       };
+    case 'UPDATE_PAYLOAD':
+      // Merge intermediate results from the executor into op.payload so the
+      // UI can show txids as each step completes (placeholder tx, beam-out tx, etc).
+      return {
+        ...state,
+        operations: state.operations.map(op =>
+          op.id === action.id ? { ...op, payload: { ...op.payload, ...action.patch } } : op
+        ),
+      };
     case 'COMPLETE':
       return {
         ...state,
@@ -67,7 +76,7 @@ function reducer(state, action) {
         ...state,
         operations: state.operations.map(op =>
           op.id === action.id
-            ? { ...op, phase: BEAM_PHASE.ERROR, error: action.error, errorCode: action.errorCode, completedAt: Date.now(), statusMessage: action.error }
+            ? { ...op, phase: BEAM_PHASE.ERROR, failedPhase: op.phase, error: action.error, errorCode: action.errorCode, completedAt: Date.now(), statusMessage: action.error }
             : op
         ),
       };
@@ -172,9 +181,12 @@ export function BeamOperationsProvider({ children }) {
     const onPhase = (phase, message) => {
       dispatch({ type: 'UPDATE_PHASE', id, phase, statusMessage: message });
     };
+    const onCheckpoint = (patch) => {
+      dispatch({ type: 'UPDATE_PAYLOAD', id, patch });
+    };
     (async () => {
       try {
-        const result = await executeBeamBack({ beamId: id, ...payload, onPhase });
+        const result = await executeBeamBack({ beamId: id, ...payload, onPhase, onCheckpoint });
         dispatch({ type: 'COMPLETE', id, btcTxid: result.btcClaimTxid, adaClaimTxid: result.cardanoBeamOutTxHash });
         refreshAllBalances().catch(() => {});
       } catch (err) {
@@ -320,7 +332,7 @@ export function BeamOperationsProvider({ children }) {
     dispatch({
       type: 'QUEUE',
       operation: {
-        id, phase: BEAM_PHASE.BUILDING_SPELL, label,
+        id, phase: BEAM_PHASE.CREATING_PLACEHOLDER, label,
         statusMessage: 'Starting beam back...', startedAt: Date.now(),
         completedAt: null, btcTxid: null, adaClaimTxid: null,
         error: null, payload, steps: [],

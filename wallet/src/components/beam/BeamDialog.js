@@ -241,8 +241,9 @@ function BeamConfirmStep({ charm, beamData, onConfirm, onBack, onClose }) {
   const cardanoDeriveAddresses = useCardano(s => s.deriveAddresses);
   const cardanoRefresh = useCardano(s => s.refresh);
 
+  // Always refresh on mount — no caching guard. Ensures fresh balance
+  // before the user clicks Start Beam.
   useEffect(() => {
-    if (cardanoInitialized) return;
     const adaNet = activeNetwork === 'mainnet' ? 'mainnet' : 'preprod';
     cardanoLoad(adaNet).then(() => {
       const storeAddrs = useCardano.getState().addresses;
@@ -253,7 +254,7 @@ function BeamConfirmStep({ charm, beamData, onConfirm, onBack, onClose }) {
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cardanoInitialized]);
+  }, []);
 
   // ── Bitcoin: Select charm UTXOs ───────────────────────────────────────
   const charmInputs = useMemo(() => {

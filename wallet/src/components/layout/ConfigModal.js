@@ -14,7 +14,7 @@ const DATA_SOURCES = [
     { data: 'BTC Fee Estimates',source: 'Explorer API',                         badge: 'explorer', endpoint: '/v1/wallet/fee-estimate' },
     { data: 'BTC Broadcast TX',source: 'Explorer → Mempool',                   badge: 'multi',    endpoint: '/v1/wallet/broadcast (failover)' },
     { data: 'BTC TX Lookup',   source: 'Explorer → Mempool',                   badge: 'multi',    endpoint: '/v1/wallet/tx/<txid> (failover)' },
-    { data: 'Charm Metadata',  source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/assets/reference-nft/<appId>' },
+    { data: 'Charm Metadata',  source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/assets/reference-nft/<identityHash>' },
     { data: 'Spell Proving',   source: 'Charms Prover',                        badge: 'prover',   endpoint: '/spells/prove (POST)' },
     { data: 'BTC Price',       source: 'CoinGecko',                            badge: 'external', endpoint: '/api/v3/simple/price' },
     // Cardano

@@ -17,77 +17,10 @@
 import { BEAM_PHASE } from '../core/types';
 import { saveBeamState } from '../core/persistence';
 import { SPELL_VERSION, getProverUrl, getMempoolBase } from '@/services/charm-transfer/constants';
-import { Encoder } from 'cbor-x';
+import { hexToBytes } from '../core/crypto';
+import { cborToHex, utxoIdToBytes, appToCborTuple } from '../core/cbor';
 
-// ── CBOR utilities (same as beam normalizer) ────────────────────────────────
-
-const cborEncoder = new Encoder({ mapsAsObjects: false });
-
-function toHex(bytes) {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-function safeInt(n) {
-  if (typeof n === 'bigint') return n;
-  if (typeof n === 'number' && n > 0xFFFFFFFF) return BigInt(Math.round(n));
-  return n;
-}
-
-function objectToMap(value) {
-  if (value === null || value === undefined) return value;
-  if (typeof value === 'bigint') return value;
-  if (value instanceof Uint8Array) return value;
-  if (Array.isArray(value)) return value.map(objectToMap);
-  if (value instanceof Map) {
-    const m = new Map();
-    for (const [k, v] of value) m.set(objectToMap(k), objectToMap(v));
-    return m;
-  }
-  if (typeof value === 'number') return safeInt(value);
-  if (typeof value === 'object') {
-    const m = new Map();
-    for (const [k, v] of Object.entries(value)) m.set(k, objectToMap(v));
-    return m;
-  }
-  return value;
-}
-
-function cborToHex(value) {
-  return toHex(cborEncoder.encode(objectToMap(value)));
-}
-
-function utxoIdToBytes(utxoIdStr) {
-  const [txidHex, voutStr] = utxoIdStr.split(':');
-  const vout = parseInt(voutStr, 10);
-  const txidBytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i++)
-    txidBytes[i] = parseInt(txidHex.substring(i * 2, i * 2 + 2), 16);
-  txidBytes.reverse();
-  const buf = new Uint8Array(36);
-  buf.set(txidBytes, 0);
-  new DataView(buf.buffer).setUint32(32, vout, true);
-  return buf;
-}
-
-function appToCborTuple(appIdStr) {
-  const parts = appIdStr.split('/');
-  if (parts.length !== 3) throw new Error(`Invalid App ID: ${appIdStr}`);
-  const [tag, identityHex, vkHex] = parts;
-  const identity = [];
-  const vk = [];
-  for (let i = 0; i < 64; i += 2) {
-    identity.push(parseInt(identityHex.substring(i, i + 2), 16));
-    vk.push(parseInt(vkHex.substring(i, i + 2), 16));
-  }
-  return [tag, identity, vk];
-}
-
-function destToBytes(hexStr) {
-  const bytes = new Uint8Array(hexStr.length / 2);
-  for (let i = 0; i < hexStr.length; i += 2)
-    bytes[i / 2] = parseInt(hexStr.substring(i, i + 2), 16);
-  return bytes;
-}
+const destToBytes = hexToBytes;
 
 // eBTC constants
 const EBTC_APP_ID = '0796f63ed48144b4ec69fb794fbc2290ae63acf945fb035d5474648b50ee43b6';
@@ -110,24 +43,24 @@ export async function executeEbtcBeam(params) {
   const { utxoIdHash } = await import('../core/crypto');
 
   // ═══ Step 1: ADA placeholder ═══════════════════════════════════════════
-  if (!ctx.placeholderTxHash) {
+  if (!ctx.placeholderTxid) {
     onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, 'Creating Cardano placeholder...');
     const ph = await createPlaceholder({ ...ctx, onStatus: m => onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, m) });
-    ctx.placeholderTxHash = ph.txHash;
-    ctx.placeholderOutputIndex = ph.outputIndex;
+    ctx.placeholderTxid = ph.txHash;
+    ctx.placeholderVout = ph.outputIndex;
     save(BEAM_PHASE.WAITING_DEST_CONFIRM);
-    console.log('[eBTC] Placeholder created:', ctx.placeholderTxHash, 'vout:', ctx.placeholderOutputIndex);
+    console.log('[eBTC] Placeholder created:', ctx.placeholderTxid, 'vout:', ctx.placeholderVout);
   }
 
   onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, 'Waiting for Cardano confirmation...');
-  await waitForCardanoConfirm({ txHash: ctx.placeholderTxHash, onStatus: m => onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, m), signal });
+  await waitForCardanoConfirm({ txHash: ctx.placeholderTxid, onStatus: m => onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, m), signal });
   save(BEAM_PHASE.PROVING);
 
   // ═══ Step 2: BTC mint+beam (single tx) ═════════════════════════════════
   if (!ctx.btcTxid) {
     // Compute beam_to hash from placeholder
     if (!ctx.beamToHash) {
-      ctx.beamToHash = await utxoIdHash(ctx.placeholderTxHash, ctx.placeholderOutputIndex);
+      ctx.beamToHash = await utxoIdHash(ctx.placeholderTxid, ctx.placeholderVout);
       console.log('[eBTC] beamToHash:', ctx.beamToHash);
     }
 
@@ -200,10 +133,12 @@ async function proveMintAndBeam({ btcInputUtxo, lockSats, btcAddress, beamToHash
     const mempoolUtxos = await fetch(`${mempoolBase}/address/${btcAddress}/utxo`).then(r => r.json());
     console.log('[eBTC:proveMint] fresh UTXOs from mempool:', mempoolUtxos.length);
 
-    // Map to format selectBtcFunding expects
+    // Map to format selectBtcFunding expects.
+    // Include unconfirmed (mempool) UTXOs — the change from a concurrent beam
+    // is already in mempool and spendable via chain-of-spend. Only exclude
+    // UTXOs that are reserved by another in-progress operation.
     const freshUtxos = mempoolUtxos
-      .filter(u => u.status?.confirmed)
-      .map(u => ({ txid: u.txid, outputIndex: u.vout, vout: u.vout, value: u.value, address: btcAddress }));
+      .map(u => ({ txid: u.txid, outputIndex: u.vout, vout: u.vout, value: u.value, address: btcAddress, confirmed: !!u.status?.confirmed }));
 
     const { selectBtcFunding } = await import('../chains/bitcoin/funding');
     const funding = selectBtcFunding(freshUtxos, charms || [], { minSats: lockSats + 5000 });
@@ -297,16 +232,7 @@ async function proveMintAndBeam({ btcInputUtxo, lockSats, btcAddress, beamToHash
   console.log('[eBTC:proveMint] payload size:', JSON.stringify(payload).length, 'bytes');
 
   // Prove
-  // Force v13 — clear any stale override
-  if (typeof window !== 'undefined') {
-    const override = localStorage.getItem('wallet:prover:override');
-    if (override && override.includes('v12')) {
-      localStorage.removeItem('wallet:prover:override');
-      console.warn('[eBTC:proveMint] Cleared stale v12 prover override');
-    }
-  }
   const proverUrl = getProverUrl(network);
-  console.log('[eBTC:proveMint] prover URL:', proverUrl);
 
   // Dump debug info to disk
   try {
@@ -424,8 +350,8 @@ function snapshot(ctx) {
     adaNetwork: ctx.adaNetwork,
     btcInputUtxo: ctx.btcInputUtxo,
     beamToHash: ctx.beamToHash,
-    placeholderTxHash: ctx.placeholderTxHash,
-    placeholderOutputIndex: ctx.placeholderOutputIndex,
+    placeholderTxid: ctx.placeholderTxid,
+    placeholderVout: ctx.placeholderVout,
     spellTxHex: ctx.spellTxHex,
     btcTxid: ctx.btcTxid,
     adaClaimTxid: ctx.adaClaimTxid,

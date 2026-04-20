@@ -28,19 +28,8 @@ export function getMempoolBase(network) {
     return network === 'mainnet' ? MEMPOOL_MAINNET : MEMPOOL_TESTNET;
 }
 
-/**
- * Get the prover URL. Supports a runtime override via localStorage key
- * `wallet:prover:override` for switching between remote (v14.charms.dev)
- * and local (`charms-prover server` running on port 17784) without restarting.
- *
- * Set via browser console:
- *   localStorage.setItem('wallet:prover:override', 'http://localhost:17784/spells/prove')
- * Clear:
- *   localStorage.removeItem('wallet:prover:override')
- */
+/** Get the prover URL for the given network. Always from env var, never cached. */
 export function getProverUrl(network) {
-    // Always use the env var. No localStorage override — prevents stale URLs
-    // from old deploys persisting across versions.
     return network === 'mainnet' ? PROVER_URL_MAINNET : PROVER_URL_TESTNET;
 }
 

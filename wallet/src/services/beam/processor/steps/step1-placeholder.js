@@ -75,7 +75,18 @@ export async function createPlaceholder({ cardanoAddress, seedPhrase, addressInd
     CSL.TransactionOutput.new(destAddr, CSL.Value.new(CSL.BigNum.from_str(minUtxo)))
   );
 
-  // Change back to same address
+  // Dedicated collateral output (3 ADA) so step6 always has a separate UTXO
+  // for collateral AND funding. Without this, a wallet starting with a single
+  // large UTXO ends up with only 1 pure-ADA UTXO after step1, which blocks
+  // funding selection (collateral and funding must be distinct inputs).
+  const collateralLovelace = 3_000_000n;
+  if (fundingLovelace >= BigInt(minUtxo) + collateralLovelace + 8_000_000n) {
+    txBuilder.add_output(
+      CSL.TransactionOutput.new(destAddr, CSL.Value.new(CSL.BigNum.from_str(collateralLovelace.toString())))
+    );
+  }
+
+  // Change back to same address (this becomes the funding UTXO for step6)
   txBuilder.add_change_if_needed(destAddr);
 
   // Build unsigned tx, then use FixedTransaction for hashing + signing

@@ -15,21 +15,19 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useBeamOperations } from '@/contexts/BeamOperationsContext';
 import { useWallet } from '@/stores/walletStore';
-import { useUTXOs } from '@/stores/utxoStore';
-import { useAddresses } from '@/stores/addressesStore';
-import { useCharms } from '@/stores/charmsStore';
 import { useCardano } from '@/stores/cardanoStore';
-import { selectBtcFunding } from '@/services/beam/chains/bitcoin/funding';
 
 // ── Step 1: Amount Form ─────────────────────────────────────────────────────
 
-function BeamBackFormStep({ asset, onNext, onClose }) {
+function BeamBackFormStep({ asset, ownBtcAddress, onNext, onClose }) {
   const decimals = asset.decimals || 8;
   const totalRaw = BigInt(asset.quantity);
   const totalDisplay = Number(totalRaw) / Math.pow(10, decimals);
 
   const [amountStr, setAmountStr] = useState('');
   const [useAll, setUseAll] = useState(false);
+  const [useOwnAddress, setUseOwnAddress] = useState(true);
+  const [customAddress, setCustomAddress] = useState('');
 
   const amountRaw = useMemo(() => {
     if (useAll) return totalRaw.toString();
@@ -41,7 +39,10 @@ function BeamBackFormStep({ asset, onNext, onClose }) {
     } catch { return '0'; }
   }, [amountStr, useAll, totalRaw, decimals]);
 
+  const destAddress = useOwnAddress ? ownBtcAddress : customAddress.trim();
+  const isAddressValid = !!destAddress && (destAddress.startsWith('bc1') || destAddress.startsWith('tb1'));
   const amountValid = BigInt(amountRaw) > 0n && BigInt(amountRaw) <= totalRaw;
+  const canProceed = amountValid && isAddressValid;
   const changeRaw = (totalRaw - BigInt(amountRaw)).toString();
 
   return (
@@ -79,13 +80,38 @@ function BeamBackFormStep({ asset, onNext, onClose }) {
         </div>
       )}
 
+      <div>
+        <label className="text-xs text-gray-400 mb-2 block">Destination Bitcoin address</label>
+        <div className="flex gap-2 mb-2">
+          <button
+            onClick={() => { setUseOwnAddress(true); setCustomAddress(''); }}
+            className={`px-3 py-1 rounded text-xs ${useOwnAddress ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-400'}`}
+          >My Wallet</button>
+          <button
+            onClick={() => setUseOwnAddress(false)}
+            className={`px-3 py-1 rounded text-xs ${!useOwnAddress ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-400'}`}
+          >Other</button>
+        </div>
+        {!useOwnAddress && (
+          <input
+            value={customAddress}
+            onChange={e => setCustomAddress(e.target.value)}
+            placeholder="bc1..."
+            className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono focus:border-purple-500 focus:outline-none"
+          />
+        )}
+        {useOwnAddress && ownBtcAddress && (
+          <div className="text-xs text-gray-500 font-mono truncate">{ownBtcAddress}</div>
+        )}
+      </div>
+
       <div className="flex gap-2 justify-end mt-6">
         <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white">
           Cancel
         </button>
         <button
-          onClick={() => onNext({ amountRaw, changeRaw })}
-          disabled={!amountValid}
+          onClick={() => onNext({ amountRaw, changeRaw, destAddress })}
+          disabled={!canProceed}
           className="px-4 py-2 text-sm rounded bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Next
@@ -97,49 +123,27 @@ function BeamBackFormStep({ asset, onNext, onClose }) {
 
 // ── Step 2: Confirm ─────────────────────────────────────────────────────────
 
-function BeamBackConfirmStep({ asset, amountRaw, changeRaw, onBack, onClose, onConfirm }) {
+function BeamBackConfirmStep({ asset, amountRaw, changeRaw, destAddress, ownBtcAddress, btcUtxosLoaded, hasEnoughBtc, onBack, onClose, onConfirm }) {
   const { seedPhrase } = useWallet();
-  const { utxos } = useUTXOs();
-  const { addresses } = useAddresses();
-  const { charms } = useCharms();
   const { addresses: cardanoAddresses } = useCardano();
 
   const decimals = asset.decimals || 8;
   const amountDisplay = (Number(amountRaw) / Math.pow(10, decimals)).toFixed(decimals > 4 ? 4 : decimals);
 
-  // Resolve BTC placeholder (existing UTXO) and BTC destination
-  const { btcPlaceholderUtxoId, btcPlaceholderValue, btcFundingUtxoId, btcDestinationAddr, error } = useMemo(() => {
-    const allUtxoList = Object.entries(utxos || {}).flatMap(([addr, list]) =>
-      (Array.isArray(list) ? list : []).map(u => ({ ...u, address: u.address || addr }))
-    );
-
-    // Placeholder: any existing BTC UTXO (non-charm, ≥546 sats)
-    const placeholder = selectBtcFunding(allUtxoList, charms, { minSats: 546 });
-    if (!placeholder) return { error: 'No Bitcoin UTXO available as placeholder' };
-
-    // Funding: another UTXO (larger) for fees
-    const funding = selectBtcFunding(allUtxoList, charms, {
-      minSats: 5000,
-      excludeUtxoIds: [placeholder.utxoId],
-    });
-    if (!funding) return { error: 'No Bitcoin UTXO for funding (need ≥5000 sats)' };
-
-    const btcAddr = addresses?.[0]?.address;
-    if (!btcAddr) return { error: 'No Bitcoin address found' };
-
-    return {
-      btcPlaceholderUtxoId: placeholder.utxoId,
-      btcPlaceholderValue: placeholder.value,
-      btcFundingUtxoId: funding.utxoId,
-      btcDestinationAddr: btcAddr,
-    };
-  }, [utxos, charms, addresses]);
+  // Executor creates the BTC placeholder + picks funding at runtime. Dialog
+  // only validates that the wallet has enough sats to fund both.
+  const error = useMemo(() => {
+    if (!btcUtxosLoaded) return 'Loading Bitcoin UTXOs...';
+    if (!ownBtcAddress) return 'No Bitcoin address found';
+    if (!hasEnoughBtc) return 'Insufficient Bitcoin sats (need ≥ 7000 sats: placeholder + fees + claim funding)';
+    if (!destAddress) return 'No destination Bitcoin address';
+    return null;
+  }, [btcUtxosLoaded, ownBtcAddress, hasEnoughBtc, destAddress]);
 
   const cardanoAddress = cardanoAddresses?.[0]?.address;
 
   const handleConfirm = () => {
-    // Resolve proper eBTC app ID (for now, map known policies)
-    // In production, this should come from the asset metadata
+    // Resolve token app ID from known policies
     const KNOWN_APPS = {
       'b8f72e95dee612df98ac5a90b7604f7815c2af07a6db209a5c70abe4': 't/3d7fe7e4cea6121947af73d70e5119bebd8aa5b7edfe74bfaf6e779a1847bd9b/c975d4e0c292fb95efbda5c13312d6ac1d8b5aeff7f0f1e5578645a2da70ff5f', // BRO
       '552b22f4989ea698fabbf6314b70d2e5edb49c1fdbdeb6096e8c84b6': 't/0796f63ed48144b4ec69fb794fbc2290ae63acf945fb035d5474648b50ee43b6/fd0cac892e457454be0212fa7d9a0e1517d5bd6a33aa7c66a1f10f55e375c290', // eBTC
@@ -150,26 +154,18 @@ function BeamBackConfirmStep({ asset, amountRaw, changeRaw, onBack, onClose, onC
       return;
     }
 
-    // Compute beam_to hash from BTC placeholder
-    const [phTxid, phVout] = btcPlaceholderUtxoId.split(':');
-    const { createHash } = require('crypto');
-    const txidBytes = Buffer.from(phTxid, 'hex');
-    txidBytes.reverse();
-    const voutBuf = Buffer.alloc(4);
-    voutBuf.writeUInt32LE(parseInt(phVout));
-    const beamToHash = createHash('sha256').update(Buffer.concat([txidBytes, voutBuf])).digest('hex');
-
+    // Executor creates the BTC placeholder, waits for mempool, and derives
+    // beam_to hash internally. Dialog just provides addresses + amounts.
     const label = `${amountDisplay} ${asset.ticker || asset.name} → Bitcoin`;
     onConfirm(label, {
+      direction: 'ada-to-btc',
       tokenAppId,
-      cntUtxoId: `${asset.utxoTxHash}:${asset.utxoOutputIndex || 0}`, // will need asset-level UTXO tracking
+      cntUtxoId: `${asset.utxoTxHash}:${asset.utxoOutputIndex || 0}`,
       beamAmount: parseInt(amountRaw),
       changeAmount: parseInt(changeRaw),
-      btcPlaceholderUtxoId,
-      btcFundingUtxoId,
-      beamToHash,
       cardanoAddress,
-      btcChangeAddress: btcDestinationAddr,
+      btcOwnAddress: ownBtcAddress,
+      btcDestAddress: destAddress,
       seedPhrase,
       network: 'mainnet',
     });
@@ -192,7 +188,7 @@ function BeamBackConfirmStep({ asset, amountRaw, changeRaw, onBack, onClose, onC
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-gray-400">To BTC address</span>
-          <span className="text-white font-mono text-xs">{btcDestinationAddr?.slice(0, 20)}...</span>
+          <span className="text-white font-mono text-xs">{destAddress?.slice(0, 20)}...</span>
         </div>
       </div>
 
@@ -227,12 +223,46 @@ function BeamBackConfirmStep({ asset, amountRaw, changeRaw, onBack, onClose, onC
 
 export default function BeamBackDialog({ asset, isOpen, onClose }) {
   const [step, setStep] = useState('form');
-  const [amounts, setAmounts] = useState({ amountRaw: '0', changeRaw: '0' });
+  const [amounts, setAmounts] = useState({ amountRaw: '0', changeRaw: '0', destAddress: '' });
+  const [ownBtcAddress, setOwnBtcAddress] = useState('');
+  const [btcUtxos, setBtcUtxos] = useState([]);
+  const [btcUtxosLoaded, setBtcUtxosLoaded] = useState(false);
   const { startBeamBack } = useBeamOperations();
 
   useEffect(() => {
-    if (isOpen) { setStep('form'); setAmounts({ amountRaw: '0', changeRaw: '0' }); }
+    if (isOpen) {
+      setStep('form');
+      setAmounts({ amountRaw: '0', changeRaw: '0', destAddress: '' });
+      setBtcUtxosLoaded(false);
+      setBtcUtxos([]);
+    }
   }, [isOpen]);
+
+  // Load BTC address + UTXOs from mempool.space. Needed to validate the
+  // wallet can fund placeholder + claim. Actual placeholder creation runs in
+  // the executor.
+  useEffect(() => {
+    if (!isOpen) return;
+    (async () => {
+      try {
+        const { getAddresses } = await import('@/services/storage');
+        const stored = await getAddresses('bitcoin', 'mainnet');
+        const addr = stored?.find(a => a.index === 0 && !a.isChange)?.address || stored?.[0]?.address;
+        if (!addr) { setBtcUtxosLoaded(true); return; }
+        setOwnBtcAddress(addr);
+        const resp = await fetch(`https://mempool.space/api/address/${addr}/utxo`);
+        if (resp.ok) {
+          const list = await resp.json();
+          setBtcUtxos(list.filter(u => u.status?.confirmed));
+        }
+      } catch {}
+      setBtcUtxosLoaded(true);
+    })();
+  }, [isOpen]);
+
+  // Need ≥ 7000 sats total: 546 placeholder dust + ~500 sats placeholder fee +
+  // ~5000 sats funding UTXO for the BTC claim tx fee.
+  const hasEnoughBtc = btcUtxos.reduce((s, u) => s + (u.value || 0), 0) >= 7000;
 
   if (!isOpen) return null;
 
@@ -252,6 +282,7 @@ export default function BeamBackDialog({ asset, isOpen, onClose }) {
         {step === 'form' && (
           <BeamBackFormStep
             asset={asset}
+            ownBtcAddress={ownBtcAddress}
             onNext={(data) => { setAmounts(data); setStep('confirm'); }}
             onClose={onClose}
           />
@@ -261,6 +292,10 @@ export default function BeamBackDialog({ asset, isOpen, onClose }) {
             asset={asset}
             amountRaw={amounts.amountRaw}
             changeRaw={amounts.changeRaw}
+            destAddress={amounts.destAddress}
+            ownBtcAddress={ownBtcAddress}
+            btcUtxosLoaded={btcUtxosLoaded}
+            hasEnoughBtc={hasEnoughBtc}
             onBack={() => setStep('form')}
             onClose={onClose}
             onConfirm={handleConfirm}

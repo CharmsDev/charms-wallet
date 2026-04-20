@@ -98,6 +98,18 @@ export async function proveCharmTransfer(params) {
     chain: 'bitcoin',
     collateral_utxo: null,
   };
+
+  // Dump payload to console for debugging
+  console.log('[CharmTransfer] payload:', JSON.stringify({
+    spell_len: payload.spell?.length,
+    spell_preview: payload.spell?.substring(0, 40) + '...',
+    app_private_inputs: Object.keys(payload.app_private_inputs || {}),
+    prev_txs_count: payload.prev_txs?.length,
+    change_address: payload.change_address,
+    fee_rate: payload.fee_rate,
+    chain: payload.chain,
+  }));
+
   const spellTxHex = await proveTransfer(payload, network, status);
   status(`Prover returned TX (${spellTxHex.length / 2} bytes)`);
 

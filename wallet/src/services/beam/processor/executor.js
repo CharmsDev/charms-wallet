@@ -20,17 +20,17 @@ export async function executeBeamOut(params) {
   const save = (phase) => saveBeamState(beamId, { phase, direction: 'btc-to-ada', ...snapshot(ctx) });
 
   // Step 1: Create Cardano placeholder (skip if already created)
-  if (!ctx.placeholderTxHash) {
+  if (!ctx.placeholderTxid) {
     onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, 'Creating placeholder UTXO on Cardano...');
     const ph = await createPlaceholder({ ...ctx, onStatus: m => onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, m) });
-    ctx.placeholderTxHash = ph.txHash;
-    ctx.placeholderOutputIndex = ph.outputIndex;
+    ctx.placeholderTxid = ph.txHash;
+    ctx.placeholderVout = ph.outputIndex;
     save(BEAM_PHASE.WAITING_DEST_CONFIRM);
   }
 
   // Step 2: Wait for Cardano confirmation (idempotent — polls chain)
   onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, 'Waiting for Cardano confirmation...');
-  await waitForCardanoConfirm({ txHash: ctx.placeholderTxHash, onStatus: m => onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, m), signal });
+  await waitForCardanoConfirm({ txHash: ctx.placeholderTxid, onStatus: m => onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, m), signal });
   save(BEAM_PHASE.BUILDING_SPELL);
 
   // Step 3: Build + prove BTC beam spell (skip if already proven)
@@ -78,8 +78,8 @@ function snapshot(ctx) {
     charmInputs: ctx.charmInputs,
     fundingUtxo: ctx.fundingUtxo,
     inputSigningMap: ctx.inputSigningMap,
-    placeholderTxHash: ctx.placeholderTxHash,
-    placeholderOutputIndex: ctx.placeholderOutputIndex,
+    placeholderTxid: ctx.placeholderTxid,
+    placeholderVout: ctx.placeholderVout,
     spellTxHex: ctx.spellTxHex,
     btcTxid: ctx.btcTxid,
     adaClaimTxid: ctx.adaClaimTxid,

@@ -10,68 +10,8 @@
  * Both reuse the helper utilities from the standard beam normalizer.
  */
 
-import { Encoder } from 'cbor-x';
-
-const cborEncoder = new Encoder({ mapsAsObjects: false });
-
-function toHex(bytes) {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-function safeInt(n) {
-  if (typeof n === 'bigint') return n;
-  if (typeof n === 'number' && n > 0xFFFFFFFF) return BigInt(Math.round(n));
-  return n;
-}
-
-function objectToMap(value) {
-  if (value === null || value === undefined) return value;
-  if (typeof value === 'bigint') return value;
-  if (value instanceof Uint8Array) return value;
-  if (Array.isArray(value)) return value.map(objectToMap);
-  if (value instanceof Map) {
-    const m = new Map();
-    for (const [k, v] of value) m.set(objectToMap(k), objectToMap(v));
-    return m;
-  }
-  if (typeof value === 'number') return safeInt(value);
-  if (typeof value === 'object') {
-    const m = new Map();
-    for (const [k, v] of Object.entries(value)) m.set(k, objectToMap(v));
-    return m;
-  }
-  return value;
-}
-
-function cborToHex(value) {
-  return toHex(cborEncoder.encode(objectToMap(value)));
-}
-
-function utxoIdToBytes(utxoIdStr) {
-  const [txidHex, voutStr] = utxoIdStr.split(':');
-  const vout = parseInt(voutStr, 10);
-  const txidBytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i++)
-    txidBytes[i] = parseInt(txidHex.substring(i * 2, i * 2 + 2), 16);
-  txidBytes.reverse();
-  const buf = new Uint8Array(36);
-  buf.set(txidBytes, 0);
-  new DataView(buf.buffer).setUint32(32, vout, true);
-  return buf;
-}
-
-function appToCborTuple(appIdStr) {
-  const parts = appIdStr.split('/');
-  if (parts.length !== 3) throw new Error(`Invalid App ID: ${appIdStr}`);
-  const [tag, identityHex, vkHex] = parts;
-  const identity = [];
-  const vk = [];
-  for (let i = 0; i < 64; i += 2) {
-    identity.push(parseInt(identityHex.substring(i, i + 2), 16));
-    vk.push(parseInt(vkHex.substring(i, i + 2), 16));
-  }
-  return [tag, identity, vk];
-}
+import { SPELL_VERSION } from '@/services/charm-transfer/constants';
+import { cborToHex, utxoIdToBytes, appToCborTuple } from '../core/cbor';
 
 async function cardanoAddressToRawBytes(bech32Addr) {
   const { waitForCardanoWasm, getCardanoWasm } = await import('@/lib/cardano/cardanoWasm');
@@ -126,7 +66,7 @@ export async function normalizeCardanoBeamOutSpell(spell) {
   }
 
   const normalizedSpell = {
-    version: 13,
+    version: SPELL_VERSION,
     tx: {
       ins: [utxoIdToBytes(cntUtxoId), utxoIdToBytes(fundingUtxoId)],
       outs,
@@ -147,7 +87,7 @@ export async function normalizeCardanoBeamOutSpell(spell) {
  *
  * @param {object} spell
  * @param {string} spell.tokenAppId - "t/identity/vk"
- * @param {string} spell.btcPlaceholderUtxoId - "txid:vout" of BTC placeholder
+ * @param {string} spell.placeholderUtxoId - "txid:vout" of BTC placeholder
  * @param {string} spell.btcFundingUtxoId - "txid:vout" of BTC funding UTXO
  * @param {number} spell.beamAmount - Raw token units
  * @param {string} spell.cardanoBeamOutTxid - "txid:vout" of Cardano beam-out UTXO
@@ -156,7 +96,7 @@ export async function normalizeCardanoBeamOutSpell(spell) {
  */
 export async function normalizeBtcClaimSpell(spell) {
   const {
-    tokenAppId, btcPlaceholderUtxoId, btcFundingUtxoId,
+    tokenAppId, placeholderUtxoId, btcFundingUtxoId,
     beamAmount, cardanoBeamOutTxid, btcDestAddress,
   } = spell;
 
@@ -168,10 +108,10 @@ export async function normalizeBtcClaimSpell(spell) {
   appPublicInputs.set(appToCborTuple(tokenAppId), null);
 
   const normalizedSpell = {
-    version: 13,
+    version: SPELL_VERSION,
     tx: {
       ins: [
-        utxoIdToBytes(btcPlaceholderUtxoId),
+        utxoIdToBytes(placeholderUtxoId),
         utxoIdToBytes(btcFundingUtxoId),
       ],
       outs: [new Map([[0, beamAmount]])],

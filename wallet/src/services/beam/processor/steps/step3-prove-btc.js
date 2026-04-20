@@ -1,7 +1,7 @@
 /**
  * Step 3: Build beam spell, normalize, fetch prev txs, call prover.
  *
- * Input:  tokenAppId, charmInputs, fundingUtxo, beamAmount, placeholderTxHash, placeholderOutputIndex, btcChangeAddress, network
+ * Input:  tokenAppId, charmInputs, fundingUtxo, beamAmount, placeholderTxid, placeholderVout, btcChangeAddress, network
  * Output: { spellTxHex, prevTxMap }
  */
 
@@ -14,11 +14,11 @@ import { fetchPrevTxs, fetchTxHex } from '@/services/charm-transfer/tx-fetcher';
 
 export async function proveBtcBeam({
   tokenAppId, charmInputs, fundingUtxo, beamAmount,
-  placeholderTxHash, placeholderOutputIndex,
+  placeholderTxid, placeholderVout,
   btcChangeAddress, network, onStatus,
 }) {
   onStatus?.('Computing beam commitment hash...');
-  const beamToHash = await utxoIdHash(placeholderTxHash, placeholderOutputIndex);
+  const beamToHash = await utxoIdHash(placeholderTxid, placeholderVout);
 
   onStatus?.('Building beam spell...');
   const spell = buildBeamSpell({

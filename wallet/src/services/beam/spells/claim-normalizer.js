@@ -6,75 +6,8 @@
  * and addresses are Cardano bech32 (not Bitcoin segwit).
  */
 
-import { Encoder } from 'cbor-x';
 import { hexToBytes } from '../core/crypto';
-
-const cborEncoder = new Encoder({ mapsAsObjects: false });
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-function toHex(bytes) {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-function safeInt(n) {
-  if (typeof n === 'bigint') return n;
-  if (typeof n === 'number' && n > 0xFFFFFFFF) return BigInt(Math.round(n));
-  return n;
-}
-
-function objectToMap(value) {
-  if (value === null || value === undefined) return value;
-  if (typeof value === 'bigint') return value;
-  if (value instanceof Uint8Array) return value;
-  if (Array.isArray(value)) return value.map(objectToMap);
-  if (value instanceof Map) {
-    const m = new Map();
-    for (const [k, v] of value) m.set(objectToMap(k), objectToMap(v));
-    return m;
-  }
-  if (typeof value === 'number') return safeInt(value);
-  if (typeof value === 'object') {
-    const m = new Map();
-    for (const [k, v] of Object.entries(value)) m.set(k, objectToMap(v));
-    return m;
-  }
-  return value;
-}
-
-function cborToHex(value) {
-  return toHex(cborEncoder.encode(objectToMap(value)));
-}
-
-/**
- * "txid:vout" → 36-byte Uint8Array (txid reversed + vout LE)
- * Works for both Bitcoin and Cardano UTXO IDs.
- */
-function utxoIdToBytes(utxoIdStr) {
-  const [txidHex, voutStr] = utxoIdStr.split(':');
-  const vout = parseInt(voutStr, 10);
-  const txidBytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i++)
-    txidBytes[i] = parseInt(txidHex.substring(i * 2, i * 2 + 2), 16);
-  txidBytes.reverse();
-  const buf = new Uint8Array(36);
-  buf.set(txidBytes, 0);
-  new DataView(buf.buffer).setUint32(32, vout, true);
-  return buf;
-}
-
-function appToCborTuple(appIdStr) {
-  const parts = appIdStr.split('/');
-  if (parts.length !== 3) throw new Error(`Invalid App ID: ${appIdStr}`);
-  const [tag, identityHex, vkHex] = parts;
-  const identity = [];
-  const vk = [];
-  for (let i = 0; i < 64; i += 2) {
-    identity.push(parseInt(identityHex.substring(i, i + 2), 16));
-    vk.push(parseInt(vkHex.substring(i, i + 2), 16));
-  }
-  return [tag, identity, vk];
-}
+import { cborToHex, utxoIdToBytes, appToCborTuple, safeInt } from '../core/cbor';
 
 /**
  * Cardano address → raw bytes for the `dest` field.

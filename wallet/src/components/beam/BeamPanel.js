@@ -28,10 +28,12 @@ const STEPS_BTC_TO_ADA = [
 ];
 
 const STEPS_ADA_TO_BTC = [
-  { phase: BEAM_PHASE.BUILDING_SPELL,       label: 'Build Cardano beam-out', icon: '1', chain: 'cardano' },
-  { phase: BEAM_PHASE.PROVING,              label: 'Prove + sign Cardano tx', icon: '2', chain: 'cardano' },
-  { phase: BEAM_PHASE.WAITING_FINALITY,     label: 'Cardano finality', icon: '3', chain: 'cardano' },
-  { phase: BEAM_PHASE.CLAIMING_DEST,        label: 'Claim on Bitcoin', icon: '4', chain: 'bitcoin' },
+  { phase: BEAM_PHASE.CREATING_PLACEHOLDER, label: 'Create Bitcoin placeholder', icon: '1', chain: 'bitcoin' },
+  { phase: BEAM_PHASE.WAITING_DEST_CONFIRM, label: 'Bitcoin placeholder in mempool', icon: '2', chain: 'bitcoin' },
+  { phase: BEAM_PHASE.BUILDING_SPELL,       label: 'Build Cardano beam-out', icon: '3', chain: 'cardano' },
+  { phase: BEAM_PHASE.PROVING,              label: 'Prove + sign Cardano tx', icon: '4', chain: 'cardano' },
+  { phase: BEAM_PHASE.WAITING_FINALITY,     label: 'Cardano finality', icon: '5', chain: 'cardano' },
+  { phase: BEAM_PHASE.CLAIMING_DEST,        label: 'Claim on Bitcoin', icon: '6', chain: 'bitcoin' },
 ];
 
 const STEPS_EBTC = [
@@ -77,7 +79,7 @@ function ElapsedTimer({ startedAt }) {
 
 // ── Step Row ────────────────────────────────────────────────────────────────
 
-function StepRow({ step, stepData, isActive, isCompleted, isPending, txid }) {
+function StepRow({ step, stepData, isActive, isCompleted, isPending, isFailed, errorMsg, txid }) {
   const message = stepData?.message || '';
 
   // Extract txid from message if not provided directly
@@ -91,17 +93,22 @@ function StepRow({ step, stepData, isActive, isCompleted, isPending, txid }) {
     : 'https://mempool.space/tx/';
 
   return (
-    <div className={`beam-step ${isActive ? 'beam-step--active' : ''} ${isCompleted ? 'beam-step--done' : ''} ${isPending ? 'beam-step--pending' : ''}`}>
+    <div className={`beam-step ${isActive ? 'beam-step--active' : ''} ${isCompleted ? 'beam-step--done' : ''} ${isPending ? 'beam-step--pending' : ''} ${isFailed ? 'beam-step--failed' : ''}`}
+         style={isFailed ? { borderLeft: '2px solid #ef4444', paddingLeft: '0.5rem' } : undefined}>
       <div className="beam-step-icon">
         {isCompleted && <span className="beam-step-check">&#10003;</span>}
         {isActive && <div className="beam-spinner-sm" />}
-        {isPending && <span className="beam-step-num">{step.icon}</span>}
+        {isPending && !isFailed && <span className="beam-step-num">{step.icon}</span>}
+        {isFailed && <span style={{ color: '#ef4444', fontSize: '1rem' }}>&#10007;</span>}
       </div>
 
       <div className="beam-step-content">
-        <div className="beam-step-label">{step.label}</div>
+        <div className="beam-step-label" style={isFailed ? { color: '#ef4444' } : undefined}>{step.label}</div>
         {isActive && message && (
           <div className="beam-step-message">{message}</div>
+        )}
+        {isFailed && errorMsg && (
+          <div style={{ color: '#ef4444', fontSize: '0.7rem', marginTop: '0.25rem', lineHeight: 1.4, wordBreak: 'break-word' }}>{errorMsg}</div>
         )}
         {isCompleted && txid && (
           <a className="beam-step-txid" href={`${explorerBase}${txid}`} target="_blank" rel="noopener noreferrer" style={{ wordBreak: 'break-all', fontSize: '0.65rem' }}>
@@ -122,9 +129,12 @@ function StepRow({ step, stepData, isActive, isCompleted, isPending, txid }) {
 function BeamOperationCard({ op }) {
   const { dismissBeam, retryBeam } = useBeamOperations();
   const steps = getStepsForOp(op);
-  const currentIndex = getStepIndex(op.phase, steps);
   const isComplete = op.phase === BEAM_PHASE.COMPLETE;
   const isError = op.phase === BEAM_PHASE.ERROR;
+  // In error state, highlight the phase that failed (saved when ERROR was dispatched)
+  const activePhase = isError ? op.failedPhase : op.phase;
+  const currentIndex = getStepIndex(activePhase, steps);
+  const failedIndex = isError ? currentIndex : -1;
   const direction = op?.payload?.direction || op?.direction;
   const isRedeem = direction === 'ebtc-ada-to-btc' || op?.label?.startsWith('Redeem');
   const badgeLabel = isRedeem ? 'REDEEM' : 'BEAM';
@@ -156,24 +166,32 @@ function BeamOperationCard({ op }) {
         </div>
       )}
 
-      {/* Vertical steps */}
-      {!isComplete && !isError && !op.interrupted && (
+      {/* Vertical steps — shown also in error state, with failed step highlighted red */}
+      {!isComplete && !op.interrupted && (
         <div className="beam-steps">
           {steps.map((step, i) => {
             const stepData = (op.steps || []).find(s => s.phase === step.phase);
-            const isActive = i === currentIndex;
-            const isCompleted = i < currentIndex || (stepData && stepData.completedAt);
+            const isFailed = isError && i === failedIndex;
+            const isActive = !isError && i === currentIndex;
+            const isCompleted = i < currentIndex || (stepData && stepData.completedAt && i !== failedIndex);
             const isPending = i > currentIndex;
-            // Map txids from operation data to the right step (depends on direction)
+            // Map txids from operation data to the right step. Placeholder
+            // txid is unified across all flows (`placeholderTxid`); other
+            // fields differ per direction because they represent different
+            // transactions.
             const payload = op.payload || {};
+            const direction = payload.direction || op.direction;
+            const isAdaToBtc = direction === 'ada-to-btc' || op?.label?.includes('→ Bitcoin');
             let txid = null;
-            if (isRedeem) {
-              // eBTC redeem: step1=BTC placeholder, step2=Cardano beam-out, step4=BTC redeem
-              if (step.phase === BEAM_PHASE.CREATING_PLACEHOLDER) txid = payload.placeholderTxid;
+            if (step.phase === BEAM_PHASE.CREATING_PLACEHOLDER) {
+              txid = payload.placeholderTxid;
+            } else if (isRedeem) {
               if (step.phase === BEAM_PHASE.PROVING) txid = payload.cardanoBeamOutTxHash;
               if (step.phase === BEAM_PHASE.CLAIMING_DEST) txid = payload.btcRedeemTxid || op.btcTxid;
+            } else if (isAdaToBtc) {
+              if (step.phase === BEAM_PHASE.PROVING) txid = payload.cardanoBeamOutTxHash;
+              if (step.phase === BEAM_PHASE.CLAIMING_DEST) txid = op.btcTxid || payload.btcClaimTxid;
             } else {
-              if (step.phase === BEAM_PHASE.CREATING_PLACEHOLDER) txid = payload.placeholderTxHash;
               if (step.phase === BEAM_PHASE.PROVING) txid = op.btcTxid || payload.btcTxid;
               if (step.phase === BEAM_PHASE.CLAIMING_DEST) txid = op.adaClaimTxid || payload.adaClaimTxid;
             }
@@ -184,7 +202,9 @@ function BeamOperationCard({ op }) {
                 stepData={stepData}
                 isActive={isActive}
                 isCompleted={isCompleted}
-                isPending={isPending}
+                isPending={isPending && !isFailed}
+                isFailed={isFailed}
+                errorMsg={isFailed ? op.error : null}
                 txid={isCompleted ? txid : null}
               />
             );
@@ -212,22 +232,21 @@ function BeamOperationCard({ op }) {
         </div>
       )}
 
-      {/* Error state */}
-      {isError && (
-        <div className="beam-error-box">
-          <div className="beam-error-text">{op.error}</div>
+      {/* Error hints (error text already appears inline on the failed step) */}
+      {isError && (op.errorCode === 'INSUFFICIENT_FUNDS' || op.errorCode === 'MITHRIL_TIMEOUT' || op.errorCode === 'BTC_MEMPOOL_TIMEOUT' || op.errorCode === 'PLACEHOLDER_SPENT') && (
+        <div className="beam-error-box" style={{ marginTop: '0.5rem' }}>
           {op.errorCode === 'INSUFFICIENT_FUNDS' && (
-            <div style={{ fontSize: '0.7rem', color: '#fbbf24', marginTop: '0.5rem', lineHeight: 1.4 }}>
+            <div style={{ fontSize: '0.7rem', color: '#fbbf24', lineHeight: 1.4 }}>
               Add BTC to your wallet, then click <strong>Retry</strong>. The process resumes from where it stopped — nothing is lost on-chain.
             </div>
           )}
           {(op.errorCode === 'MITHRIL_TIMEOUT' || op.errorCode === 'BTC_MEMPOOL_TIMEOUT') && (
-            <div style={{ fontSize: '0.7rem', color: '#60a5fa', marginTop: '0.5rem', lineHeight: 1.4 }}>
+            <div style={{ fontSize: '0.7rem', color: '#60a5fa', lineHeight: 1.4 }}>
               This is a network-wait timeout, not a failure. All prior steps are safely on-chain. Click <strong>Retry</strong> to keep waiting.
             </div>
           )}
           {op.errorCode === 'PLACEHOLDER_SPENT' && (
-            <div style={{ fontSize: '0.7rem', color: '#f87171', marginTop: '0.5rem', lineHeight: 1.4 }}>
+            <div style={{ fontSize: '0.7rem', color: '#f87171', lineHeight: 1.4 }}>
               The BTC placeholder UTXO was spent externally, breaking the commitment to the Cardano beam-out. This redeem cannot be recovered. Please contact support.
             </div>
           )}

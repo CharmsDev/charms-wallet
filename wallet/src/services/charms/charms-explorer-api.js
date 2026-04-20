@@ -42,7 +42,11 @@ class CharmsExplorerAPI {
                 return charmData;
             }
 
-            const response = await fetch(`${this.baseUrl}/v1/assets/reference-nft/${encodeURIComponent(appId)}`);
+            // Extract identity hash from appId (format: "t/identity/vk" → "identity")
+            const identityHash = appId.split('/')[1];
+            if (!identityHash) return charmData;
+
+            const response = await fetch(`${this.baseUrl}/v1/assets/reference-nft/${identityHash}`);
             
             if (!response.ok) {
                 return charmData;

@@ -1,28 +1,57 @@
 /**
  * Beam-Back Executor — Linear orchestrator for ADA→BTC beam.
  *
- * 5 steps:
- *   1. Cardano beam-out (prove + Scrolls sign + our sign + broadcast)
- *   2. Get Cardano finality certificate (Scrolls certify_final via Mithril)
- *   3. Bitcoin claim (prove + sign + broadcast)
+ * Protocol flow (5 stages):
+ *   1. Create BTC placeholder (dust UTXO at our own BTC address; the beam_to
+ *      hash is SHA256 of its utxo_id, so only we can claim on BTC)
+ *   2. Wait for placeholder to appear in the BTC mempool
+ *   3. Cardano beam-out (prove + Scrolls sign + our sign + broadcast)
+ *   4. Wait for Cardano finality certificate (Scrolls certify_final via Mithril)
+ *   5. Bitcoin claim (prove + sign + broadcast)
  *
- * No placeholder creation needed — uses an existing BTC UTXO as placeholder.
- * No Bitcoin finality wait — Cardano finality is instant (Scrolls signature).
- * But Mithril certification may take 20-60 minutes.
+ * Cardano finality uses Mithril (may take 20-60 minutes) — different from
+ * BTC→ADA direction which waits for 6 block confirmations.
  *
- * Saves checkpoint after every step for resume.
+ * Saves checkpoint after every stage for resume.
  */
 
 import { BEAM_PHASE } from '../core/types';
 import { saveBeamState } from '../core/persistence';
 import { getProverUrl } from '@/services/charm-transfer/constants';
+import { createBtcPlaceholder, waitForBtcInMempool } from '../chains/bitcoin/placeholder';
+import { utxoIdHash } from '../core/crypto';
 
 export async function executeBeamBack(params) {
-  const { beamId, onPhase, signal } = params;
+  const { beamId, onPhase, onCheckpoint, signal } = params;
   const ctx = { ...params };
   const save = (phase) => saveBeamState(beamId, { phase, direction: 'ada-to-btc', ...snapshot(ctx) });
 
-  // Step 1: Prove + sign + broadcast Cardano beam-out (skip if already broadcast)
+  // Stage 1: Create BTC placeholder (skip if already created).
+  // Placeholder lives at OUR OWN BTC address — it's the claim ticket only we can spend.
+  if (!ctx.placeholderUtxoId) {
+    onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, 'Creating Bitcoin placeholder...');
+    const ph = await createBtcPlaceholder({
+      btcAddress: ctx.btcOwnAddress || ctx.btcDestAddress,
+      seedPhrase: ctx.seedPhrase,
+      network: ctx.network,
+      onStatus: m => onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, m),
+    });
+    ctx.placeholderUtxoId = ph.utxo;
+    ctx.placeholderTxid = ph.txid;
+    ctx.placeholderVout = ph.vout;
+    onCheckpoint?.({ placeholderTxid: ph.txid, placeholderVout: ph.vout, placeholderUtxoId: ph.utxo });
+    save(BEAM_PHASE.WAITING_DEST_CONFIRM);
+  }
+
+  // Stage 2: Wait for placeholder in mempool, then compute beam_to hash.
+  if (!ctx.beamToHash) {
+    onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, 'Waiting for placeholder in mempool...');
+    await waitForBtcInMempool(ctx.placeholderTxid, ctx.network, signal);
+    ctx.beamToHash = await utxoIdHash(ctx.placeholderTxid, ctx.placeholderVout);
+    save(BEAM_PHASE.BUILDING_SPELL);
+  }
+
+  // Stage 3: Prove + sign + broadcast Cardano beam-out (skip if already broadcast)
   if (!ctx.cardanoBeamOutTxHash) {
     onPhase(BEAM_PHASE.BUILDING_SPELL, 'Building Cardano beam-out spell...');
     const { cardanoBeamOutTxHash, cardanoTxCborHex } = await proveAndBroadcastCardanoBeamOut({
@@ -31,10 +60,11 @@ export async function executeBeamBack(params) {
     });
     ctx.cardanoBeamOutTxHash = cardanoBeamOutTxHash;
     ctx.cardanoTxCborHex = cardanoTxCborHex;
+    onCheckpoint?.({ cardanoBeamOutTxHash });
     save(BEAM_PHASE.WAITING_FINALITY);
   }
 
-  // Step 2: Get Cardano finality certificate (skip if already have it)
+  // Stage 4: Get Cardano finality certificate (skip if already have it)
   if (!ctx.finalitySignature) {
     onPhase(BEAM_PHASE.WAITING_FINALITY, 'Waiting for Cardano finality (Mithril)...');
     const { finalitySignature } = await waitForCardanoFinality({
@@ -46,7 +76,7 @@ export async function executeBeamBack(params) {
     save(BEAM_PHASE.CLAIMING_DEST);
   }
 
-  // Step 3: Prove + sign + broadcast Bitcoin claim (skip if already claimed)
+  // Stage 5: Prove + sign + broadcast Bitcoin claim (skip if already claimed)
   if (!ctx.btcClaimTxid) {
     onPhase(BEAM_PHASE.CLAIMING_DEST, 'Proving Bitcoin claim...');
     const { btcClaimTxid } = await proveAndBroadcastBtcClaim({
@@ -54,28 +84,32 @@ export async function executeBeamBack(params) {
       onStatus: m => onPhase(BEAM_PHASE.CLAIMING_DEST, m),
     });
     ctx.btcClaimTxid = btcClaimTxid;
+    onCheckpoint?.({ btcClaimTxid });
     save(BEAM_PHASE.COMPLETE);
   }
 
   onPhase(BEAM_PHASE.COMPLETE, 'Beam back complete!');
-  return { cardanoBeamOutTxHash: ctx.cardanoBeamOutTxHash, btcClaimTxid: ctx.btcClaimTxid };
+  return {
+    placeholderTxid: ctx.placeholderTxid,
+    cardanoBeamOutTxHash: ctx.cardanoBeamOutTxHash,
+    btcClaimTxid: ctx.btcClaimTxid,
+  };
 }
 
 // ── Step 1: Cardano Beam-Out ────────────────────────────────────────────────
 
 async function proveAndBroadcastCardanoBeamOut({
   tokenAppId, cntUtxoId, fundingUtxoId, beamAmount, changeAmount,
-  btcPlaceholderUtxoId, beamToHash, cardanoAddress, collateralUtxoId,
+  placeholderUtxoId, beamToHash, cardanoAddress, collateralUtxoId,
   seedPhrase, addressIndex = 0, network, onStatus,
 }) {
-  const { SPELL_VERSION } = await import('@/services/charm-transfer/constants');
   const { selectCardanoCollateral, selectCardanoFunding, checkCardanoBeamReadiness, consolidateAdaUtxos } =
     await import('../chains/cardano/funding');
 
   // Auto-select funding & collateral if not provided, with auto-consolidation
   if (!fundingUtxoId || !collateralUtxoId) {
     onStatus?.('Checking Cardano funding...');
-    let readiness = await checkCardanoBeamReadiness(cardanoAddress);
+    let readiness = await checkCardanoBeamReadiness(cardanoAddress, undefined, network);
 
     if (!readiness.ok && readiness.needsConsolidation) {
       onStatus?.('Consolidating ADA UTXOs (one-time setup)...');
@@ -85,17 +119,18 @@ async function proveAndBroadcastCardanoBeamOut({
         addressIndex,
         excludeUtxoIds: [cntUtxoId],
         onStatus,
+        network,
       });
       onStatus?.(`Consolidation tx ${consolidation.txHash.slice(0, 16)}... waiting...`);
       await new Promise(r => setTimeout(r, 8000));
-      readiness = await checkCardanoBeamReadiness(cardanoAddress);
+      readiness = await checkCardanoBeamReadiness(cardanoAddress, undefined, network);
     }
 
     if (!readiness.ok) throw new Error(readiness.message || 'Cardano not ready for beam');
 
     onStatus?.('Selecting Cardano collateral and funding...');
-    const collateral = await selectCardanoCollateral(cardanoAddress, [cntUtxoId]);
-    const funding = await selectCardanoFunding(cardanoAddress, [cntUtxoId, collateral.utxoId]);
+    const collateral = await selectCardanoCollateral(cardanoAddress, [cntUtxoId], network);
+    const funding = await selectCardanoFunding(cardanoAddress, [cntUtxoId, collateral.utxoId], undefined, network);
     if (!funding) throw new Error('No suitable Cardano funding UTXO');
 
     collateralUtxoId = collateral.utxoId;
@@ -227,13 +262,27 @@ async function waitForCardanoFinality({ cardanoTxCborHex, onStatus, signal }) {
 // ── Step 3: Bitcoin Claim ───────────────────────────────────────────────────
 
 async function proveAndBroadcastBtcClaim({
-  tokenAppId, btcPlaceholderUtxoId, btcFundingUtxoId, beamAmount,
+  tokenAppId, placeholderUtxoId, btcFundingUtxoId, beamAmount,
   cardanoBeamOutTxHash, cardanoTxCborHex, finalitySignature,
-  btcChangeAddress, seedPhrase, network, onStatus,
+  btcOwnAddress, btcDestAddress, seedPhrase, network, onStatus,
 }) {
   const { getMempoolBase } = await import('@/services/charm-transfer/constants');
+  const mempoolBase = getMempoolBase(network);
 
-  const [placeholderTxid] = btcPlaceholderUtxoId.split(':');
+  // Auto-select funding UTXO (≥ 5000 sats, non-placeholder) if not provided.
+  if (!btcFundingUtxoId) {
+    onStatus?.('Selecting BTC funding UTXO...');
+    const fundAddr = btcOwnAddress || btcDestAddress;
+    const utxos = await fetch(`${mempoolBase}/address/${fundAddr}/utxo`).then(r => r.json());
+    const funding = utxos
+      .filter(u => u.value >= 5000)
+      .filter(u => `${u.txid}:${u.vout}` !== placeholderUtxoId)
+      .sort((a, b) => b.value - a.value)[0];
+    if (!funding) throw new Error('No BTC funding UTXO ≥ 5000 sats for claim fees');
+    btcFundingUtxoId = `${funding.txid}:${funding.vout}`;
+  }
+
+  const [placeholderTxid] = placeholderUtxoId.split(':');
   const [fundingTxid] = btcFundingUtxoId.split(':');
 
   // Build + normalize BTC claim spell (proper CBOR)
@@ -241,16 +290,15 @@ async function proveAndBroadcastBtcClaim({
   const { normalizeBtcClaimSpell } = await import('../spells/beam-back-normalizer');
   const { normalizedSpellHex, appPrivateInputs, txInsBeamedSourceUtxos } = await normalizeBtcClaimSpell({
     tokenAppId,
-    btcPlaceholderUtxoId,
+    placeholderUtxoId,
     btcFundingUtxoId,
     beamAmount,
     cardanoBeamOutTxid: `${cardanoBeamOutTxHash}:0`,
-    btcDestAddress: btcChangeAddress,
+    btcDestAddress,
   });
 
   // Fetch prev txs
   onStatus?.('Fetching Bitcoin transactions...');
-  const mempoolBase = getMempoolBase(network);
   const [placeholderTxHex, fundingTxHex] = await Promise.all([
     fetch(`${mempoolBase}/tx/${placeholderTxid}/hex`).then(r => r.text()),
     placeholderTxid === fundingTxid
@@ -265,13 +313,16 @@ async function proveAndBroadcastBtcClaim({
   if (fundingTxHex) prevTxs.push({ bitcoin: fundingTxHex });
   prevTxs.push(cardanoPrevTx);
 
+  // change_address: any leftover sats from funding UTXO (minus fees) go here.
+  // Default to our own address so external destination only receives the
+  // 546-sat charm output, not the user's change.
   const payload = {
     spell: normalizedSpellHex,
     app_private_inputs: appPrivateInputs,
     tx_ins_beamed_source_utxos: txInsBeamedSourceUtxos,
     binaries: {},
     prev_txs: prevTxs,
-    change_address: btcChangeAddress,
+    change_address: btcOwnAddress || btcDestAddress,
     fee_rate: 2,
     chain: 'bitcoin',
     collateral_utxo: null,
@@ -315,10 +366,14 @@ function snapshot(ctx) {
     tokenAppId: ctx.tokenAppId,
     beamAmount: ctx.beamAmount,
     cardanoAddress: ctx.cardanoAddress,
-    btcChangeAddress: ctx.btcChangeAddress,
+    btcOwnAddress: ctx.btcOwnAddress,
+    btcDestAddress: ctx.btcDestAddress,
     btcNetwork: ctx.network,
     cntUtxoId: ctx.cntUtxoId,
-    btcPlaceholderUtxoId: ctx.btcPlaceholderUtxoId,
+    placeholderUtxoId: ctx.placeholderUtxoId,
+    placeholderTxid: ctx.placeholderTxid,
+    placeholderVout: ctx.placeholderVout,
+    beamToHash: ctx.beamToHash,
     cardanoBeamOutTxHash: ctx.cardanoBeamOutTxHash,
     finalitySignature: ctx.finalitySignature,
     btcClaimTxid: ctx.btcClaimTxid,

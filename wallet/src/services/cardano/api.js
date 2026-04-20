@@ -43,10 +43,11 @@ async function withFallback(blockfrostFn, koiosFn) {
 
 // ── Public API (same interface for all consumers) ───────────────────────────
 
-export async function fetchUtxos(address) {
+export async function fetchUtxos(address, network) {
+  const net = network || getNetwork();
   return withFallback(
     () => blockfrost.fetchUtxos(address),
-    () => koios.fetchUtxos(address, getNetwork()),
+    () => koios.fetchUtxos(address, net),
   );
 }
 
@@ -64,10 +65,11 @@ export async function fetchAssetMeta(unit) {
   );
 }
 
-export async function submitCardanoTx(txCbor) {
+export async function submitCardanoTx(txCbor, network) {
+  const net = network || getNetwork();
   return withFallback(
     () => blockfrost.submitTx(txCbor),
-    () => koios.submitTx(txCbor, getNetwork()),
+    () => koios.submitTx(txCbor, net),
   );
 }
 
@@ -98,26 +100,23 @@ export async function getCardanoTxCbor(txHash) {
 }
 
 export async function getCardanoTx(txHash) {
-  return withFallback(
-    () => blockfrost.fetchTxDetail?.(txHash) ?? Promise.resolve(null),
-    async () => {
-      const resp = await fetch('/api/cardano', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: 'koios', network: getNetwork(),
-          endpoint: '/tx_info', method: 'POST',
-          body: { _tx_hashes: [txHash] },
-        }),
-      });
-      if (!resp.ok) return null;
-      const data = await resp.json();
-      return data[0] || null;
-    },
-  );
+  // Blockfrost provider does not implement this; go straight to Koios via proxy.
+  const resp = await fetch('/api/cardano', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      provider: 'koios', network: getNetwork(),
+      endpoint: '/tx_info', method: 'POST',
+      body: { _tx_hashes: [txHash] },
+    }),
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  return data[0] || null;
 }
 
-export async function getProtocolParams() {
+export async function getProtocolParams(network) {
+  const net = network || getNetwork();
   return withFallback(
     async () => {
       const resp = await fetch(
@@ -132,7 +131,7 @@ export async function getProtocolParams() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          provider: 'koios', network: getNetwork(),
+          provider: 'koios', network: net,
           endpoint: '/epoch_params?limit=1', method: 'GET',
         }),
       });

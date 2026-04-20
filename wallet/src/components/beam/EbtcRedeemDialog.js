@@ -268,7 +268,7 @@ function RedeemConfirmStep({ asset, formData, seedPhrase, network, onConfirm, on
             onClick={() => onConfirm({
               redeemAmount: formData.redeemAmount,
               ebtcBalance: formData.ebtcBalance,
-              cntUtxo: asset._cntUtxoId,
+              cntUtxoId: asset._cntUtxoId,
               vaultUtxo: `${vaultInfo.selected.txid}:${vaultInfo.selected.vout}`,
               vaultSats: vaultInfo.selected.value,
               remainingVault,

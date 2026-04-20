@@ -17,7 +17,10 @@
 import { BEAM_PHASE } from '../core/types';
 import { saveBeamState } from '../core/persistence';
 import { getProverUrl, getMempoolBase, SPELL_VERSION } from '@/services/charm-transfer/constants';
-import { Encoder } from 'cbor-x';
+import { waitForBtcInMempool } from '../chains/bitcoin/placeholder';
+import { utxoIdHash, hexToBytes } from '../core/crypto';
+import { cborToHex, utxoIdToBytes, appToCborTuple } from '../core/cbor';
+import { compactToDER } from '../chains/bitcoin/signer-utils';
 
 // ── eBTC constants ──────────────────────────────────────────────────────────
 
@@ -34,69 +37,7 @@ const DUST_PER_VAULT = 300;
 const DUST_PLACEHOLDER = 546;
 const FEE_RATE = 2;
 
-// ── CBOR helpers ────────────────────────────────────────────────────────────
-
-const cborEncoder = new Encoder({ mapsAsObjects: false });
-function toHex(bytes) { return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(''); }
-function safeInt(n) { return typeof n === 'number' && n > 0xFFFFFFFF ? BigInt(Math.round(n)) : n; }
-function objectToMap(v) {
-  if (v === null || v === undefined) return v;
-  if (typeof v === 'bigint') return v;
-  if (v instanceof Uint8Array) return v;
-  if (Array.isArray(v)) return v.map(objectToMap);
-  if (v instanceof Map) { const m = new Map(); for (const [k, val] of v) m.set(objectToMap(k), objectToMap(val)); return m; }
-  if (typeof v === 'number') return safeInt(v);
-  if (typeof v === 'object') { const m = new Map(); for (const [k, val] of Object.entries(v)) m.set(k, objectToMap(val)); return m; }
-  return v;
-}
-function cborToHex(v) { return toHex(cborEncoder.encode(objectToMap(v))); }
-
-function utxoIdToBytes(s) {
-  const [txH, vS] = s.split(':');
-  const txB = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) txB[i] = parseInt(txH.substring(i * 2, i * 2 + 2), 16);
-  txB.reverse();
-  const b = new Uint8Array(36); b.set(txB, 0);
-  new DataView(b.buffer).setUint32(32, parseInt(vS), true);
-  return b;
-}
-
-function appToCborTuple(s) {
-  const [tag, idHex, vkHex] = s.split('/');
-  const id = [], vk = [];
-  for (let i = 0; i < 64; i += 2) {
-    id.push(parseInt(idHex.substring(i, i + 2), 16));
-    vk.push(parseInt(vkHex.substring(i, i + 2), 16));
-  }
-  return [tag, id, vk];
-}
-
-function destToBytes(hexStr) {
-  const bytes = new Uint8Array(hexStr.length / 2);
-  for (let i = 0; i < hexStr.length; i += 2) bytes[i / 2] = parseInt(hexStr.substring(i, i + 2), 16);
-  return bytes;
-}
-
-async function utxoIdHash(txid, vout) {
-  const buf = new Uint8Array(36);
-  const txidBytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) txidBytes[i] = parseInt(txid.substring(i * 2, i * 2 + 2), 16);
-  for (let i = 0; i < 32; i++) buf[i] = txidBytes[31 - i];
-  new DataView(buf.buffer).setUint32(32, vout, true);
-  const hash = await crypto.subtle.digest('SHA-256', buf);
-  return toHex(new Uint8Array(hash));
-}
-
-function compactToDER(sig) {
-  let r = sig.subarray(0, 32);
-  let s = sig.subarray(32, 64);
-  while (r.length > 1 && r[0] === 0 && !(r[1] & 0x80)) r = r.subarray(1);
-  while (s.length > 1 && s[0] === 0 && !(s[1] & 0x80)) s = s.subarray(1);
-  if (r[0] & 0x80) r = Buffer.concat([Buffer.from([0]), r]);
-  if (s[0] & 0x80) s = Buffer.concat([Buffer.from([0]), s]);
-  const total = 2 + r.length + 2 + s.length;
-  return Buffer.concat([Buffer.from([0x30, total, 0x02, r.length]), r, Buffer.from([0x02, s.length]), s]);
-}
+const destToBytes = hexToBytes;
 
 // ── Main executor ───────────────────────────────────────────────────────────
 
@@ -104,10 +45,10 @@ export async function executeEbtcRedeem(params) {
   const { beamId, onPhase, signal } = params;
   const ctx = { ...params };
   const save = (phase) => saveBeamState(beamId, { phase, direction: 'ebtc-ada-to-btc', ...snapshot(ctx) });
-  console.log('[eBTC-redeem] Starting. redeemAmount:', ctx.redeemAmount, 'cntUtxo:', ctx.cntUtxo);
+  console.log('[eBTC-redeem] Starting. redeemAmount:', ctx.redeemAmount, 'cntUtxoId:', ctx.cntUtxoId);
 
   // ═══ Step 1: Create BTC placeholder ════════════════════════════════════
-  if (!ctx.placeholderUtxo) {
+  if (!ctx.placeholderUtxoId) {
     onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, 'Creating BTC placeholder...');
     // Placeholder tx must be created from OUR own BTC address, not the dest
     const ph = await createBtcPlaceholder({
@@ -116,11 +57,11 @@ export async function executeEbtcRedeem(params) {
       network: ctx.network,
       onStatus: m => onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, m),
     });
-    ctx.placeholderUtxo = ph.utxo;
+    ctx.placeholderUtxoId = ph.utxo;
     ctx.placeholderTxid = ph.txid;
     ctx.placeholderVout = ph.vout;
     save(BEAM_PHASE.WAITING_DEST_CONFIRM);
-    console.log('[eBTC-redeem] Placeholder:', ctx.placeholderUtxo);
+    console.log('[eBTC-redeem] Placeholder:', ctx.placeholderUtxoId);
   }
 
   // Wait for placeholder confirmation (skip if we already progressed past this point)
@@ -215,8 +156,9 @@ async function createBtcPlaceholder({ btcAddress, seedPhrase, network, onStatus 
   onStatus?.('Selecting funding UTXO from mempool...');
   const mempoolBase = getMempoolBase(network);
   const utxos = await fetch(`${mempoolBase}/address/${btcAddress}/utxo`).then(r => r.json());
-  const spendable = utxos.filter(u => u.status?.confirmed && u.value >= 2000).sort((a, b) => b.value - a.value);
-  if (!spendable.length) throw new Error('No confirmed UTXO ≥ 2000 sats for placeholder funding');
+  // Include unconfirmed (mempool) UTXOs — change from concurrent ops is spendable
+  const spendable = utxos.filter(u => u.value >= 2000).sort((a, b) => b.value - a.value);
+  if (!spendable.length) throw new Error('No Bitcoin UTXO ≥ 2000 sats for placeholder funding');
   const funding = spendable[0];
   console.log('[eBTC-redeem:placeholder] funding:', funding.txid, funding.vout, funding.value, 'sats');
 
@@ -252,28 +194,10 @@ async function createBtcPlaceholder({ btcAddress, seedPhrase, network, onStatus 
   return { utxo: `${broadcastTxid}:0`, txid: broadcastTxid, vout: 0 };
 }
 
-async function waitForBtcInMempool(txid, network, signal) {
-  // Use wallet's mempool-service (routes through Charms Explorer first,
-  // falls back to mempool.space) instead of hitting mempool.space directly.
-  const { mempoolService } = await import('@/services/shared/mempool-service');
-  for (let i = 0; i < 60; i++) {
-    if (signal?.aborted) throw new Error('Cancelled');
-    try {
-      const data = await mempoolService.getTransaction(txid, network === 'mainnet' ? 'bitcoin' : 'testnet4');
-      if (data) return;
-    } catch {}
-    await new Promise(r => setTimeout(r, 5000));
-  }
-  throw Object.assign(
-    new Error('Placeholder transaction not yet visible. Click Retry to keep waiting — the transaction was broadcast and should propagate shortly.'),
-    { code: 'BTC_MEMPOOL_TIMEOUT' }
-  );
-}
-
 // ── Step 2: ADA beam-out ────────────────────────────────────────────────────
 
 async function proveAndBroadcastAdaBeamOut({
-  cntUtxo, ebtcBalance, redeemAmount, beamToHash,
+  cntUtxoId, ebtcBalance, redeemAmount, beamToHash,
   cardanoAddress, cardanoOwnAddress, seedPhrase, network, onStatus,
 }) {
   const ownAddr = cardanoOwnAddress || cardanoAddress;
@@ -286,10 +210,10 @@ async function proveAndBroadcastAdaBeamOut({
   const adaUtxos = await fetchCardanoUtxos(ownAddr);
 
   // fetchUtxos returns normalized shape: { txHash, outputIndex, lovelace, assets, ... }
-  const cntU = adaUtxos.find(u => `${u.txHash}:${u.outputIndex}` === cntUtxo);
+  const cntU = adaUtxos.find(u => `${u.txHash}:${u.outputIndex}` === cntUtxoId);
   if (!cntU) throw new Error('CNT UTXO not found in latest fetch');
 
-  const pureAda = adaUtxos.filter(u => (!u.assets || u.assets.length === 0) && `${u.txHash}:${u.outputIndex}` !== cntUtxo);
+  const pureAda = adaUtxos.filter(u => (!u.assets || u.assets.length === 0) && `${u.txHash}:${u.outputIndex}` !== cntUtxoId);
   const collateral = pureAda.filter(u => BigInt(u.lovelace) >= 2_000_000n).sort((a, b) => Number(BigInt(a.lovelace) - BigInt(b.lovelace)))[0];
   if (!collateral) throw new Error('No collateral UTXO ≥ 2 ADA');
   const funding = pureAda.filter(u => `${u.txHash}:${u.outputIndex}` !== `${collateral.txHash}:${collateral.outputIndex}`)
@@ -321,7 +245,7 @@ async function proveAndBroadcastAdaBeamOut({
 
   const normalizedSpell = {
     version: SPELL_VERSION,
-    tx: { ins: [utxoIdToBytes(cntUtxo), utxoIdToBytes(fundingUtxoId)], outs, beamed_outs: beamedOuts, coins },
+    tx: { ins: [utxoIdToBytes(cntUtxoId), utxoIdToBytes(fundingUtxoId)], outs, beamed_outs: beamedOuts, coins },
     app_public_inputs: appPublicInputs,
   };
 
@@ -411,7 +335,7 @@ async function waitForMithrilFinality(cardanoTxCborHex, signal, onStatus) {
 // ── Step 3: Combined BTC redeem ─────────────────────────────────────────────
 
 async function proveCombinedRedeem({
-  placeholderUtxo, placeholderVout, vaultUtxo, vaultSats, redeemAmount, remainingVault,
+  placeholderUtxoId, placeholderVout, vaultUtxo, vaultSats, redeemAmount, remainingVault,
   btcFundingUtxo, btcFundingSats, btcFundingUtxos, // single (legacy) or array [{utxo, sats}]
   cardanoBeamOutTxHash, cardanoTxCborHex, finalitySig,
   btcAddress, btcOwnAddress, network, onStatus,
@@ -424,7 +348,7 @@ async function proveCombinedRedeem({
   // early with a clear error instead of letting the prover fail cryptically.
   onStatus?.('Verifying placeholder UTXO...');
   try {
-    const phOutspend = await fetch(`${mempoolBase0}/tx/${placeholderUtxo.split(':')[0]}/outspend/${placeholderVout ?? placeholderUtxo.split(':')[1]}`).then(r => r.json());
+    const phOutspend = await fetch(`${mempoolBase0}/tx/${placeholderUtxoId.split(':')[0]}/outspend/${placeholderVout ?? placeholderUtxoId.split(':')[1]}`).then(r => r.json());
     if (phOutspend?.spent) {
       throw Object.assign(new Error('Placeholder UTXO has been spent. This redeem is unrecoverable — the ADA beam-out already committed to it. Please contact support.'), { code: 'PLACEHOLDER_SPENT' });
     }
@@ -498,7 +422,7 @@ async function proveCombinedRedeem({
     //     (minimizes total_input → minimizes Scrolls fee).
     //  2. Fallback: accumulate smallest-first until target reached (consolidates
     //     dust without grabbing the mega-UTXO).
-    const phId = placeholderUtxo;
+    const phId = placeholderUtxoId;
     const vId = vaultUtxo;
     const usedIds = new Set(fundingUtxos.map(f => f.utxo));
     const available = Array.from(ownMap.entries())
@@ -539,7 +463,7 @@ async function proveCombinedRedeem({
     try {
       const ownList = await fetch(`${mempoolBase0}/address/${btcOwnAddress}/utxo`).then(r => r.json()).catch(() => []);
       for (const u of ownList) {
-        if (u.status?.confirmed && `${u.txid}:${u.vout}` !== placeholderUtxo && `${u.txid}:${u.vout}` !== vaultUtxo) {
+        if (u.status?.confirmed && `${u.txid}:${u.vout}` !== placeholderUtxoId && `${u.txid}:${u.vout}` !== vaultUtxo) {
           available += u.value;
         }
       }
@@ -578,7 +502,7 @@ async function proveCombinedRedeem({
   const coins = [{ amount: remainingVault, dest: destToBytes(VAULT_DEST) }];
 
   // Inputs: placeholder (beamed_from) + vault + user funding(s) (covers fees)
-  const ins = [utxoIdToBytes(placeholderUtxo), utxoIdToBytes(vaultUtxo)];
+  const ins = [utxoIdToBytes(placeholderUtxoId), utxoIdToBytes(vaultUtxo)];
   for (const f of fundingUtxos) ins.push(utxoIdToBytes(f.utxo));
 
   const normalizedSpell = {
@@ -596,7 +520,7 @@ async function proveCombinedRedeem({
 
   // Fetch prev txs (dedup by txid to avoid sending duplicates to prover)
   const mempoolBase = getMempoolBase(network);
-  const [phTxid] = placeholderUtxo.split(':');
+  const [phTxid] = placeholderUtxoId.split(':');
   const [vaultTxid] = vaultUtxo.split(':');
 
   const prevTxIds = new Set();
@@ -617,7 +541,7 @@ async function proveCombinedRedeem({
   const txInsBeamedSourceUtxos = { 0: [`${cardanoBeamOutTxHash}:0`, null] };
 
   const totalInput = 546 + vaultSats + fundingTotal;
-  console.log('[eBTC-redeem:prove] placeholder:', placeholderUtxo, '(546 sats)');
+  console.log('[eBTC-redeem:prove] placeholder:', placeholderUtxoId, '(546 sats)');
   console.log('[eBTC-redeem:prove] vault:', vaultUtxo, '(', vaultSats, 'sats)');
   fundingUtxos.forEach((f, i) => console.log(`[eBTC-redeem:prove] funding[${i}]:`, f.utxo, '(', f.sats, 'sats) ← covers fees'));
   console.log('[eBTC-redeem:prove] remainingVault:', remainingVault, 'sats');
@@ -646,7 +570,7 @@ async function proveCombinedRedeem({
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const totalInputSats = 546 + vaultSats + fundingTotal;
     const insDesc = [
-      placeholderUtxo + ' (placeholder, 546 sats, beamed_from ADA)',
+      placeholderUtxoId + ' (placeholder, 546 sats, beamed_from ADA)',
       vaultUtxo + ' (vault, ' + vaultSats + ' sats)',
     ];
     fundingUtxos.forEach((f, i) => insDesc.push(f.utxo + ` (funding[${i}], ${f.sats} sats)`));
@@ -698,7 +622,7 @@ async function proveCombinedRedeem({
 }
 
 async function signScrollsAndBroadcastRedeem({
-  redeemSpellTxHex, placeholderUtxo, placeholderVout, vaultUtxo,
+  redeemSpellTxHex, placeholderUtxoId, placeholderVout, vaultUtxo,
   btcAddress, seedPhrase, network, onStatus,
 }) {
   const bitcoin = await import('bitcoinjs-lib');
@@ -729,7 +653,7 @@ async function signScrollsAndBroadcastRedeem({
   if (!hasOurOut) throw new Error('Prover output validation failed: no output to our address');
 
   const mempoolBase = getMempoolBase(network);
-  const [phTxid] = placeholderUtxo.split(':');
+  const [phTxid] = placeholderUtxoId.split(':');
   const [vaultTxid, vaultVoutStr] = vaultUtxo.split(':');
   const vaultVout = parseInt(vaultVoutStr, 10);
 
@@ -822,7 +746,7 @@ function snapshot(ctx) {
   return {
     direction: 'ebtc-ada-to-btc',
     tokenAppId: EBTC_TOKEN_APP,
-    cntUtxo: ctx.cntUtxo,
+    cntUtxoId: ctx.cntUtxoId,
     ebtcBalance: ctx.ebtcBalance,
     redeemAmount: ctx.redeemAmount,
     remainingEbtc: ctx.ebtcBalance - ctx.redeemAmount,
@@ -837,7 +761,7 @@ function snapshot(ctx) {
     btcFundingSats: ctx.btcFundingSats,
     btcFundingUtxos: ctx.btcFundingUtxos,
     btcNetwork: ctx.network,
-    placeholderUtxo: ctx.placeholderUtxo,
+    placeholderUtxoId: ctx.placeholderUtxoId,
     placeholderTxid: ctx.placeholderTxid,
     placeholderVout: ctx.placeholderVout,
     beamToHash: ctx.beamToHash,

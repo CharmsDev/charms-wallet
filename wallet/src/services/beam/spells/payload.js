@@ -54,6 +54,16 @@ export async function submitToProver(payload, network, onStatus) {
 
   onStatus?.('Sending to prover...');
 
+  // Dump payload for debugging
+  try {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    fetch('/api/debug-dump', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: `beam-payload-${ts}.json`, data: payload }),
+    }).catch(() => {});
+  } catch {}
+
   const MAX_RETRIES = 3;
   let lastError;
 

@@ -5,7 +5,10 @@
 
 import { getMempoolBase, EXPLORER_API, getExplorerNetworkParam } from '@/services/charm-transfer/constants';
 
-const REQUIRED_CONFIRMATIONS = 6;
+// Need 7 confirmations: the Cardano prover requires 6 subsequent block headers
+// after the tx's block (block+1 through block+6). 6 confirmations only
+// guarantees block+5 exists; we need block+6 too.
+const REQUIRED_CONFIRMATIONS = 7;
 const POLL_INTERVAL_MS = 60_000; // 1 minute
 
 /**

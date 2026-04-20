@@ -205,7 +205,7 @@ const useCardanoStore = create((set, get) => ({
       const assetUtxos = new Map(); // unit → [{ txHash, outputIndex, quantity, lovelace }]
 
       for (const { address } of state.addresses) {
-        const utxos = await fetchUtxos(address);
+        const utxos = await fetchUtxos(address, network);
         for (const u of utxos) {
           allUtxos.push({ ...u, address });
           totalLovelace += BigInt(u.lovelace);
