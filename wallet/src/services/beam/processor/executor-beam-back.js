@@ -66,6 +66,12 @@ export async function executeBeamBack(params) {
 
   // Stage 4: Get Cardano finality certificate (skip if already have it)
   if (!ctx.finalitySignature) {
+    // Self-heal: older saves may have only the txid; rehydrate the CBOR
+    // from chain so Mithril can verify it.
+    if (!ctx.cardanoTxCborHex && ctx.cardanoBeamOutTxHash) {
+      const { getCardanoTxCbor } = await import('@/services/cardano/api');
+      ctx.cardanoTxCborHex = await getCardanoTxCbor(ctx.cardanoBeamOutTxHash);
+    }
     onPhase(BEAM_PHASE.WAITING_FINALITY, 'Waiting for Cardano finality (Mithril)...');
     const { finalitySignature } = await waitForCardanoFinality({
       cardanoTxCborHex: ctx.cardanoTxCborHex,
@@ -105,6 +111,24 @@ async function proveAndBroadcastCardanoBeamOut({
 }) {
   const { selectCardanoCollateral, selectCardanoFunding, checkCardanoBeamReadiness, consolidateAdaUtxos } =
     await import('../chains/cardano/funding');
+
+  // Derive changeAmount from the CNT on-chain balance if not supplied.
+  // The spell must satisfy sum(in) == sum(out) for the prover to treat it as
+  // a simple token transfer; a missing change output unbalances the tx and
+  // forces the prover to require the app binary unnecessarily.
+  if (changeAmount === undefined || changeAmount === null) {
+    const { fetchUtxos } = await import('@/services/cardano/api');
+    const cardanoNet = network === 'mainnet' ? 'mainnet' : 'preprod';
+    const utxos = await fetchUtxos(cardanoAddress, cardanoNet);
+    const [cntTxH, cntIdxStr] = cntUtxoId.split(':');
+    const cntIdx = parseInt(cntIdxStr, 10);
+    const cntU = utxos.find(u => u.txHash === cntTxH && u.outputIndex === cntIdx);
+    if (!cntU) throw new Error(`CNT UTXO ${cntUtxoId} not found`);
+    const tokenAsset = (cntU.assets || []).find(a => a.quantity);
+    const cntAmount = parseInt(tokenAsset?.quantity || '0', 10);
+    changeAmount = cntAmount - beamAmount;
+    if (changeAmount < 0) throw new Error(`Beam amount ${beamAmount} exceeds CNT balance ${cntAmount}`);
+  }
 
   // Auto-select funding & collateral if not provided, with auto-consolidation
   if (!fundingUtxoId || !collateralUtxoId) {
@@ -168,25 +192,60 @@ async function proveAndBroadcastCardanoBeamOut({
     collateral_utxo: collateralUtxoId,
   };
 
+  // Dump payload to _rjj/tmp for post-mortem inspection (dev only)
+  try {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    await fetch('/api/debug-dump', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: `beam-back-ada-${ts}.json`, data: payload }),
+    }).catch(() => {});
+  } catch {}
+
   // Submit to prover
   onStatus?.('Proving Cardano beam-out (5-10 min)...');
   const proverUrl = getProverUrl(network);
+  const t0 = Date.now();
   const resp = await fetch(proverUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
+  console.log(`[BeamBack:ada-out] prover response: ${resp.status} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
 
   if (!resp.ok) {
     const errText = await resp.text();
     throw new Error(`Prover failed: ${errText}`);
   }
 
-  let cardanoTxCborHex = await resp.text();
+  const raw = await resp.text();
+  // Dump response for post-mortem
   try {
-    const parsed = JSON.parse(cardanoTxCborHex);
-    if (parsed.cborHex) cardanoTxCborHex = parsed.cborHex;
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    await fetch('/api/debug-dump', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: `beam-back-ada-response-${ts}.json`, data: { raw } }),
+    }).catch(() => {});
+  } catch {}
+
+  // v14 prover returns JSON like [{ "cardano": "<cbor hex>" }] or { cardano: ... }.
+  // Legacy formats also supported: { cborHex: ... } or raw hex string.
+  let cardanoTxCborHex = raw;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed[0]?.cardano) cardanoTxCborHex = parsed[0].cardano;
+    else if (parsed.cardano) cardanoTxCborHex = parsed.cardano;
+    else if (parsed.cborHex) cardanoTxCborHex = parsed.cborHex;
+    else if (typeof parsed === 'string') cardanoTxCborHex = parsed;
   } catch { /* raw hex */ }
+
+  if (!cardanoTxCborHex || cardanoTxCborHex.length < 100) {
+    throw new Error(`Prover returned empty or too-short response: "${raw.slice(0, 200)}"`);
+  }
+  if (!/^[0-9a-fA-F]+$/.test(cardanoTxCborHex)) {
+    throw new Error(`Prover response is not valid hex: "${cardanoTxCborHex.slice(0, 200)}"`);
+  }
 
   // Sign with our Cardano key
   onStatus?.('Signing Cardano transaction...');
@@ -328,22 +387,78 @@ async function proveAndBroadcastBtcClaim({
     collateral_utxo: null,
   };
 
+  // Dump payload for post-mortem
+  try {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    await fetch('/api/debug-dump', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: `beam-back-btc-${ts}.json`, data: payload }),
+    }).catch(() => {});
+  } catch {}
+
   onStatus?.('Proving Bitcoin claim (5-10 min)...');
   const proverUrl = getProverUrl(network);
+  const t0 = Date.now();
   const resp = await fetch(proverUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
+  console.log(`[BeamBack:btc-claim] prover response: ${resp.status} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
 
   if (!resp.ok) throw new Error(`Prover failed: ${await resp.text()}`);
-  const result = await resp.json();
-  const unsignedTxHex = Array.isArray(result) ? result[0]?.bitcoin : result?.bitcoin;
 
-  // Sign with our BTC key
+  const raw = await resp.text();
+  // Dump response
+  try {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    await fetch('/api/debug-dump', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: `beam-back-btc-response-${ts}.json`, data: { raw } }),
+    }).catch(() => {});
+  } catch {}
+
+  // v14 prover returns [{"bitcoin": "<hex>"}] for a BTC claim.
+  let result;
+  try { result = JSON.parse(raw); } catch {
+    throw new Error(`Prover response is not JSON: "${raw.slice(0, 200)}"`);
+  }
+  const unsignedTxHex = Array.isArray(result) ? result[0]?.bitcoin : result?.bitcoin;
+  if (!unsignedTxHex || !/^[0-9a-fA-F]+$/.test(unsignedTxHex)) {
+    throw new Error(`Prover returned invalid BTC tx hex: "${raw.slice(0, 200)}"`);
+  }
+
+  // Sign with our BTC key (same multi-key signer used by the eBTC mint path).
+  // Both placeholder and funding UTXOs live at btcOwnAddress (index 0, non-change),
+  // so we map both to that key. Prover-added inputs the map doesn't cover will
+  // be left unsigned — harmless for our wallet's inputs but relies on the
+  // prover not adding foreign inputs (which it doesn't for BTC claims).
   onStatus?.('Signing Bitcoin transaction...');
-  const { signSpellTx } = await import('@/services/charm-transfer/tx-signer');
-  const signedTxHex = await signSpellTx(unsignedTxHex, seedPhrase, network);
+  const { signSpellTxMultiKey } = await import('@/services/charm-transfer/tx-signer');
+  const { fetchTxHex } = await import('@/services/charm-transfer/tx-fetcher');
+  const bitcoin = await import('bitcoinjs-lib');
+
+  const unsignedTx = bitcoin.Transaction.fromHex(unsignedTxHex);
+  const prevTxMap = new Map();
+  prevTxMap.set(placeholderTxid, placeholderTxHex);
+  if (fundingTxHex) prevTxMap.set(fundingTxid, fundingTxHex);
+  // Fetch any prover-added prev txs we don't already have cached
+  for (const inp of unsignedTx.ins) {
+    const txid = Buffer.from(inp.hash).reverse().toString('hex');
+    if (!prevTxMap.has(txid)) {
+      prevTxMap.set(txid, await fetchTxHex(txid, network));
+    }
+  }
+
+  const ownAddr = btcOwnAddress || btcDestAddress;
+  const inputSigningMap = {
+    [placeholderUtxoId]: { index: 0, isChange: false, address: ownAddr },
+    [btcFundingUtxoId]: { index: 0, isChange: false, address: ownAddr },
+  };
+
+  const signedTxHex = await signSpellTxMultiKey(unsignedTxHex, prevTxMap, inputSigningMap, seedPhrase, network);
 
   // Broadcast
   onStatus?.('Broadcasting Bitcoin claim...');
@@ -365,6 +480,7 @@ function snapshot(ctx) {
     direction: 'ada-to-btc',
     tokenAppId: ctx.tokenAppId,
     beamAmount: ctx.beamAmount,
+    changeAmount: ctx.changeAmount,
     cardanoAddress: ctx.cardanoAddress,
     btcOwnAddress: ctx.btcOwnAddress,
     btcDestAddress: ctx.btcDestAddress,
@@ -375,6 +491,7 @@ function snapshot(ctx) {
     placeholderVout: ctx.placeholderVout,
     beamToHash: ctx.beamToHash,
     cardanoBeamOutTxHash: ctx.cardanoBeamOutTxHash,
+    cardanoTxCborHex: ctx.cardanoTxCborHex,
     finalitySignature: ctx.finalitySignature,
     btcClaimTxid: ctx.btcClaimTxid,
   };

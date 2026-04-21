@@ -190,7 +190,9 @@ export function BeamOperationsProvider({ children }) {
         dispatch({ type: 'COMPLETE', id, btcTxid: result.btcClaimTxid, adaClaimTxid: result.cardanoBeamOutTxHash });
         refreshAllBalances().catch(() => {});
       } catch (err) {
-        dispatch({ type: 'ERROR', id, error: err?.message || 'Beam back failed' });
+        console.error('[BeamBack] failed:', err);
+        const msg = err?.message || (typeof err === 'string' ? err : JSON.stringify(err)) || 'Beam back failed';
+        dispatch({ type: 'ERROR', id, error: msg });
       }
     })();
   }, [refreshAllBalances]);
