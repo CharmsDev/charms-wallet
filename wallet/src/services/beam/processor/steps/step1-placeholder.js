@@ -19,16 +19,22 @@ import { submitCardanoTx } from '@/services/cardano/api';
  * @param {function} [p.onStatus]
  * @returns {Promise<{ txHash: string, outputIndex: number }>}
  */
-export async function createPlaceholder({ cardanoAddress, seedPhrase, addressIndex = 0, onStatus }) {
+export async function createPlaceholder({ cardanoAddress, cardanoOwnAddress, seedPhrase, addressIndex = 0, onStatus }) {
+  // The placeholder MUST live at our own address so step6 can spend it to
+  // complete the claim. `cardanoAddress` (destination) only matters for the
+  // final claim output where beamed tokens land. Fall back to `cardanoAddress`
+  // for legacy callers that only pass one address (same-wallet beams).
+  const ownAddr = cardanoOwnAddress || cardanoAddress;
+
   // Load CSL dynamically
   const { waitForCardanoWasm, getCardanoWasm } = await import('@/lib/cardano/cardanoWasm');
   await waitForCardanoWasm();
   const CSL = getCardanoWasm();
   const { seedPhraseToRootKey, derivePaymentKey } = await import('@/lib/cardano/wallet');
 
-  // Fetch UTXOs (normalized format: { txHash, outputIndex, lovelace, assets })
+  // Fetch UTXOs from OUR address (where we can actually spend)
   onStatus?.('Fetching Cardano UTXOs...');
-  const utxos = await fetchUtxos(cardanoAddress);
+  const utxos = await fetchUtxos(ownAddr);
   if (!utxos.length) throw new Error('No Cardano UTXOs available. Fund your Cardano address with at least 4 ADA.');
 
   // Fetch protocol parameters
@@ -60,17 +66,19 @@ export async function createPlaceholder({ cardanoAddress, seedPhrase, addressInd
       .build()
   );
 
-  // Add input
+  // Add input (funding UTXO lives at our own address)
   const inputTxHash = CSL.TransactionHash.from_hex(funding.txHash);
   const input = CSL.TransactionInput.new(inputTxHash, funding.outputIndex);
   txBuilder.add_regular_input(
-    CSL.Address.from_bech32(cardanoAddress),
+    CSL.Address.from_bech32(ownAddr),
     input,
     CSL.Value.new(CSL.BigNum.from_str(fundingLovelace.toString()))
   );
 
-  // Add placeholder output (min ADA, no tokens)
-  const destAddr = CSL.Address.from_bech32(cardanoAddress);
+  // All outputs (placeholder + optional collateral + change) go to OUR
+  // address so step6 can spend them. Sending tokens to the final destination
+  // happens in the claim step, not here.
+  const destAddr = CSL.Address.from_bech32(ownAddr);
   txBuilder.add_output(
     CSL.TransactionOutput.new(destAddr, CSL.Value.new(CSL.BigNum.from_str(minUtxo)))
   );

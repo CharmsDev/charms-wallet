@@ -1,6 +1,6 @@
 'use client';
 
-import { getTransactionLabel, getTransactionIcon } from '@/services/transactions/transaction-classifier';
+import { getTransactionLabel, getTransactionIcon, getSemanticAmountSats } from '@/services/transactions/transaction-classifier';
 import { formatBTC, formatTransactionDate } from '@/utils/formatters';
 
 export default function TransactionList({ 
@@ -34,13 +34,27 @@ export default function TransactionList({
                 return 'bg-cyan-500/20 text-cyan-400';
             case 'charm_self_transfer':
                 return 'bg-blue-500/20 text-blue-400';
+            case 'beam_in':
+                return 'bg-green-500/20 text-green-400';
+            case 'beam_out':
+                return 'bg-red-500/20 text-red-400';
+            case 'btc_placeholder':
+                return 'bg-blue-500/20 text-blue-400';
+            case 'ebtc_lock':
+                return 'bg-yellow-500/20 text-yellow-400';
+            case 'ebtc_redeem':
+                return 'bg-yellow-500/20 text-yellow-400';
             default:
                 return 'bg-dark-500/20 text-dark-400';
         }
     };
 
     const isCharmTransaction = (tx) => {
-        return ['charm_received', 'charm_sent', 'charm_transfer', 'charm_consolidation', 'charm_self_transfer', 'bro_mint', 'bro_mining'].includes(tx.type);
+        return [
+            'charm_received', 'charm_sent', 'charm_transfer', 'charm_consolidation', 'charm_self_transfer',
+            'bro_mint', 'bro_mining',
+            'beam_in', 'beam_out', 'ebtc_lock', 'ebtc_redeem',
+        ].includes(tx.type);
     };
 
     if (isLoading) {
@@ -113,27 +127,66 @@ export default function TransactionList({
 
                                     {/* Amount */}
                                     <div className="mb-1">
-                                        {isCharmTransaction(tx) && tx.charmTokenData ? (
-                                            <p className={`text-sm font-medium ${
-                                                tx.type === 'charm_received' ? 'text-green-400' : 
-                                                tx.type === 'charm_sent' ? 'text-red-400' : 
-                                                'text-purple-400'
-                                            }`}>
-                                                {tx.type === 'charm_received' ? '+' : tx.type === 'charm_sent' ? '-' : ''}
-                                                {tx.charmTokenData.tokenAmount.toLocaleString(undefined, {
-                                                    minimumFractionDigits: 0, 
-                                                    maximumFractionDigits: 8
-                                                })} {tx.charmTokenData.tokenTicker}
-                                            </p>
-                                        ) : !isCharmTransaction(tx) ? (
-                                            <p className={`text-sm font-medium ${
-                                                tx.type === 'received' ? 'text-green-400' : 'text-red-400'
-                                            }`}>
-                                                {tx.type === 'received' ? '+' : '-'}{formatBTC(tx.amount)} BTC
-                                            </p>
-                                        ) : (
-                                            <p className="text-sm text-dark-400">Charm Transaction</p>
-                                        )}
+                                        {(() => {
+                                            // Beam/vault types: the user wants to see
+                                            //   (a) the semantic amount (sats locked / claimed /
+                                            //       beamed — the number that maps to the beam)
+                                            //   (b) the total wallet cost (fees + dust that leave
+                                            //       the wallet permanently)
+                                            // `tx.amount` is the net wallet outflow; `semanticSats`
+                                            // is the portion that was sent/locked intentionally.
+                                            // Cost = |tx.amount| - |semanticSats| for outgoing
+                                            // types. For incoming (beam_in, ebtc_redeem), the
+                                            // "cost" is the fee portion already baked into the
+                                            // spell tx, surfaced separately.
+                                            const semanticSats = getSemanticAmountSats(tx.type, tx);
+                                            if (semanticSats != null) {
+                                                const isIncoming = tx.type === 'ebtc_redeem' || tx.type === 'beam_in';
+                                                const sign = isIncoming ? '+' : '-';
+                                                const colour = sign === '+' ? 'text-green-400' : 'text-red-400';
+                                                const outflow = Math.abs(tx.amount || 0);
+                                                const costSats = !isIncoming && outflow > semanticSats
+                                                    ? outflow - semanticSats
+                                                    : (tx.fee || 0);
+                                                return (
+                                                    <div>
+                                                        <p className={`text-sm font-medium ${colour}`}>
+                                                            {sign}{formatBTC(semanticSats)} BTC
+                                                        </p>
+                                                        {costSats > 0 && (
+                                                            <p className="text-xs text-dark-400">
+                                                                Cost: {formatBTC(costSats)} BTC
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                );
+                                            }
+                                            if (isCharmTransaction(tx) && tx.charmTokenData) {
+                                                return (
+                                                    <p className={`text-sm font-medium ${
+                                                        tx.type === 'charm_received' ? 'text-green-400' :
+                                                        tx.type === 'charm_sent' ? 'text-red-400' :
+                                                        'text-purple-400'
+                                                    }`}>
+                                                        {tx.type === 'charm_received' ? '+' : tx.type === 'charm_sent' ? '-' : ''}
+                                                        {tx.charmTokenData.tokenAmount.toLocaleString(undefined, {
+                                                            minimumFractionDigits: 0,
+                                                            maximumFractionDigits: 8
+                                                        })} {tx.charmTokenData.tokenTicker}
+                                                    </p>
+                                                );
+                                            }
+                                            if (!isCharmTransaction(tx)) {
+                                                return (
+                                                    <p className={`text-sm font-medium ${
+                                                        tx.type === 'received' ? 'text-green-400' : 'text-red-400'
+                                                    }`}>
+                                                        {tx.type === 'received' ? '+' : '-'}{formatBTC(tx.amount)} BTC
+                                                    </p>
+                                                );
+                                            }
+                                            return <p className="text-sm text-dark-400">Charm Transaction</p>;
+                                        })()}
                                     </div>
 
                                     {/* Date and Status */}

@@ -13,6 +13,7 @@ import UTXOList from '@/components/wallet/utxos/UTXOList';
 import TransactionHistory from '@/components/wallet/history/TransactionHistory';
 import ExtensionInstallGuide from '@/components/extension/ExtensionInstallGuide';
 import CardanoTransactionHistory from '@/components/wallet/cardano/CardanoTransactionHistory';
+import CardanoUTXOList from '@/components/wallet/cardano/CardanoUTXOList';
 const CharmsList = lazy(() => import('@/components/wallet/charms/CharmsList'));
 const CardanoAssetView = lazy(() => import('@/components/wallet/cardano/CardanoAssetView'));
 
@@ -55,13 +56,13 @@ export default function MainLayout({ children }) {
                         </div>
                     )}
 
-                    {/* UTXOs section - instant loading */}
+                    {/* UTXOs section - instant loading, chain-aware */}
                     {loadedSections.has('utxos') && (
                         <div
                             className={`pt-6 transition-opacity duration-200 ${activeSection !== "utxos" ? "opacity-0 hidden" : ""
                                 }`}
                         >
-                            <UTXOList />
+                            {isCardano() ? <CardanoUTXOList /> : <UTXOList />}
                         </div>
                     )}
 

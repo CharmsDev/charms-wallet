@@ -43,9 +43,16 @@ export async function executeEbtcBeam(params) {
   const { utxoIdHash } = await import('../core/crypto');
 
   // ═══ Step 1: ADA placeholder ═══════════════════════════════════════════
+  // Placeholder must live at our own Cardano address (so we can spend it in
+  // step6). ctx.cardanoAddress is the final DESTINATION (may be external);
+  // ctx.cardanoOwnAddress is our funding/signing address.
   if (!ctx.placeholderTxid) {
     onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, 'Creating Cardano placeholder...');
-    const ph = await createPlaceholder({ ...ctx, onStatus: m => onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, m) });
+    const ph = await createPlaceholder({
+      ...ctx,
+      cardanoOwnAddress: ctx.cardanoOwnAddress || ctx.cardanoAddress,
+      onStatus: m => onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, m),
+    });
     ctx.placeholderTxid = ph.txHash;
     ctx.placeholderVout = ph.outputIndex;
     save(BEAM_PHASE.WAITING_DEST_CONFIRM);

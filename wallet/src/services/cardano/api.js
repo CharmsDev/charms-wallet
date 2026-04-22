@@ -115,6 +115,30 @@ export async function getCardanoTx(txHash) {
   return data[0] || null;
 }
 
+/**
+ * Batch-fetch tx_info details for many hashes in a single Koios call. Koios
+ * accepts up to ~50 hashes per request. Returns a map {hash: detail}.
+ */
+export async function getCardanoTxsBatch(txHashes) {
+  if (!txHashes?.length) return {};
+  const resp = await fetch('/api/cardano', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      provider: 'koios', network: getNetwork(),
+      endpoint: '/tx_info', method: 'POST',
+      body: { _tx_hashes: txHashes, _inputs: true, _assets: true },
+    }),
+  });
+  if (!resp.ok) return {};
+  const data = await resp.json();
+  const out = {};
+  for (const tx of Array.isArray(data) ? data : []) {
+    if (tx.tx_hash) out[tx.tx_hash] = tx;
+  }
+  return out;
+}
+
 export async function getProtocolParams(network) {
   const net = network || getNetwork();
   return withFallback(

@@ -33,6 +33,7 @@ export async function extractCharmTokenData(txid, network, myAddresses = []) {
 
         // Use first charm entry for metadata
         const charm = charmsArray[0];
+        if (!charm || typeof charm !== 'object') return null;
         const appId = charm.app_id || charm.appId;
         if (!appId) return null;
 
@@ -62,7 +63,12 @@ export async function extractCharmTokenData(txid, network, myAddresses = []) {
             tokenAmountSats,
         };
     } catch (error) {
-        console.error('[CharmTransactionExtractor] Error extracting charm data:', error);
+        // 404 = tx exists but isn't indexed as a charm — expected for old
+        // mining / non-charm txs that still classify structurally as "BRO_MINING".
+        // Don't spam the console with those.
+        if (error?.status !== 404) {
+            console.warn('[CharmTransactionExtractor] Error extracting charm data:', error?.message || error);
+        }
         return null;
     }
 }

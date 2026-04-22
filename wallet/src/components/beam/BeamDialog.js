@@ -94,7 +94,8 @@ function BeamFormStep({ charm, seedPhrase, network, onNext, onClose }) {
     onNext({
       beamAmount: amountRaw,
       beamAmountDisplay: beamAmount,
-      cardanoAddress: effectiveAddress,
+      cardanoAddress: effectiveAddress,   // where the beamed tokens land
+      cardanoOwnAddress: ownAddress,      // pays placeholder + claim fees
       ticker,
     });
   };
@@ -413,6 +414,7 @@ function BeamConfirmStep({ charm, beamData, onConfirm, onBack, onClose }) {
               fundingUtxo: { utxoId: fundingUtxo.utxoId, value: fundingUtxo.value },
               beamAmount: beamData.beamAmount,
               cardanoAddress: beamData.cardanoAddress,
+              cardanoOwnAddress: beamData.cardanoOwnAddress,
               inputSigningMap,
               btcChangeAddress: changeAddress,
             })}

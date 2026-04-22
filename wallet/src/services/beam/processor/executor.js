@@ -20,9 +20,15 @@ export async function executeBeamOut(params) {
   const save = (phase) => saveBeamState(beamId, { phase, direction: 'btc-to-ada', ...snapshot(ctx) });
 
   // Step 1: Create Cardano placeholder (skip if already created)
+  // Placeholder lives at our own Cardano address regardless of where the
+  // beamed tokens will finally be claimed (step 6 handles that destination).
   if (!ctx.placeholderTxid) {
     onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, 'Creating placeholder UTXO on Cardano...');
-    const ph = await createPlaceholder({ ...ctx, onStatus: m => onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, m) });
+    const ph = await createPlaceholder({
+      ...ctx,
+      cardanoOwnAddress: ctx.cardanoOwnAddress || ctx.cardanoAddress,
+      onStatus: m => onPhase(BEAM_PHASE.CREATING_PLACEHOLDER, m),
+    });
     ctx.placeholderTxid = ph.txHash;
     ctx.placeholderVout = ph.outputIndex;
     save(BEAM_PHASE.WAITING_DEST_CONFIRM);
@@ -72,6 +78,7 @@ function snapshot(ctx) {
     tokenAppId: ctx.tokenAppId,
     beamAmount: ctx.beamAmount,
     cardanoAddress: ctx.cardanoAddress,
+    cardanoOwnAddress: ctx.cardanoOwnAddress,
     btcChangeAddress: ctx.btcChangeAddress,
     btcNetwork: ctx.network,
     adaNetwork: ctx.adaNetwork,

@@ -73,11 +73,23 @@ function toCharmObj(utxo, balanceEntry) {
  * Returns { balanceResult, charms, tokenBalances, utxos } or throws on failure.
  */
 async function fetchFromExplorerAPI(explorerService, addressList, network, skipCharms) {
+    console.log('[DIAG:sync] Querying balances for addresses:', addressList);
+
     // Use batch endpoints (single POST per type) instead of N individual GETs
     const [utxos, charmBalances] = await Promise.all([
         explorerService.getAggregateUTXOsBatch(addressList, network, { minValue: 1000 }),
         skipCharms ? [] : explorerService.getAggregateCharmBalancesBatch(addressList, network),
     ]);
+
+    if (!skipCharms && Array.isArray(charmBalances)) {
+        for (const b of charmBalances) {
+            const totalDisplay = (b.total || 0) / 1e8;
+            console.log(`[DIAG:sync] app ${b.appId.slice(0, 16)}… sym=${b.symbol} total=${totalDisplay} UTXOs=${(b.utxos || []).length}`);
+            for (const u of (b.utxos || [])) {
+                console.log(`[DIAG:sync]   └─ ${u.txid.slice(0, 16)}…:${u.vout}  amount=${(u.amount || 0) / 1e8}  addr=${u.address}  block=${u.blockHeight}`);
+            }
+        }
+    }
 
     // Normalize charms first — needed for isCharmUtxo check below
     const charms = [];

@@ -141,15 +141,26 @@ export class ExplorerWalletService {
             const ms = (performance.now() - t0).toFixed(0);
             if (!response.ok) {
                 const body = await response.text().catch(() => '');
-                console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${fullPath} — ${response.status} (${ms}ms)`);
-                this._onFailure();
-                throw new Error(`Explorer API ${response.status}: ${body}`);
+                // 404 is a semantic "not indexed" response (e.g., /v1/charms/{txid}
+                // for a tx that isn't a charm) — it does NOT indicate the API is
+                // unhealthy. Only 5xx / network errors should trip the breaker.
+                const isNotFound = response.status === 404;
+                if (!isNotFound) {
+                    console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${fullPath} — ${response.status} (${ms}ms)`);
+                    this._onFailure();
+                } else {
+                    this._onSuccess();
+                }
+                const err = new Error(`Explorer API ${response.status}: ${body}`);
+                err.status = response.status;
+                throw err;
             }
 
             console.log(`[${this._ts()}] [ExplorerAPI] ✓ ${fullPath} — ${response.status} (${ms}ms)`);
             this._onSuccess();
             return response.json();
         } catch (err) {
+            if (err.status === 404) throw err; // already handled above
             const ms = (performance.now() - t0).toFixed(0);
             console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${fullPath} — ${err.message} (${ms}ms)`);
             this._onFailure();
@@ -285,10 +296,19 @@ export class ExplorerWalletService {
             vout,
             hex: data.hex || null,
             blockhash: data.block_hash || null,
+            block_height: data.block_height || null,
             confirmations: data.confirmations || 0,
             time: data.time || null,
             blocktime: data.time || null,
             fee: data.fee || 0,
+            // Also expose in mempool.space-style `status` so downstream code
+            // that only reads `tx.status.block_*` keeps working transparently.
+            status: {
+                confirmed: (data.confirmations || 0) > 0,
+                block_height: data.block_height || null,
+                block_time: data.time || null,
+                block_hash: data.block_hash || null,
+            },
         };
     }
 
@@ -528,9 +548,7 @@ export class ExplorerWalletService {
     // ── Transaction history (indexed, paginated) ─────────────────────────
 
     /**
-     * Get paginated transaction history for an address.
-     * Returns { address, network, transactions, page, page_size, total, total_pages }.
-     * Each transaction: { txid, direction, amount, fee, block_height, block_time, confirmations }.
+     * Get paginated transaction history for an address (single page).
      */
     async getTransactionHistory(address, network, { page = 1, pageSize = 50 } = {}) {
         return this._makeRequest(
@@ -538,6 +556,27 @@ export class ExplorerWalletService {
             {},
             network
         );
+    }
+
+    /**
+     * Get ALL transactions for an address by walking pagination until drained.
+     * Backend caps page_size at 100. We stop either when the response has
+     * fewer than pageSize entries or when `total_pages` says we're done.
+     * Hard upper bound: 1000 txs to avoid runaway loops on spammy addresses.
+     */
+    async getAllTransactions(address, network, { pageSize = 100 } = {}) {
+        const all = [];
+        let page = 1;
+        for (let i = 0; i < 10; i++) {
+            const resp = await this.getTransactionHistory(address, network, { page, pageSize });
+            const txs = resp?.transactions || [];
+            all.push(...txs);
+            const totalPages = resp?.total_pages;
+            if (!txs.length || txs.length < pageSize) break;
+            if (totalPages && page >= totalPages) break;
+            page++;
+        }
+        return all;
     }
 
     // ── Charms by txid (public API) ──────────────────────────────────────

@@ -18,11 +18,17 @@ export const formatBTC = (satoshis) => {
  * @returns {string} Formatted date string
  */
 export const formatTransactionDate = (timestamp) => {
+    // UTC — block times are chain-wide; a local timezone would make two
+    // machines display the same tx differently. Year is always shown so
+    // histories spanning multiple years are unambiguous.
     return new Date(timestamp).toLocaleDateString('en-US', {
+        year: 'numeric',
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        timeZone: 'UTC',
+        timeZoneName: 'short',
     });
 };
 
@@ -38,7 +44,9 @@ export const formatDetailedDate = (timestamp) => {
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-        second: '2-digit'
+        second: '2-digit',
+        timeZone: 'UTC',
+        timeZoneName: 'short',
     });
 };
 

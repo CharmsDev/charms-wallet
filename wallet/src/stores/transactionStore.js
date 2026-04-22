@@ -54,8 +54,14 @@ const useTransactionStore = create((set, get) => ({
         try {
             const storedTransactions = await getTransactions(blockchain, network);
 
-            // Sort transactions by timestamp (most recent first)
-            const sortedTransactions = storedTransactions.sort((a, b) => b.timestamp - a.timestamp);
+            // Sort most-recent first. Prefer `blockHeight` because during
+            // a fresh rescan many txs receive the same `Date.now()` fallback
+            // timestamp, which would leave them in arbitrary order.
+            const sortedTransactions = storedTransactions.sort((a, b) => {
+                const bh = (b.blockHeight ?? b.block_height ?? 0) - (a.blockHeight ?? a.block_height ?? 0);
+                if (bh !== 0) return bh;
+                return (b.timestamp || 0) - (a.timestamp || 0);
+            });
 
             // Calculate pagination info
             const totalTransactions = sortedTransactions.length;
@@ -151,6 +157,11 @@ const useTransactionStore = create((set, get) => ({
     processUTXOsForReceivedTransactions: async (utxos, addresses, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
             const transactionRecorder = new TransactionRecorder(blockchain, network);
+            // Full history: captures sent txs and txs whose outputs are now
+            // spent (invisible to the UTXO-only scan).
+            await transactionRecorder.syncFullTransactionHistory(addresses);
+            // UTXO scan: still runs for pending/unconfirmed detection + extra
+            // metadata on active UTXOs.
             await transactionRecorder.processUTXOsForReceivedTransactions(utxos, addresses);
             await get().loadTransactions(blockchain, network);
         } catch (error) {

@@ -5,10 +5,11 @@
  * Uses Koios/Blockfrost via the Cardano API router.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useCardano } from '@/stores/cardanoStore';
 import { useBlockchain } from '@/stores/blockchainStore';
-import { fetchAddressTxs, getCardanoTx } from '@/services/cardano/api';
+import { fetchAddressTxs, getCardanoTx, getCardanoTxsBatch } from '@/services/cardano/api';
+import { classifyCardanoTx, CARDANO_TX_TYPE, CARDANO_TX_ICON } from '@/services/cardano/tx-classifier';
 
 export default function CardanoTransactionHistory() {
   const { addresses } = useCardano();
@@ -18,6 +19,8 @@ export default function CardanoTransactionHistory() {
   const [selectedTx, setSelectedTx] = useState(null);
   const [txDetails, setTxDetails] = useState({}); // { hash: detail }
 
+  const ownAddresses = useMemo(() => addresses.map(a => a.address).filter(Boolean), [addresses]);
+
   const loadTxs = useCallback(async () => {
     if (!addresses.length) return;
     setIsLoading(true);
@@ -25,7 +28,22 @@ export default function CardanoTransactionHistory() {
       const addr = addresses[0]?.address;
       if (!addr) return;
       const data = await fetchAddressTxs(addr, 50);
-      setTxs(Array.isArray(data) ? data : []);
+      const raw = Array.isArray(data) ? data : [];
+      // Sort most-recent first by block height (Koios returns blocks scanned
+      // in chain order; an explicit sort protects against any provider that
+      // returns them in scan order instead).
+      const list = [...raw].sort((a, b) => {
+        const bh = (b.block_height || 0) - (a.block_height || 0);
+        if (bh !== 0) return bh;
+        return (b.block_time || 0) - (a.block_time || 0);
+      });
+      setTxs(list);
+      // Batch-fetch details for classification
+      const hashes = list.map(t => t.tx_hash || t.hash).filter(Boolean);
+      if (hashes.length) {
+        const detailMap = await getCardanoTxsBatch(hashes);
+        setTxDetails(prev => ({ ...prev, ...detailMap }));
+      }
     } catch (err) {
       console.error('[CardanoTxHistory] Error:', err);
     } finally {
@@ -42,7 +60,9 @@ export default function CardanoTransactionHistory() {
   const formatTime = (ts) => {
     if (!ts) return '—';
     const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
-    return d.toLocaleString();
+    // UTC — block times are chain-wide timestamps, so showing UTC avoids
+    // surprises when comparing with explorers or multiple machines.
+    return d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
   };
 
   const explorerUrl = (hash) => `https://cardanoscan.io/transaction/${hash}`;
@@ -75,6 +95,23 @@ export default function CardanoTransactionHistory() {
             const blockHeight = tx.block_height || tx.block || '';
             const blockTime = tx.block_time || tx.tx_timestamp || '';
             const isSelected = selectedTx === hash;
+            const detail = txDetails[hash];
+            const cls = classifyCardanoTx(detail, ownAddresses);
+            const icon = CARDANO_TX_ICON[cls.type] || 'TX';
+            const amountStr = (() => {
+              if (cls.amount == null) return '';
+              if (cls.token) {
+                const display = Number(cls.amount) / Math.pow(10, cls.token.decimals);
+                // Show enough precision to see the smallest unit for tiny
+                // amounts (e.g. 0.00002109 eBTC). Trim trailing zeros after
+                // the decimal point so normal amounts stay readable.
+                const fixed = display.toFixed(cls.token.decimals);
+                const trimmed = fixed.replace(/\.?0+$/, '');
+                return `${trimmed || '0'} ${cls.token.ticker}`;
+              }
+              return `${(Number(cls.amount) / 1_000_000).toFixed(6)} ADA`;
+            })();
+            const amountColor = cls.direction === 'in' ? 'text-green-400' : cls.direction === 'out' ? 'text-red-400' : 'text-dark-400';
 
             return (
               <div key={hash || i}>
@@ -85,8 +122,8 @@ export default function CardanoTransactionHistory() {
                     setSelectedTx(newHash);
                     // Fetch detail on expand if not cached
                     if (newHash && !txDetails[newHash]) {
-                      getCardanoTx(newHash).then(detail => {
-                        if (detail) setTxDetails(prev => ({ ...prev, [newHash]: detail }));
+                      getCardanoTx(newHash).then(d => {
+                        if (d) setTxDetails(prev => ({ ...prev, [newHash]: d }));
                       }).catch(() => {});
                     }
                   }}
@@ -95,15 +132,17 @@ export default function CardanoTransactionHistory() {
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-full bg-cardano-500/15 flex items-center justify-center text-cardano-400 text-xs font-bold flex-shrink-0">
-                      TX
+                    <div className="w-8 h-8 rounded-full bg-cardano-500/15 flex items-center justify-center text-cardano-400 text-base font-bold flex-shrink-0">
+                      {icon}
                     </div>
                     <div className="min-w-0">
-                      <div className="text-sm text-white font-mono truncate">{hash.slice(0, 16)}...{hash.slice(-8)}</div>
+                      <div className="text-sm text-white truncate">{cls.label}</div>
+                      <div className="text-xs text-dark-500 font-mono truncate">{hash.slice(0, 16)}...{hash.slice(-8)}</div>
                       <div className="text-xs text-dark-400">{formatTime(blockTime)}</div>
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0">
+                    {amountStr && <div className={`text-sm font-mono ${amountColor}`}>{cls.direction === 'out' ? '−' : cls.direction === 'in' ? '+' : ''}{amountStr}</div>}
                     <div className="text-xs text-dark-400">Block {blockHeight}</div>
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-900/30 text-green-400">
                       confirmed
