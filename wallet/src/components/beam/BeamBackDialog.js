@@ -238,23 +238,22 @@ export default function BeamBackDialog({ asset, isOpen, onClose }) {
     }
   }, [isOpen]);
 
-  // Load BTC address + UTXOs from mempool.space. Needed to validate the
-  // wallet can fund placeholder + claim. Actual placeholder creation runs in
-  // the executor.
+  // Load BTC address + UTXOs. Needed to validate the wallet can fund
+  // placeholder + claim. Actual placeholder creation runs in the executor.
+  // Routes through mempoolService so Explorer API is preferred and we don't
+  // hit direct-from-browser CORS on mempool.space.
   useEffect(() => {
     if (!isOpen) return;
     (async () => {
       try {
         const { getAddresses } = await import('@/services/storage');
+        const { mempoolService } = await import('@/services/shared/mempool-service');
         const stored = await getAddresses('bitcoin', 'mainnet');
         const addr = stored?.find(a => a.index === 0 && !a.isChange)?.address || stored?.[0]?.address;
         if (!addr) { setBtcUtxosLoaded(true); return; }
         setOwnBtcAddress(addr);
-        const resp = await fetch(`https://mempool.space/api/address/${addr}/utxo`);
-        if (resp.ok) {
-          const list = await resp.json();
-          setBtcUtxos(list.filter(u => u.status?.confirmed));
-        }
+        const { utxos } = await mempoolService.getAddressUTXOs(addr, 'mainnet');
+        setBtcUtxos((utxos || []).filter(u => u.status?.confirmed));
       } catch {}
       setBtcUtxosLoaded(true);
     })();

@@ -141,21 +141,20 @@ function RedeemConfirmStep({ asset, formData, seedPhrase, network, onConfirm, on
   const [btcAddress, setBtcAddress] = useState('');
   const [btcUtxos, setBtcUtxos] = useState([]);
 
-  // Load BTC address + fresh UTXOs from mempool (Cardano tab has no BTC addresses in useAddresses)
+  // Load BTC address + fresh UTXOs (Cardano tab has no BTC addresses in
+  // useAddresses). Routes through mempoolService so Explorer API is preferred
+  // and we don't hit direct-from-browser CORS on mempool.space.
   useEffect(() => {
     (async () => {
       try {
         const { getAddresses } = await import('@/services/storage');
+        const { mempoolService } = await import('@/services/shared/mempool-service');
         const stored = await getAddresses('bitcoin', 'mainnet');
         const addr = stored?.find(a => a.index === 0 && !a.isChange)?.address || stored?.[0]?.address;
         if (addr) {
           setBtcAddress(addr);
-          // Fetch fresh UTXOs directly from mempool for the confirm check
-          const resp = await fetch(`https://mempool.space/api/address/${addr}/utxo`);
-          if (resp.ok) {
-            const list = await resp.json();
-            setBtcUtxos(list.filter(u => u.status?.confirmed));
-          }
+          const { utxos } = await mempoolService.getAddressUTXOs(addr, 'mainnet');
+          setBtcUtxos((utxos || []).filter(u => u.status?.confirmed));
         }
       } catch {}
     })();
@@ -167,16 +166,17 @@ function RedeemConfirmStep({ asset, formData, seedPhrase, network, onConfirm, on
   useEffect(() => {
     (async () => {
       try {
-        const resp = await fetch(`https://mempool.space/api/address/${VAULT_ADDR}/utxo`);
-        const vaultUtxos = await resp.json();
+        const { mempoolService } = await import('@/services/shared/mempool-service');
+        const { utxos: vaultUtxos } = await mempoolService.getAddressUTXOs(VAULT_ADDR, 'mainnet');
         // Pick a vault UTXO ≥ redeemAmount + dust to satisfy the redeem
         const minSats = formData.redeemAmount + DUST_PER_VAULT;
-        const candidate = vaultUtxos
-          .filter(u => u.status?.confirmed && u.value >= minSats)
+        const confirmed = (vaultUtxos || []).filter(u => u.status?.confirmed);
+        const candidate = confirmed
+          .filter(u => u.value >= minSats)
           .sort((a, b) => a.value - b.value)[0];
         setVaultInfo({
-          totalSats: vaultUtxos.reduce((s, u) => s + u.value, 0),
-          utxoCount: vaultUtxos.length,
+          totalSats: confirmed.reduce((s, u) => s + u.value, 0),
+          utxoCount: confirmed.length,
           selected: candidate,
         });
       } catch (err) {

@@ -52,11 +52,15 @@ export class ExplorerWalletService {
         this.tipCache = { value: null, expiry: 0 };
         this.tipCacheTTL = 30 * 1000; // 30s TTL for chain tip
 
-        // Circuit breaker: disable after consecutive failures
+        // Circuit breaker: disable after consecutive failures. Threshold is
+        // intentionally generous — a cold start or transient edge hiccup can
+        // easily burn through 2 requests, and tripping the breaker sends the
+        // user down the mempool.space fallback path (often rate-limited /
+        // CORS-blocked). Prefer retrying the primary API.
         this._consecutiveFailures = 0;
         this._disabledUntil = 0;
-        this._failureThreshold = 2;    // trips after 2 consecutive failures
-        this._cooldownMs = 60 * 1000;  // 60s cooldown before retrying
+        this._failureThreshold = 5;     // trips after 5 consecutive failures
+        this._cooldownMs = 30 * 1000;   // 30s cooldown before retrying
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

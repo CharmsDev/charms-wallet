@@ -143,7 +143,11 @@ export class MempoolService {
     }
 
     /**
-     * Get UTXO information for an address — tries Explorer API first
+     * Get UTXO information for an address — tries Explorer API first,
+     * falls back to mempool.space.
+     *
+     * Always returns the same shape: `{ utxos: [...], currentBlockHeight: number|null }`.
+     * Empty address → `{ utxos: [], currentBlockHeight: null }` (never bare array).
      */
     async getAddressUTXOs(address, network = null) {
         // Primary: Explorer API
@@ -152,26 +156,26 @@ export class MempoolService {
             const targetNetwork = network || config.bitcoin.network;
             if (explorerWalletService.isAvailable(targetNetwork)) {
                 const utxos = await explorerWalletService.getAddressUTXOs(address, targetNetwork);
-                if (utxos) return { utxos, currentBlockHeight: null };
+                if (utxos) return { utxos: utxos || [], currentBlockHeight: null };
             }
         } catch (_) { /* fall through to mempool */ }
 
         // Fallback: mempool.space
         const baseUrl = this._getMempoolUrl(network);
-        const url = `${baseUrl}/address/${address}/utxo`;
-
-        const utxos = await this._makeHttpRequest(url);
-        if (!utxos || utxos.length === 0) {
-            return [];
-        }
-
-        let currentBlockHeight = null;
         try {
-            const tipUrl = `${baseUrl}/blocks/tip/height`;
-            currentBlockHeight = await this._makeHttpRequest(tipUrl);
-        } catch (error) {}
-
-        return { utxos, currentBlockHeight };
+            const utxos = await this._makeHttpRequest(`${baseUrl}/address/${address}/utxo`);
+            if (!utxos || utxos.length === 0) {
+                return { utxos: [], currentBlockHeight: null };
+            }
+            let currentBlockHeight = null;
+            try {
+                currentBlockHeight = await this._makeHttpRequest(`${baseUrl}/blocks/tip/height`);
+            } catch { /* optional */ }
+            return { utxos, currentBlockHeight };
+        } catch (err) {
+            console.warn(`[MempoolService] getAddressUTXOs fallback failed for ${address}:`, err.message);
+            return { utxos: [], currentBlockHeight: null };
+        }
     }
 
     /**

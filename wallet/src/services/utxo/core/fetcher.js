@@ -29,9 +29,10 @@ export class UTXOFetcher {
                 const result = await explorerWalletService.getAddressUTXOs(address, network);
                 return result?.utxos || result || [];
             }
-            // Failover: mempool.space
+            // Failover: mempool.space — always returns { utxos, currentBlockHeight }
             const { mempoolService } = await import('@/services/shared/mempool-service');
-            return await mempoolService.getUTXOs(address, network);
+            const result = await mempoolService.getAddressUTXOs(address, network);
+            return result?.utxos || [];
         } catch (error) {
             console.error(`[UTXOFetcher] Error getting UTXOs for ${address}:`, error);
             return [];
