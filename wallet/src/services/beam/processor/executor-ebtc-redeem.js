@@ -21,6 +21,7 @@ import { waitForBtcInMempool } from '../chains/bitcoin/placeholder';
 import { utxoIdHash, hexToBytes } from '../core/crypto';
 import { cborToHex, utxoIdToBytes, appToCborTuple } from '../core/cbor';
 import { compactToDER } from '../chains/bitcoin/signer-utils';
+import { dumpPayload } from '../core/debug-dump';
 
 // ── eBTC constants ──────────────────────────────────────────────────────────
 
@@ -565,8 +566,8 @@ async function proveCombinedRedeem({
     collateral_utxo: null,
   };
 
-  // Debug dump payload (without wasm) to help diagnose failures
-  try {
+  // Debug dump (dev only — no-op in production).
+  {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const totalInputSats = 546 + vaultSats + fundingTotal;
     const insDesc = [
@@ -574,7 +575,7 @@ async function proveCombinedRedeem({
       vaultUtxo + ' (vault, ' + vaultSats + ' sats)',
     ];
     fundingUtxos.forEach((f, i) => insDesc.push(f.utxo + ` (funding[${i}], ${f.sats} sats)`));
-    const debugData = {
+    dumpPayload(`ebtc-redeem-btc-${ts}.json`, {
       spell_human: {
         version: SPELL_VERSION,
         ins: insDesc,
@@ -594,14 +595,8 @@ async function proveCombinedRedeem({
       fee_rate: FEE_RATE,
       finality_sig_len: finalitySig?.length,
       cardano_tx_cbor_len: cardanoTxCborHex?.length,
-    };
-    await fetch('/api/debug-dump', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: `ebtc-redeem-btc-${ts}.json`, data: debugData }),
-    }).catch(() => {});
-    console.log('[eBTC-redeem:prove] debug dumped to _rjj/tmp/');
-  } catch {}
+    });
+  }
 
   onStatus?.('Proving (5-10 min)...');
   const proverUrl = getProverUrl(network);

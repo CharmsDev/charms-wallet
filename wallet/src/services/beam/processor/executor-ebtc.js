@@ -19,6 +19,7 @@ import { saveBeamState } from '../core/persistence';
 import { SPELL_VERSION, getProverUrl, getMempoolBase } from '@/services/charm-transfer/constants';
 import { hexToBytes } from '../core/crypto';
 import { cborToHex, utxoIdToBytes, appToCborTuple } from '../core/cbor';
+import { dumpPayload } from '../core/debug-dump';
 
 const destToBytes = hexToBytes;
 
@@ -241,32 +242,24 @@ async function proveMintAndBeam({ btcInputUtxo, lockSats, btcAddress, beamToHash
   // Prove
   const proverUrl = getProverUrl(network);
 
-  // Dump debug info to disk
-  try {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const debugData = {
-      spell_human: {
-        version: SPELL_VERSION, input: btcInputUtxo,
-        outs: [`{1: ${mintAmount}} (eBTC, beamed)`, '{0: null} (vault)'],
-        beamed_outs: { 0: beamToHash },
-        coins: [`${DUST_PER_VAULT} sats → user`, `${lockSats} sats → vault`],
-        apps: [EBTC_VAULT_APP + ' (tag 0)', EBTC_TOKEN_APP + ' (tag 1)'],
-      },
-      spell_hex: spellHex,
-      spell_hex_length: spellHex.length,
-      app_private_inputs: payload.app_private_inputs,
-      prev_txs_count: payload.prev_txs.length,
-      change_address: payload.change_address,
-      fee_rate: payload.fee_rate,
-      prover_url: proverUrl,
-    };
-    await fetch('/api/debug-dump', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: `ebtc-mintbeam-${ts}.json`, data: debugData }),
-    }).catch(() => {});
-    console.log('[eBTC:prove] debug dumped to _rjj/tmp/');
-  } catch {}
+  // Dump debug info (dev only — no-op in production).
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  dumpPayload(`ebtc-mintbeam-${ts}.json`, {
+    spell_human: {
+      version: SPELL_VERSION, input: btcInputUtxo,
+      outs: [`{1: ${mintAmount}} (eBTC, beamed)`, '{0: null} (vault)'],
+      beamed_outs: { 0: beamToHash },
+      coins: [`${DUST_PER_VAULT} sats → user`, `${lockSats} sats → vault`],
+      apps: [EBTC_VAULT_APP + ' (tag 0)', EBTC_TOKEN_APP + ' (tag 1)'],
+    },
+    spell_hex: spellHex,
+    spell_hex_length: spellHex.length,
+    app_private_inputs: payload.app_private_inputs,
+    prev_txs_count: payload.prev_txs.length,
+    change_address: payload.change_address,
+    fee_rate: payload.fee_rate,
+    prover_url: proverUrl,
+  });
 
   onStatus?.('Proving mint+beam (may take a few minutes)...');
 

@@ -20,6 +20,7 @@ import { saveBeamState } from '../core/persistence';
 import { getProverUrl } from '@/services/charm-transfer/constants';
 import { createBtcPlaceholder, waitForBtcInMempool } from '../chains/bitcoin/placeholder';
 import { utxoIdHash } from '../core/crypto';
+import { dumpPayload } from '../core/debug-dump';
 
 export async function executeBeamBack(params) {
   const { beamId, onPhase, onCheckpoint, signal } = params;
@@ -192,15 +193,11 @@ async function proveAndBroadcastCardanoBeamOut({
     collateral_utxo: collateralUtxoId,
   };
 
-  // Dump payload to _rjj/tmp for post-mortem inspection (dev only)
-  try {
+  // Dump payload for post-mortem inspection (dev only, no-op in prod).
+  {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    await fetch('/api/debug-dump', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: `beam-back-ada-${ts}.json`, data: payload }),
-    }).catch(() => {});
-  } catch {}
+    dumpPayload(`beam-back-ada-${ts}.json`, payload);
+  }
 
   // Submit to prover
   onStatus?.('Proving Cardano beam-out (5-10 min)...');
@@ -219,15 +216,10 @@ async function proveAndBroadcastCardanoBeamOut({
   }
 
   const raw = await resp.text();
-  // Dump response for post-mortem
-  try {
+  {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    await fetch('/api/debug-dump', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: `beam-back-ada-response-${ts}.json`, data: { raw } }),
-    }).catch(() => {});
-  } catch {}
+    dumpPayload(`beam-back-ada-response-${ts}.json`, { raw });
+  }
 
   // v14 prover returns JSON like [{ "cardano": "<cbor hex>" }] or { cardano: ... }.
   // Legacy formats also supported: { cborHex: ... } or raw hex string.
@@ -387,15 +379,10 @@ async function proveAndBroadcastBtcClaim({
     collateral_utxo: null,
   };
 
-  // Dump payload for post-mortem
-  try {
+  {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    await fetch('/api/debug-dump', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: `beam-back-btc-${ts}.json`, data: payload }),
-    }).catch(() => {});
-  } catch {}
+    dumpPayload(`beam-back-btc-${ts}.json`, payload);
+  }
 
   onStatus?.('Proving Bitcoin claim (5-10 min)...');
   const proverUrl = getProverUrl(network);
@@ -410,15 +397,10 @@ async function proveAndBroadcastBtcClaim({
   if (!resp.ok) throw new Error(`Prover failed: ${await resp.text()}`);
 
   const raw = await resp.text();
-  // Dump response
-  try {
+  {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    await fetch('/api/debug-dump', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: `beam-back-btc-response-${ts}.json`, data: { raw } }),
-    }).catch(() => {});
-  } catch {}
+    dumpPayload(`beam-back-btc-response-${ts}.json`, { raw });
+  }
 
   // v14 prover returns [{"bitcoin": "<hex>"}] for a BTC claim.
   let result;

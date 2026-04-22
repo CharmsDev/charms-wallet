@@ -6,6 +6,7 @@
  */
 
 import { getProverUrl } from '@/services/charm-transfer/constants';
+import { dumpPayload } from '@/services/beam/core/debug-dump';
 
 /**
  * Build the prover API payload for a beam spell.
@@ -54,15 +55,9 @@ export async function submitToProver(payload, network, onStatus) {
 
   onStatus?.('Sending to prover...');
 
-  // Dump payload for debugging
-  try {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    fetch('/api/debug-dump', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: `beam-payload-${ts}.json`, data: payload }),
-    }).catch(() => {});
-  } catch {}
+  // Dump payload for debugging (no-op in production).
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  dumpPayload(`beam-payload-${ts}.json`, payload);
 
   const MAX_RETRIES = 3;
   let lastError;
