@@ -76,3 +76,18 @@ yarn-error.log*
 /_bkp
 /_rjj
 .DS_Store
+
+# ====== Security: credentials, secrets, keys ======
+**/credentials/
+secrets/
+**/*secret*
+**/*key.txt
+**/*_key.hex
+**/*.key
+
+# ====== .env catch-all + example exception ======
+.env.*
+!.env.example
+
+# ====== Temporary directories ======
+**/tmp/
