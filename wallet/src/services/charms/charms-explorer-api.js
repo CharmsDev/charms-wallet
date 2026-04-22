@@ -22,6 +22,36 @@ class CharmsExplorerAPI {
     constructor() {
         this.baseUrl = config.explorerWallet?.apiUrl || null;
         this.isApiReady = !!this.baseUrl;
+        // Cache reference-NFT results per identity hash. Caches both hits
+        // (reference data) and misses (null) so we don't re-hit the endpoint
+        // on every dashboard re-render — the miss case for tokens without a
+        // reference-NFT (e.g. eBTC) was spamming the console with 404s.
+        this._refCache = new Map();    // identityHash → referenceData | null
+        this._refInflight = new Map(); // identityHash → Promise
+    }
+
+    async _fetchReferenceData(identityHash) {
+        if (this._refCache.has(identityHash)) {
+            return this._refCache.get(identityHash);
+        }
+        if (this._refInflight.has(identityHash)) {
+            return this._refInflight.get(identityHash);
+        }
+        const p = (async () => {
+            try {
+                const response = await fetch(`${this.baseUrl}/v1/assets/reference-nft/${identityHash}`);
+                if (!response.ok) return null;
+                return await response.json();
+            } catch {
+                return null;
+            }
+        })().then((data) => {
+            this._refCache.set(identityHash, data);
+            this._refInflight.delete(identityHash);
+            return data;
+        });
+        this._refInflight.set(identityHash, p);
+        return p;
     }
 
     /**
@@ -46,13 +76,8 @@ class CharmsExplorerAPI {
             const identityHash = appId.split('/')[1];
             if (!identityHash) return charmData;
 
-            const response = await fetch(`${this.baseUrl}/v1/assets/reference-nft/${identityHash}`);
-            
-            if (!response.ok) {
-                return charmData;
-            }
-
-            const referenceData = await response.json();
+            const referenceData = await this._fetchReferenceData(identityHash);
+            if (!referenceData) return charmData;
             
             // Merge reference data with original charm data, preserving CharmObj structure
             return {
