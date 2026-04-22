@@ -29,7 +29,9 @@ export class UTXOFetcher {
                 const result = await explorerWalletService.getAddressUTXOs(address, network);
                 return result?.utxos || result || [];
             }
-            // Failover: mempool.space — always returns { utxos, currentBlockHeight }
+            // Failover: mempool.space — signal that we're running degraded so
+            // the operator has context when the customer reports issues.
+            console.warn(`[UTXOFetcher] Explorer API disabled (circuit breaker tripped) — falling back to mempool.space for ${address}`);
             const { mempoolService } = await import('@/services/shared/mempool-service');
             const result = await mempoolService.getAddressUTXOs(address, network);
             return result?.utxos || [];

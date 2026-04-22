@@ -90,14 +90,18 @@ export class ExplorerWalletService {
     }
 
     _onSuccess() {
+        if (this._consecutiveFailures > 0) {
+            console.log(`[${this._ts()}] [ExplorerAPI] recovered — resetting failure counter (was ${this._consecutiveFailures})`);
+        }
         this._consecutiveFailures = 0;
     }
 
-    _onFailure() {
+    _onFailure(context = {}) {
         this._consecutiveFailures++;
+        console.warn(`[${this._ts()}] [ExplorerAPI] failure ${this._consecutiveFailures}/${this._failureThreshold}`, context);
         if (this._consecutiveFailures >= this._failureThreshold) {
             this._disabledUntil = Date.now() + this._cooldownMs;
-            console.warn(`[ExplorerWallet] Circuit breaker tripped after ${this._consecutiveFailures} failures. Disabled for ${this._cooldownMs / 1000}s.`);
+            console.error(`[${this._ts()}] [ExplorerAPI] ⚠ CIRCUIT BREAKER TRIPPED after ${this._consecutiveFailures} consecutive failures. Falling back to mempool.space for ${this._cooldownMs / 1000}s. Last failure:`, context);
         }
     }
 
@@ -120,11 +124,18 @@ export class ExplorerWalletService {
         const baseUrl = this._getBaseUrl();
         if (!baseUrl) throw new Error('Explorer Wallet API not configured');
 
+        // One-time log so the customer can confirm which API host is in use
+        if (!this._loggedBaseUrl) {
+            this._loggedBaseUrl = true;
+            console.log(`[${this._ts()}] [ExplorerAPI] base URL in use: ${baseUrl}`);
+        }
+
         const fullPath = this._withNetwork(path, network);
         const url = `${baseUrl}${fullPath}`;
+        const method = (options.method || 'GET').toUpperCase();
         const { timeout: customTimeout, network: _n, ...fetchOptions } = options;
         const t0 = performance.now();
-        console.log(`[${this._ts()}] [ExplorerAPI] → ${fetchOptions.method || 'GET'} ${fullPath}`);
+        console.log(`[${this._ts()}] [ExplorerAPI] → ${method} ${fullPath}`);
 
         try {
             // In extension popup, route through background service worker (popup can't resolve DNS)
@@ -145,13 +156,14 @@ export class ExplorerWalletService {
             const ms = (performance.now() - t0).toFixed(0);
             if (!response.ok) {
                 const body = await response.text().catch(() => '');
+                const bodySnippet = body ? body.slice(0, 300) : '';
                 // 404 is a semantic "not indexed" response (e.g., /v1/charms/{txid}
                 // for a tx that isn't a charm) — it does NOT indicate the API is
                 // unhealthy. Only 5xx / network errors should trip the breaker.
                 const isNotFound = response.status === 404;
                 if (!isNotFound) {
-                    console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${fullPath} — ${response.status} (${ms}ms)`);
-                    this._onFailure();
+                    console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${method} ${url} — HTTP ${response.status} (${ms}ms)${bodySnippet ? ` body: ${bodySnippet}` : ''}`);
+                    this._onFailure({ url, method, status: response.status, ms: Number(ms), body: bodySnippet });
                 } else {
                     this._onSuccess();
                 }
@@ -166,8 +178,11 @@ export class ExplorerWalletService {
         } catch (err) {
             if (err.status === 404) throw err; // already handled above
             const ms = (performance.now() - t0).toFixed(0);
-            console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${fullPath} — ${err.message} (${ms}ms)`);
-            this._onFailure();
+            // Distinguish abort/timeout from network failure for the operator
+            const isAbort = err.name === 'AbortError' || /abort/i.test(err.message || '');
+            const reason = isAbort ? `timeout (>${customTimeout || this.timeout}ms)` : err.message || String(err);
+            console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${method} ${url} — ${reason} (${ms}ms)`);
+            this._onFailure({ url, method, reason, ms: Number(ms), errorName: err.name });
             throw err;
         }
     }
