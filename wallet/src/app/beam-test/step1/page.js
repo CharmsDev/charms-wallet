@@ -191,12 +191,12 @@ export default function Step1Test() {
           <div className="text-green-300 font-mono text-xs">txHash: {result.placeholderTxHash}</div>
           <div className="text-green-300 font-mono text-xs">outputIndex: {result.placeholderOutputIndex}</div>
           <a
-            href={`https://cardanoscan.io/transaction/${result.placeholderTxHash}`}
+            href={`https://adastat.net/transactions/${result.placeholderTxHash}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-purple-400 text-xs hover:underline mt-1 inline-block"
           >
-            View on CardanoScan →
+            View on explorer →
           </a>
         </div>
       )}

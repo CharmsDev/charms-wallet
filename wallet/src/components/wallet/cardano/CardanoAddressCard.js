@@ -5,6 +5,7 @@
  */
 
 import { useState } from 'react';
+import { cardanoAddressUrl } from '@/utils/cardanoExplorer';
 
 export default function CardanoAddressCard({ addr, network }) {
   const [copied, setCopied] = useState(false);
@@ -17,9 +18,7 @@ export default function CardanoAddressCard({ addr, network }) {
     } catch { /* ignore */ }
   };
 
-  const explorerUrl = network === 'mainnet'
-    ? `https://cardanoscan.io/address/${addr.address}`
-    : `https://preprod.cardanoscan.io/address/${addr.address}`;
+  const explorerUrl = cardanoAddressUrl(addr.address, network);
 
   return (
     <div className="bg-dark-900/50 rounded-lg p-3 mb-2">

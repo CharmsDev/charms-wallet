@@ -10,10 +10,12 @@ import { useCardano } from '@/stores/cardanoStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { fetchAddressTxs, getCardanoTx, getCardanoTxsBatch } from '@/services/cardano/api';
 import { classifyCardanoTx, CARDANO_TX_TYPE, CARDANO_TX_ICON } from '@/services/cardano/tx-classifier';
+import { cardanoTxUrl } from '@/utils/cardanoExplorer';
 
 export default function CardanoTransactionHistory() {
-  const { addresses } = useCardano();
+  const { addresses, currentNetwork } = useCardano();
   const { isCardano } = useBlockchain();
+  const network = currentNetwork?.replace('cardano-', '') || 'mainnet';
   const [txs, setTxs] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
@@ -65,7 +67,7 @@ export default function CardanoTransactionHistory() {
     return d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
   };
 
-  const explorerUrl = (hash) => `https://cardanoscan.io/transaction/${hash}`;
+  const explorerUrl = (hash) => cardanoTxUrl(hash, network);
 
   return (
     <div>
@@ -202,7 +204,7 @@ export default function CardanoTransactionHistory() {
                       )}
                       <div className="pt-2">
                         <a href={explorerUrl(hash)} target="_blank" rel="noopener noreferrer" className="text-cardano-400 hover:underline text-xs">
-                          View on CardanoScan →
+                          View on explorer →
                         </a>
                       </div>
                     </div>

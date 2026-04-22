@@ -7,11 +7,15 @@
  */
 
 import { useState } from 'react';
+import { useCardano } from '@/stores/cardanoStore';
+import { cardanoAssetUrl } from '@/utils/cardanoExplorer';
 
 const CIP67_TOKEN_LABEL = '0014df10';
 const EBTC_POLICY_ID = '552b22f4989ea698fabbf6314b70d2e5edb49c1fdbdeb6096e8c84b6';
 
 export default function CardanoAssetCard({ asset, onBeamBack, onRedeem }) {
+  const { currentNetwork } = useCardano();
+  const network = currentNetwork?.replace('cardano-', '') || 'mainnet';
   const [imageError, setImageError] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -29,7 +33,7 @@ export default function CardanoAssetCard({ asset, onBeamBack, onRedeem }) {
     maximumFractionDigits: decimals,
   });
 
-  const explorerUrl = `https://cardanoscan.io/token/${asset.fingerprint || asset.unit}`;
+  const explorerUrl = cardanoAssetUrl(asset.fingerprint || asset.unit, network);
 
   return (
     <div className="card card-hover flex flex-col h-full">

@@ -88,8 +88,10 @@ function StepRow({ step, stepData, isActive, isCompleted, isPending, isFailed, e
     txid = txidMatch?.[1];
   }
 
+  // Default to mainnet — beam ops are production usage; preprod links can be
+  // wired through op.network later if needed.
   const explorerBase = step.chain === 'cardano'
-    ? 'https://cardanoscan.io/transaction/'
+    ? 'https://adastat.net/transactions/'
     : 'https://mempool.space/tx/';
 
   return (
@@ -224,7 +226,7 @@ function BeamOperationCard({ op }) {
               </a>
             )}
             {op.adaClaimTxid && (
-              <a className="beam-txid-link" href={`https://cardanoscan.io/transaction/${op.adaClaimTxid}`} target="_blank" rel="noopener noreferrer">
+              <a className="beam-txid-link" href={`https://adastat.net/transactions/${op.adaClaimTxid}`} target="_blank" rel="noopener noreferrer">
                 ADA: {op.adaClaimTxid.slice(0, 12)}...
               </a>
             )}
