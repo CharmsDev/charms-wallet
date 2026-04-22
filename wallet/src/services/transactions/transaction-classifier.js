@@ -30,6 +30,21 @@ export const TRANSACTION_TYPES = {
     EBTC_REDEEM: 'ebtc_redeem',     // BTC released from the eBTC vault to our wallet
 };
 
+// All tx types that carry charm data — used by the recorder to decide whether
+// to call the charm extractor. Kept as a Set for O(1) lookup.
+export const CHARM_TRANSACTION_TYPES = new Set([
+    TRANSACTION_TYPES.CHARM_RECEIVED,
+    TRANSACTION_TYPES.CHARM_SENT,
+    TRANSACTION_TYPES.CHARM_CONSOLIDATION,
+    TRANSACTION_TYPES.CHARM_SELF_TRANSFER,
+    TRANSACTION_TYPES.BRO_MINT,
+    TRANSACTION_TYPES.BRO_MINING,
+    TRANSACTION_TYPES.BEAM_IN,
+    TRANSACTION_TYPES.BEAM_OUT,
+    TRANSACTION_TYPES.EBTC_LOCK,
+    TRANSACTION_TYPES.EBTC_REDEEM,
+]);
+
 // Transaction labels for UI
 export const TRANSACTION_LABELS = {
     [TRANSACTION_TYPES.RECEIVED]: 'Received Bitcoin',
@@ -134,47 +149,25 @@ function isBtcPlaceholder(outputs, inputs, ownSet) {
     return !anyCharm;
 }
 
-function isCharmAmount(amount) {
+/** Legacy charm dust amounts used before v14 (BRO mint/transfer convention). */
+function isLegacyCharmAmount(amount) {
     return amount === 330 || amount === 1000;
 }
 
-function getCharmInputs(inputs, myAddresses) {
-    if (!inputs || inputs.length === 0) return { internal: [], external: [] };
-    
-    const myAddressSet = new Set(myAddresses.map(addr => addr.address || addr));
-    const internal = [];
-    const external = [];
-    
-    inputs.forEach(input => {
-        if (isCharmAmount(input.value)) {
-            if (input.address && myAddressSet.has(input.address)) {
-                internal.push(input);
-            } else if (input.address) {
-                external.push(input);
-            }
-        }
-    });
-    
-    return { internal, external };
+/** Normalize sat amount from either input (`.value`) or output (`.amount`). */
+function getSats(item) {
+    return item?.value ?? item?.amount;
 }
 
-function getCharmOutputs(outputs, myAddresses) {
-    if (!outputs || outputs.length === 0) return { internal: [], external: [] };
-    
-    const myAddressSet = new Set(myAddresses.map(addr => addr.address || addr));
+/** Split UTXOs (inputs or outputs) by ownership + charm-amount filter. */
+function splitCharmByOwnership(utxos, ownSet, isCharm = isLegacyCharmAmount) {
     const internal = [];
     const external = [];
-    
-    outputs.forEach(output => {
-        if (isCharmAmount(output.amount)) {
-            if (output.address && myAddressSet.has(output.address)) {
-                internal.push(output);
-            } else if (output.address) {
-                external.push(output);
-            }
-        }
-    });
-    
+    for (const u of utxos || []) {
+        if (!isCharm(getSats(u))) continue;
+        if (u.address && ownSet.has(u.address)) internal.push(u);
+        else if (u.address) external.push(u);
+    }
     return { internal, external };
 }
 
@@ -182,120 +175,60 @@ export function classifyTransaction(transaction, myAddresses = [], context = {})
     const { outputs, inputs } = transaction;
     const { placeholderTxids = null } = context;
 
-    console.log(`[Classifier] Classifying tx ${transaction.txid?.slice(0,8)}:`, {
-        inputsCount: inputs?.length || 0,
-        outputsCount: outputs?.length || 0,
-        outputs: outputs?.map(o => ({ address: o.address?.slice(0,8), amount: o.amount }))
-    });
-
     if (!outputs || outputs.length === 0) {
         return TRANSACTION_TYPES.RECEIVED;
     }
 
     const ownSet = myAddressSet(myAddresses);
 
-    // 0a. eBTC vault interactions (BTC leg of eBTC flows). Highest priority
-    // because the vault address is a unique, unambiguous marker.
-    if (hasVaultIn(inputs)) {
-        console.log(`[Classifier] → EBTC_REDEEM`);
-        return TRANSACTION_TYPES.EBTC_REDEEM;
-    }
-    if (hasVaultOut(outputs)) {
-        console.log(`[Classifier] → EBTC_LOCK`);
-        return TRANSACTION_TYPES.EBTC_LOCK;
-    }
+    // eBTC vault has the highest priority — the vault address is a unique,
+    // unambiguous marker for the BTC leg of eBTC flows.
+    if (hasVaultIn(inputs)) return TRANSACTION_TYPES.EBTC_REDEEM;
+    if (hasVaultOut(outputs)) return TRANSACTION_TYPES.EBTC_LOCK;
 
-    // 0b. Beam patterns. The distinguishing signal between IN vs OUT is
-    // whether the charm input came from a BTC_PLACEHOLDER tx we created
-    // earlier (IN = claim) or from a regular charm UTXO (OUT). The caller
-    // must pass placeholderTxids in context for beam-in detection to fire;
-    // otherwise beam txs default to OUT (most common in BTC→ADA wallets).
-    if (isBeamIn(outputs, inputs, ownSet, placeholderTxids)) {
-        console.log(`[Classifier] → BEAM_IN`);
-        return TRANSACTION_TYPES.BEAM_IN;
-    }
-    if (isBeamOut(outputs, inputs, ownSet, placeholderTxids)) {
-        console.log(`[Classifier] → BEAM_OUT`);
-        return TRANSACTION_TYPES.BEAM_OUT;
-    }
+    // Beam patterns. The BEAM_IN vs BEAM_OUT distinction requires the caller
+    // to pass `placeholderTxids` in context (set of known BTC_PLACEHOLDER
+    // txids from history) — a spell tx consuming one of those is a claim.
+    if (isBeamIn(outputs, inputs, ownSet, placeholderTxids)) return TRANSACTION_TYPES.BEAM_IN;
+    if (isBeamOut(outputs, inputs, ownSet, placeholderTxids)) return TRANSACTION_TYPES.BEAM_OUT;
 
-    // 0c. BTC placeholder (own self-paid 546 dust + change, no OP_RETURN, no charms)
-    if (isBtcPlaceholder(outputs, inputs, ownSet)) {
-        console.log(`[Classifier] → BTC_PLACEHOLDER`);
-        return TRANSACTION_TYPES.BTC_PLACEHOLDER;
-    }
+    if (isBtcPlaceholder(outputs, inputs, ownSet)) return TRANSACTION_TYPES.BTC_PLACEHOLDER;
 
-    // 1. BRO MINING: OP_RETURN at index 0 + 333 or 777 sats
+    // BRO MINING: OP_RETURN at index 0 + 333 or 777 sats
     if (hasOpReturnAtIndex0(outputs)) {
-        const has333or777 = outputs.some(o => o.amount === 333 || o.amount === 777);
-        if (has333or777) {
-            console.log(`[Classifier] → BRO_MINING`);
+        if (outputs.some(o => o.amount === 333 || o.amount === 777)) {
             return TRANSACTION_TYPES.BRO_MINING;
         }
     }
 
-    // Get charm inputs/outputs classification
-    const charmInputs = getCharmInputs(inputs, myAddresses);
-    const charmOutputs = getCharmOutputs(outputs, myAddresses);
-    
-    console.log(`[Classifier] Charm analysis:`, {
-        charmInputs: { internal: charmInputs.internal.length, external: charmInputs.external.length },
-        charmOutputs: { internal: charmOutputs.internal.length, external: charmOutputs.external.length }
-    });
-    
-    const totalCharmInputs = charmInputs.internal.length + charmInputs.external.length;
-    const totalCharmOutputs = charmOutputs.internal.length + charmOutputs.external.length;
-    
-    // 2. CHARM RECEIVED: External charm inputs → Internal charm outputs
-    // Someone sent us charm tokens (inputs NOT ours, outputs ARE ours)
-    if (charmInputs.external.length > 0 && charmInputs.internal.length === 0 && charmOutputs.internal.length > 0) {
-        console.log(`[Classifier] → CHARM_RECEIVED`);
+    // Legacy charm transfer classification (330/1000 sat marker).
+    const charmIns = splitCharmByOwnership(inputs, ownSet);
+    const charmOuts = splitCharmByOwnership(outputs, ownSet);
+
+    // CHARM_RECEIVED: external charm input → our charm output (someone sent us tokens).
+    if (charmIns.external.length > 0 && charmIns.internal.length === 0 && charmOuts.internal.length > 0) {
         return TRANSACTION_TYPES.CHARM_RECEIVED;
     }
-    
-    // 3. CHARM SENT: Internal charm inputs → External charm outputs
-    // We sent charm tokens to someone (inputs ARE ours, outputs NOT ours)
-    if (charmInputs.internal.length > 0 && charmOutputs.external.length > 0) {
-        console.log(`[Classifier] → CHARM_SENT`);
+    // CHARM_SENT: our charm input → external charm output (we sent tokens).
+    if (charmIns.internal.length > 0 && charmOuts.external.length > 0) {
         return TRANSACTION_TYPES.CHARM_SENT;
     }
-    
-    // 4. CHARM CONSOLIDATION: Multiple internal charm inputs → Internal outputs
-    // We're consolidating our own charm tokens (2+ inputs, all ours)
-    if (charmInputs.internal.length > 1 && charmInputs.external.length === 0) {
-        console.log(`[Classifier] → CHARM_CONSOLIDATION`);
+    // CHARM_CONSOLIDATION: 2+ own charm inputs only.
+    if (charmIns.internal.length > 1 && charmIns.external.length === 0) {
         return TRANSACTION_TYPES.CHARM_CONSOLIDATION;
     }
-    
-    // 5. CHARM SELF-TRANSFER: Single internal charm input → Internal charm output
-    // We're moving charm tokens between our own addresses
-    if (charmInputs.internal.length === 1 && charmInputs.external.length === 0 && 
-        charmOutputs.internal.length > 0 && charmOutputs.external.length === 0) {
-        console.log(`[Classifier] → CHARM_SELF_TRANSFER`);
+    // CHARM_SELF_TRANSFER: 1 own charm input → own charm output.
+    if (charmIns.internal.length === 1 && charmIns.external.length === 0 &&
+        charmOuts.internal.length > 0 && charmOuts.external.length === 0) {
         return TRANSACTION_TYPES.CHARM_SELF_TRANSFER;
     }
-
-    // 6. BRO MINT: No charm inputs but has charm output to our address
-    // We're minting new charm tokens
-    if (totalCharmInputs === 0 && charmOutputs.internal.length > 0) {
-        console.log(`[Classifier] → BRO_MINT`);
+    // BRO_MINT: no charm inputs, charm output at our address.
+    if (charmIns.internal.length + charmIns.external.length === 0 && charmOuts.internal.length > 0) {
         return TRANSACTION_TYPES.BRO_MINT;
     }
 
-    // 7. STANDARD BITCOIN: Sent or Received
-    if (myAddresses && myAddresses.length > 0) {
-        const myAddressSet = new Set(myAddresses.map(addr => addr.address || addr));
-        const hasMyInput = inputs && inputs.some(input => 
-            input.address && myAddressSet.has(input.address)
-        );
-        
-        if (hasMyInput) {
-            console.log(`[Classifier] → SENT`);
-            return TRANSACTION_TYPES.SENT;
-        }
-    }
-
-    console.log(`[Classifier] → RECEIVED (default)`);
+    // Standard BTC direction.
+    if (inputs?.some(i => i.address && ownSet.has(i.address))) return TRANSACTION_TYPES.SENT;
     return TRANSACTION_TYPES.RECEIVED;
 }
 
