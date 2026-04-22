@@ -96,21 +96,37 @@ function detectMintedTokens(assetsMinted) {
 
 /**
  * Detect charm tokens leaving our wallet to EXTERNAL Cardano addresses.
- * Useful when we beam-out eBTC/BRO to another user's Cardano address: the
- * own→own delta is 0 but charm net flow (our ins) - (external outs) > 0.
+ *
+ * Covers two patterns:
+ *   a) tokens consumed from our own inputs → external output (direct CNT send)
+ *   b) tokens minted in this tx → external output (claim redirected to a
+ *      third-party Cardano address — the mint never touched our inputs but
+ *      semantically we're the ones sending them)
+ *
  * Returns list of { ticker, delta, policy_id, asset_name }, where `delta`
- * is POSITIVE when the token left us (so the caller negates it for display).
+ * is NEGATIVE because it represents tokens leaving us (for display).
  */
-function detectExternalCharmMovement(ownInputs, extOutputs) {
-  const ownIn = sumTokens(ownInputs);
+function detectExternalCharmMovement(ownInputs, extOutputs, mintedTokens = []) {
+  // "Available" = tokens we controlled in this tx: from inputs + newly minted.
+  const available = sumTokens(ownInputs);
+  for (const mt of mintedTokens) {
+    if (mt.quantity <= 0n) continue;
+    const key = `${mt.policy_id}.${mt.asset_name || ''}`;
+    const prev = available.get(key);
+    available.set(key, {
+      policy_id: mt.policy_id,
+      asset_name: mt.asset_name || '',
+      quantity: (prev?.quantity || 0n) + mt.quantity,
+    });
+  }
+
   const extOut = sumTokens(extOutputs);
   const results = [];
-  for (const [k, entry] of ownIn) {
+  for (const [k, entry] of available) {
     const meta = KNOWN_TOKENS[entry.policy_id];
     if (!meta) continue;
     const extQ = extOut.get(k)?.quantity || 0n;
     if (extQ > 0n && entry.quantity > 0n) {
-      // Token that WAS in our inputs appears at external outputs → left us.
       results.push({
         policy_id: entry.policy_id,
         asset_name: entry.asset_name,
@@ -167,12 +183,16 @@ export function classifyCardanoTx(detail, ownAddresses) {
   //   - Beam-out (to BTC): our CNT consumed, NO external Cardano address gets it
   //   - Sent CNT (to other Cardano wallet): our CNT consumed, external gets it
   //   - Received CNT (from other Cardano wallet): CNT arrived from external input
-  const ownCharmDelta = detectCharmDelta(ownIns, ownOuts);
-  const outToExternal = detectExternalCharmMovement(ownIns, extOuts);
-  const inFromExternal = detectExternalCharmMovement(extIns, ownOuts);
   // Koios tx_info includes `assets_minted` when a tx mints/burns tokens.
   // A positive mint for a known token policy == beam-in (claim from Bitcoin).
   const mintedTokens = detectMintedTokens(detail.assets_minted);
+
+  const ownCharmDelta = detectCharmDelta(ownIns, ownOuts);
+  // Include mintedTokens so claims redirected to external addresses are
+  // treated as "tokens leaving us" (the mint never touches our inputs but
+  // we control the claim).
+  const outToExternal = detectExternalCharmMovement(ownIns, extOuts, mintedTokens);
+  const inFromExternal = detectExternalCharmMovement(extIns, ownOuts);
 
   // 1. Beam-in (claim): a known-token mint occurred AND we received it.
   if (mintedTokens.length > 0 && ownCharmDelta.some(c => c.delta > 0n)) {
