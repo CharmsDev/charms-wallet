@@ -174,10 +174,6 @@ export function classifyCardanoTx(detail, ownAddresses) {
   // A positive mint for a known token policy == beam-in (claim from Bitcoin).
   const mintedTokens = detectMintedTokens(detail.assets_minted);
 
-  if (detail.tx_hash) {
-    console.log(`[DIAG:cardanoClassify] tx=${detail.tx_hash.slice(0, 12)}… ownIns=${ownIns.length} ownOuts=${ownOuts.length} extIns=${extIns.length} extOuts=${extOuts.length} ownDelta=${JSON.stringify(ownCharmDelta.map(c => ({ t: c.ticker, d: c.delta.toString() })))} out→ext=${JSON.stringify(outToExternal.map(c => ({ t: c.ticker, d: c.delta.toString() })))} in←ext=${JSON.stringify(inFromExternal.map(c => ({ t: c.ticker, d: c.delta.toString() })))} minted=${JSON.stringify(mintedTokens.map(c => ({ t: c.ticker, q: c.quantity.toString() })))}`);
-  }
-
   // 1. Beam-in (claim): a known-token mint occurred AND we received it.
   if (mintedTokens.length > 0 && ownCharmDelta.some(c => c.delta > 0n)) {
     const token = ownCharmDelta.find(c => c.delta > 0n);
@@ -258,7 +254,7 @@ export function classifyCardanoTx(detail, ownAddresses) {
     };
   }
 
-  // 4. Sent — own inputs, external gets the ADA.
+  // 6. Sent — own inputs, external gets the ADA.
   if (ownIns.length > 0 && extOuts.length > 0 && ownOutLovelace < ownInLovelace) {
     return {
       type: CARDANO_TX_TYPE.SENT,
@@ -268,7 +264,7 @@ export function classifyCardanoTx(detail, ownAddresses) {
     };
   }
 
-  // 5. Received — external inputs, we got ADA (no charms).
+  // 7. Received — external inputs, we got ADA (no charms).
   if (extIns.length > 0 && ownOuts.length > 0 && ownOutLovelace > 0n) {
     return {
       type: CARDANO_TX_TYPE.RECEIVED,

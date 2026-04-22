@@ -152,7 +152,6 @@ export default function CardanoTransactionHistory() {
 
                 {/* Detail (expandable) */}
                 {isSelected && (() => {
-                  const detail = txDetails[hash];
                   const fee = detail?.fee || detail?.fees || tx.fees;
                   const outputAda = detail?.output_amount?.find(a => a.unit === 'lovelace');
                   const outputTokens = detail?.output_amount?.filter(a => a.unit !== 'lovelace') || [];

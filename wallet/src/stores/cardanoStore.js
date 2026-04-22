@@ -191,11 +191,10 @@ const useCardanoStore = create((set, get) => ({
 
   refresh: async () => {
     const state = get();
-    if (state.isRefreshing) { console.log('[CardanoStore] Skip refresh: already refreshing'); return; }
-    if (!state.addresses.length) { console.log('[CardanoStore] Skip refresh: no addresses'); return; }
+    if (state.isRefreshing) return;
+    if (!state.addresses.length) return;
 
     const network = state.currentNetwork?.replace('cardano-', '') || 'mainnet';
-    console.log(`[CardanoStore] Refreshing for ${network}, addresses:`, state.addresses.map(a => a.address?.slice(0, 20) + '...'));
     set({ isRefreshing: true, error: null });
 
     try {
@@ -223,8 +222,6 @@ const useCardanoStore = create((set, get) => ({
           }
         }
       }
-
-      console.log(`[CardanoStore] Fetched ${allUtxos.length} UTXOs, total: ${totalLovelace.toString()} lovelace (${Number(totalLovelace) / 1e6} ADA), assets: ${assetTotals.size}`);
 
       // Fetch metadata for assets missing name/image (re-fetch if stale)
       const cache = { ...state.assetMetaCache };
@@ -268,15 +265,13 @@ const useCardanoStore = create((set, get) => ({
       // Auto-cleanup: drop reservations no longer on-chain (confirmed/dropped).
       const { syncWithChain, getSpentSet } = require('@/services/utxo-reservations');
       const onChainKeys = new Set(allUtxos.map(u => `${u.txHash}:${u.outputIndex}`));
-      const dropped = syncWithChain('cardano', onChainKeys);
-      if (dropped > 0) console.log(`[CardanoStore] Synced reservations: dropped ${dropped} confirmed UTXOs`);
+      syncWithChain('cardano', onChainKeys);
       const liveSpent = getSpentSet('cardano');
 
       // Apply local reservations: hide already-spent UTXOs from store
       const visibleUtxos = allUtxos.filter(u => !liveSpent.has(`${u.txHash}:${u.outputIndex}`));
       const visibleBalance = visibleUtxos.reduce((s, u) => s + BigInt(u.lovelace || '0'), 0n).toString();
 
-      console.log(`[CardanoStore] Setting state: balance=${visibleBalance}, utxos=${visibleUtxos.length}/${allUtxos.length}, reserved=${liveSpent.size}, assets=${assets.length}`);
       set({
         utxos: visibleUtxos,
         assets,

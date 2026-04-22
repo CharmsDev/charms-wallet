@@ -41,6 +41,26 @@ async function withFallback(blockfrostFn, koiosFn) {
   return koiosFn();
 }
 
+/**
+ * Route a Koios call through the wallet's proxy endpoint. Returns null on
+ * non-OK responses (callers decide how to treat 4xx vs throw).
+ */
+async function koiosProxy(endpoint, body, { method = 'POST', network } = {}) {
+  const resp = await fetch('/api/cardano', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      provider: 'koios',
+      network: network || getNetwork(),
+      endpoint,
+      method,
+      body,
+    }),
+  });
+  if (!resp.ok) return { ok: false, status: resp.status };
+  return { ok: true, data: await resp.json() };
+}
+
 // ── Public API (same interface for all consumers) ───────────────────────────
 
 export async function fetchUtxos(address, network) {
@@ -80,39 +100,19 @@ export async function fetchAddressTxs(address, count = 20) {
   );
 }
 
-/**
- * Fetch raw CBOR hex of a Cardano transaction.
- */
+/** Fetch raw CBOR hex of a Cardano transaction. */
 export async function getCardanoTxCbor(txHash) {
-  const resp = await fetch('/api/cardano', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      provider: 'koios', network: getNetwork(),
-      endpoint: '/tx_cbor', method: 'POST',
-      body: { _tx_hashes: [txHash] },
-    }),
-  });
-  if (!resp.ok) throw new Error(`Failed to fetch tx CBOR: ${resp.status}`);
-  const data = await resp.json();
-  if (!data?.[0]?.cbor) throw new Error(`No CBOR for tx ${txHash}`);
-  return data[0].cbor;
+  const res = await koiosProxy('/tx_cbor', { _tx_hashes: [txHash] });
+  if (!res.ok) throw new Error(`Failed to fetch tx CBOR: ${res.status}`);
+  if (!res.data?.[0]?.cbor) throw new Error(`No CBOR for tx ${txHash}`);
+  return res.data[0].cbor;
 }
 
+/** Fetch a single tx_info; returns null if not found. */
 export async function getCardanoTx(txHash) {
-  // Blockfrost provider does not implement this; go straight to Koios via proxy.
-  const resp = await fetch('/api/cardano', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      provider: 'koios', network: getNetwork(),
-      endpoint: '/tx_info', method: 'POST',
-      body: { _tx_hashes: [txHash] },
-    }),
-  });
-  if (!resp.ok) return null;
-  const data = await resp.json();
-  return data[0] || null;
+  const res = await koiosProxy('/tx_info', { _tx_hashes: [txHash] });
+  if (!res.ok) return null;
+  return res.data?.[0] || null;
 }
 
 /**
@@ -121,19 +121,12 @@ export async function getCardanoTx(txHash) {
  */
 export async function getCardanoTxsBatch(txHashes) {
   if (!txHashes?.length) return {};
-  const resp = await fetch('/api/cardano', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      provider: 'koios', network: getNetwork(),
-      endpoint: '/tx_info', method: 'POST',
-      body: { _tx_hashes: txHashes, _inputs: true, _assets: true },
-    }),
+  const res = await koiosProxy('/tx_info', {
+    _tx_hashes: txHashes, _inputs: true, _assets: true,
   });
-  if (!resp.ok) return {};
-  const data = await resp.json();
+  if (!res.ok) return {};
   const out = {};
-  for (const tx of Array.isArray(data) ? data : []) {
+  for (const tx of Array.isArray(res.data) ? res.data : []) {
     if (tx.tx_hash) out[tx.tx_hash] = tx;
   }
   return out;
@@ -151,17 +144,9 @@ export async function getProtocolParams(network) {
       return resp.json();
     },
     async () => {
-      const resp = await fetch('/api/cardano', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: 'koios', network: net,
-          endpoint: '/epoch_params?limit=1', method: 'GET',
-        }),
-      });
-      if (!resp.ok) throw new Error(`Koios params: ${resp.status}`);
-      const data = await resp.json();
-      return Array.isArray(data) ? data[0] || {} : data;
+      const res = await koiosProxy('/epoch_params?limit=1', null, { method: 'GET', network: net });
+      if (!res.ok) throw new Error(`Koios params: ${res.status}`);
+      return Array.isArray(res.data) ? res.data[0] || {} : res.data;
     },
   );
 }
