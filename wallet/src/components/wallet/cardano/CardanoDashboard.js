@@ -22,6 +22,7 @@ export default function CardanoDashboard() {
   const { activeNetwork, isCardano } = useBlockchain();
   const {
     addresses, adaBalance, assets, isRefreshing, initialized, error,
+    pendingCreditLovelace, pendingSendTxHash,
     deriveAddresses, refresh,
   } = useCardano();
 
@@ -70,9 +71,14 @@ export default function CardanoDashboard() {
 
   if (!isCardano()) return null;
 
+  const pendingCredit = BigInt(pendingCreditLovelace || '0');
+  const totalLovelace = BigInt(adaBalance || '0') + pendingCredit;
   const adaDisplay = initialized
-    ? (Number(BigInt(adaBalance || '0')) / 1_000_000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })
+    ? (Number(totalLovelace) / 1_000_000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })
     : '—';
+  const pendingDisplay = pendingCredit > 0n
+    ? (Number(pendingCredit) / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 })
+    : null;
 
   return (
     <div className="space-y-6">
@@ -109,6 +115,11 @@ export default function CardanoDashboard() {
               </div>
               {!initialized && !isRefreshing && (
                 <div className="text-xs text-dark-500 mt-1">Not yet loaded</div>
+              )}
+              {pendingDisplay && (
+                <div className="text-xs text-yellow-400 mt-1">
+                  {pendingDisplay} ADA confirming (send in mempool)
+                </div>
               )}
             </div>
             <div className="flex gap-2 sm:flex-shrink-0">

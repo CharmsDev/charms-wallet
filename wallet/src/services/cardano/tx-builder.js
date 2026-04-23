@@ -54,12 +54,13 @@ export function createTxBuilder(CSL, params) {
 
 /**
  * Sign + submit a fully-constructed TransactionBuilder.
- * Returns the tx hash (prefers the submitter's echo, falls back to local hash).
+ * Returns the tx hash + exact fee (useful for optimistic balance updates).
  */
 export async function signAndSubmit(CSL, txBuilder, { seedPhrase, addressIndex = 0, cardanoNet, onStatus }) {
   const { seedPhraseToRootKey, derivePaymentKey } = await import('@/lib/cardano/wallet');
 
   const txBody = txBuilder.build();
+  const feeLovelace = BigInt(txBody.fee().to_str());
   const unsigned = CSL.Transaction.new(txBody, CSL.TransactionWitnessSet.new());
   const fixed = CSL.FixedTransaction.from_bytes(unsigned.to_bytes());
 
@@ -71,7 +72,8 @@ export async function signAndSubmit(CSL, txBuilder, { seedPhrase, addressIndex =
   onStatus?.('Submitting transaction...');
   const submitted = await submitCardanoTx(fixed.to_bytes(), cardanoNet);
   const localHash = fixed.transaction_hash().to_hex();
-  return typeof submitted === 'string' ? submitted : localHash;
+  const txHash = typeof submitted === 'string' ? submitted : localHash;
+  return { txHash, feeLovelace };
 }
 
 /** Pull the freshest protocol params for the given Cardano network. */

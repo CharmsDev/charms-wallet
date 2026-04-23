@@ -98,7 +98,7 @@ export async function sendAda({
   // CSL auto-computes the exact fee here and refunds the rest to the sender.
   txBuilder.add_change_if_needed(fromAddr);
 
-  const txHash = await signAndSubmit(CSL, txBuilder, {
+  const { txHash, feeLovelace } = await signAndSubmit(CSL, txBuilder, {
     seedPhrase,
     addressIndex,
     cardanoNet,
@@ -108,5 +108,8 @@ export async function sendAda({
   // Reserve consumed UTxOs AFTER broadcast so concurrent ops skip them.
   markBatch('cardano', selected);
 
-  return { txHash };
+  // Expected change that returns to us, for optimistic balance display.
+  const changeLovelace = total - amount - feeLovelace;
+
+  return { txHash, feeLovelace, changeLovelace };
 }

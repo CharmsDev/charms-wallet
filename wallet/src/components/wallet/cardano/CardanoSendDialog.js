@@ -19,7 +19,7 @@ import { cardanoTxUrl } from '@/utils/cardanoExplorer';
 
 export default function CardanoSendDialog({ isOpen, onClose, mode = 'ada', asset = null }) {
   const { seedPhrase } = useWallet();
-  const { addresses, adaBalance, currentNetwork, refresh } = useCardano();
+  const { addresses, adaBalance, currentNetwork, refresh, recordOutgoingSend } = useCardano();
   const { loadTransactions } = useTransactions();
 
   const [recipient, setRecipient] = useState('');
@@ -79,6 +79,15 @@ export default function CardanoSendDialog({ isOpen, onClose, mode = 'ada', asset
       }
       setTxHash(result.txHash);
       setStatus(null);
+
+      // Record pending change so the dashboard balance reflects the
+      // incoming change UTXO while the tx sits in the mempool.
+      if (result.changeLovelace && result.changeLovelace > 0n) {
+        recordOutgoingSend?.({
+          txHash: result.txHash,
+          changeLovelace: result.changeLovelace,
+        });
+      }
 
       // Refresh downstream state so the UI catches up (balance + history).
       refresh?.().catch(() => {});

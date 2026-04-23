@@ -199,7 +199,7 @@ export async function sendCnt({
   // CSL computes fee, packs leftover lovelace + residual tokens into change.
   txBuilder.add_change_if_needed(fromAddr);
 
-  const txHash = await signAndSubmit(CSL, txBuilder, {
+  const { txHash, feeLovelace } = await signAndSubmit(CSL, txBuilder, {
     seedPhrase,
     addressIndex,
     cardanoNet,
@@ -208,5 +208,10 @@ export async function sendCnt({
 
   markBatch('cardano', allInputs);
 
-  return { txHash };
+  // Expected ADA change returning to us (leftover lovelace after the token
+  // output + fee). Useful for optimistic balance updates on the dashboard.
+  const totalAdaIn = allInputs.reduce((s, u) => s + BigInt(u.lovelace || '0'), 0n);
+  const changeLovelace = totalAdaIn - minAda - feeLovelace;
+
+  return { txHash, feeLovelace, changeLovelace };
 }
