@@ -105,14 +105,15 @@ export default function CardanoAssetCard({ asset, onBeamBack, onRedeem, onTransf
 
         {/* Actions */}
         <div className="mt-2 space-y-2">
-          {/* Transfer on Cardano (coming soon — only ADA send is active for now) */}
-          <button
-            disabled
-            title="CNT transfer coming soon"
-            className="w-full py-1.5 rounded text-xs font-medium bg-cardano-500/20 text-cardano-400 border border-cardano-500/30 opacity-50 cursor-not-allowed"
-          >
-            Transfer
-          </button>
+          {/* Transfer CNT on Cardano */}
+          {onTransfer && (
+            <button
+              onClick={() => onTransfer(asset)}
+              className="w-full py-1.5 rounded text-xs font-medium bg-cardano-500/20 text-cardano-400 border border-cardano-500/30 hover:bg-cardano-500/30 transition-all"
+            >
+              Transfer
+            </button>
+          )}
 
           {/* Beam / Redeem (existing, Charms proxy only) */}
           {isCharmsProxy && (
