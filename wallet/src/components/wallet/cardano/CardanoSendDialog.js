@@ -106,7 +106,14 @@ export default function CardanoSendDialog({ isOpen, onClose, mode = 'ada', asset
         </div>
 
         {txHash ? (
-          <SuccessView txHash={txHash} network={network} onClose={onClose} />
+          <SuccessView
+            txHash={txHash}
+            network={network}
+            recipient={recipient.trim()}
+            amount={amount}
+            unit={balanceInfo.label}
+            onClose={onClose}
+          />
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="text-xs text-dark-400">
@@ -172,23 +179,61 @@ export default function CardanoSendDialog({ isOpen, onClose, mode = 'ada', asset
   );
 }
 
-function SuccessView({ txHash, network, onClose }) {
+function SuccessView({ txHash, network, recipient, amount, unit, onClose }) {
+  const truncAddr = recipient && recipient.length > 24
+    ? `${recipient.slice(0, 12)}…${recipient.slice(-8)}`
+    : recipient;
+
   return (
-    <div className="space-y-4 text-sm">
-      <div className="text-green-400 font-semibold">Transaction submitted</div>
-      <div className="bg-dark-800 rounded p-3 font-mono text-xs break-all">{txHash}</div>
-      <a
-        href={cardanoTxUrl(txHash, network)}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-block text-cardano-400 hover:underline"
-      >
-        View on explorer →
-      </a>
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 text-green-400 font-semibold">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+        <span>Transaction submitted</span>
+      </div>
+
+      {/* Amount headline */}
+      <div className="glass-effect rounded-lg p-4 text-center">
+        <div className="text-xs text-dark-400 mb-1">Amount sent</div>
+        <div className="text-2xl font-bold text-white">
+          {amount} <span className="text-lg text-dark-400">{unit}</span>
+        </div>
+      </div>
+
+      {/* Details */}
+      <div className="space-y-2 text-sm">
+        <div className="flex justify-between items-start gap-3">
+          <span className="text-dark-400 flex-shrink-0">To</span>
+          <span className="font-mono text-xs text-white break-all text-right" title={recipient}>{truncAddr}</span>
+        </div>
+        <div className="flex justify-between items-start gap-3">
+          <span className="text-dark-400 flex-shrink-0">Transaction</span>
+          <span className="font-mono text-xs text-white break-all text-right">{txHash}</span>
+        </div>
+      </div>
+
       <p className="text-xs text-dark-400">
-        The transaction is in the mempool. Balance + history will update after the next refresh.
+        The transaction is in the mempool. Balance and history will update after the next refresh.
       </p>
-      <button onClick={onClose} className="w-full btn-primary">Close</button>
+
+      {/* Actions */}
+      <div className="flex gap-3 pt-2">
+        <a
+          href={cardanoTxUrl(txHash, network)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex-1 bg-dark-700 hover:bg-dark-600 text-white py-2 px-4 rounded text-sm text-center transition-colors"
+        >
+          View on explorer →
+        </a>
+        <button
+          onClick={onClose}
+          className="flex-1 btn-primary py-2 px-4 text-sm"
+        >
+          Close
+        </button>
+      </div>
     </div>
   );
 }
