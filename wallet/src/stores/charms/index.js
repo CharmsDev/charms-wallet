@@ -72,38 +72,69 @@ export const useCharmsStore = create((set, get) => ({
     setError: (error) => set({ error }),
 
     /**
-     * Initialize from cache
+     * Initialize charms state from local cache.
+     *
+     * Previously, this awaited `processCharmsWithReferenceData` before calling
+     * `set()`. When that helper fires off N reference-NFT lookups, it can take
+     * seconds — and if the user clicks Refresh in the meantime, the fresh
+     * sync's `applyResults` finishes first, then this function's trailing
+     * `set` silently clobbers the fresh data with the stale cache.
+     *
+     * The fix has three parts:
+     *   1. Drop cached charms that don't have the minimum shape — avoids
+     *      propagating legacy/corrupt entries from older wallet versions.
+     *   2. Publish the cache synchronously (no metadata enrichment yet) so
+     *      the UI paints immediately.
+     *   3. Run the metadata enrichment in the background, and BEFORE writing
+     *      re-check that no fresher data has been set in the meantime.
      */
     initialize: async (blockchain, network) => {
         const networkKey = `${blockchain}-${network}`;
         const state = get();
-        
-        // Network changed - clear and reinitialize
+
+        // Network changed — clear and reinitialize
         if (state.currentNetwork && state.currentNetwork !== networkKey) {
             set({ charms: [], pendingCharms: [], initialized: false, currentNetwork: networkKey });
         } else if (state.initialized && state.currentNetwork === networkKey) {
-            // Already initialized for this network - skip reload
+            // Already initialized for this network — skip reload
             return;
         } else {
-            // First initialization for this network
             set({ currentNetwork: networkKey });
         }
-        
+
         try {
             const cachedCharms = await getCharms(blockchain, network);
-            
-            if (cachedCharms && cachedCharms.length > 0) {
-                const enhanced = await charmsExplorerAPI.processCharmsWithReferenceData(cachedCharms);
-                set({ charms: enhanced, initialized: true });
-                
-                try {
-                    await saveCharms(enhanced, blockchain, network);
-                } catch (e) {
-                    // Silent fail on cache save
-                }
-            } else {
+            // Sanitize: a charm must have txid + outputIndex + a usable appId.
+            // Anything missing these is stale shape from a previous version.
+            const clean = (cachedCharms || []).filter(c =>
+                c && c.txid && (c.outputIndex !== undefined && c.outputIndex !== null) &&
+                (c.appId || c.app_id)
+            );
+
+            if (clean.length === 0) {
                 set({ initialized: true });
+                return;
             }
+
+            // Step 1: publish cached data immediately so the UI has something
+            // to render before the sync arrives. This is safe — cache is the
+            // source of truth until sync overrides it.
+            set({ charms: clean, initialized: true });
+
+            // Step 2: enrich with reference-NFT metadata asynchronously.
+            // DO NOT block on this. Guard the write so a concurrent sync
+            // (which calls setState with fresh charms) wins the race.
+            charmsExplorerAPI.processCharmsWithReferenceData(clean)
+                .then((enhanced) => {
+                    const current = get();
+                    // Abort if network changed mid-flight or the store already
+                    // holds fresher-looking data (more charms = likely from sync).
+                    if (current.currentNetwork !== networkKey) return;
+                    if (current.charms.length > enhanced.length) return;
+                    set({ charms: enhanced });
+                    saveCharms(enhanced, blockchain, network).catch(() => {});
+                })
+                .catch(() => { /* enrichment is best-effort */ });
         } catch (error) {
             console.error('[CharmsStore] Error initializing:', error);
             set({ error: error.message, initialized: true });
