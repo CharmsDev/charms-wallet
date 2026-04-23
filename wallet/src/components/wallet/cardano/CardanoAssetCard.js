@@ -13,7 +13,7 @@ import { cardanoAssetUrl } from '@/utils/cardanoExplorer';
 const CIP67_TOKEN_LABEL = '0014df10';
 const EBTC_POLICY_ID = '552b22f4989ea698fabbf6314b70d2e5edb49c1fdbdeb6096e8c84b6';
 
-export default function CardanoAssetCard({ asset, onBeamBack, onRedeem }) {
+export default function CardanoAssetCard({ asset, onBeamBack, onRedeem, onTransfer }) {
   const { currentNetwork } = useCardano();
   const network = currentNetwork?.replace('cardano-', '') || 'mainnet';
   const [imageError, setImageError] = useState(false);
@@ -105,13 +105,15 @@ export default function CardanoAssetCard({ asset, onBeamBack, onRedeem }) {
 
         {/* Actions */}
         <div className="mt-2 space-y-2">
-          {/* Transfer on Cardano (disabled — coming soon) */}
-          <button
-            disabled
-            className="w-full py-1.5 rounded text-xs font-medium bg-cardano-500/20 text-cardano-400 border border-cardano-500/30 opacity-50 cursor-not-allowed"
-          >
-            Transfer
-          </button>
+          {/* Transfer on Cardano (native CNT send) */}
+          {onTransfer && (
+            <button
+              onClick={() => onTransfer(asset)}
+              className="w-full py-1.5 rounded text-xs font-medium bg-cardano-500/20 text-cardano-400 border border-cardano-500/30 hover:bg-cardano-500/30 transition-colors"
+            >
+              Transfer
+            </button>
+          )}
 
           {/* Beam / Redeem (existing, Charms proxy only) */}
           {isCharmsProxy && (

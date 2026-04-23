@@ -11,8 +11,10 @@ import { useWallet } from '@/stores/walletStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import CardanoAssetList from './CardanoAssetList';
 import CardanoAddressCard from './CardanoAddressCard';
+import CardanoSendDialog from './CardanoSendDialog';
 import BeamBackDialog from '@/components/beam/BeamBackDialog';
 import EbtcRedeemDialog from '@/components/beam/EbtcRedeemDialog';
+import ReceiveBitcoinDialog from '@/components/wallet/dashboard/components/ReceiveBitcoinDialog';
 
 export default function CardanoDashboard() {
   const { seedPhrase } = useWallet();
@@ -26,6 +28,9 @@ export default function CardanoDashboard() {
   const initRef = useRef(null);
   const [beamBackAsset, setBeamBackAsset] = useState(null);
   const [redeemAsset, setRedeemAsset] = useState(null);
+  const [sendAdaOpen, setSendAdaOpen] = useState(false);
+  const [receiveOpen, setReceiveOpen] = useState(false);
+  const [sendCntAsset, setSendCntAsset] = useState(null);
 
   // Handle beam-back from Cardano to Bitcoin — opens dialog
   const handleBeamBack = useCallback((asset) => {
@@ -91,10 +96,18 @@ export default function CardanoDashboard() {
           )}
           {/* Send / Receive buttons */}
           <div className="flex gap-3 mt-4">
-            <button disabled className="btn btn-primary flex-1 py-2.5 opacity-50 cursor-not-allowed">
+            <button
+              onClick={() => setSendAdaOpen(true)}
+              disabled={!initialized || !addresses?.length}
+              className="btn btn-primary flex-1 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               Send ADA
             </button>
-            <button disabled className="btn btn-secondary flex-1 py-2.5 opacity-50 cursor-not-allowed">
+            <button
+              onClick={() => setReceiveOpen(true)}
+              disabled={!addresses?.length}
+              className="btn btn-secondary flex-1 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               Receive
             </button>
           </div>
@@ -118,7 +131,12 @@ export default function CardanoDashboard() {
           <h3 className="text-lg font-bold gradient-text mb-4">
             Native Assets ({assets.length})
           </h3>
-          <CardanoAssetList assets={assets} onBeamBack={handleBeamBack} onRedeem={handleRedeem} />
+          <CardanoAssetList
+            assets={assets}
+            onBeamBack={handleBeamBack}
+            onRedeem={handleRedeem}
+            onTransfer={setSendCntAsset}
+          />
         </div>
       )}
 
@@ -142,6 +160,25 @@ export default function CardanoDashboard() {
           onClose={() => setRedeemAsset(null)}
         />
       )}
+
+      <CardanoSendDialog
+        isOpen={sendAdaOpen}
+        onClose={() => setSendAdaOpen(false)}
+        mode="ada"
+      />
+
+      <CardanoSendDialog
+        isOpen={!!sendCntAsset}
+        onClose={() => setSendCntAsset(null)}
+        mode="cnt"
+        asset={sendCntAsset}
+      />
+
+      <ReceiveBitcoinDialog
+        isOpen={receiveOpen}
+        onClose={() => setReceiveOpen(false)}
+        assetName="ADA"
+      />
     </div>
   );
 }
