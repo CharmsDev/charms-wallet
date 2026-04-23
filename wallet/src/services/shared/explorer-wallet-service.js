@@ -17,6 +17,16 @@ const _isExtensionPopup = typeof chrome !== 'undefined'
     && typeof chrome.runtime?.sendMessage === 'function'
     && typeof window !== 'undefined';
 
+if (typeof window !== 'undefined') {
+    // One-time diagnostic so we can see on customer consoles exactly how the
+    // extension-context detection resolved. If `_isExtensionPopup` is `true`
+    // on wallet.charms.dev, we have another leak to investigate.
+    console.log('[ExplorerAPI] build=v1.3.6 extensionPopup=', _isExtensionPopup,
+        'chromeDefined=', typeof chrome !== 'undefined',
+        'runtimeId=', typeof chrome !== 'undefined' ? typeof chrome.runtime?.id : 'n/a',
+        'sendMessageDefined=', typeof chrome !== 'undefined' ? typeof chrome.runtime?.sendMessage : 'n/a');
+}
+
 async function _extensionFetch(url, options = {}) {
     return new Promise((resolve, reject) => {
         chrome.runtime.sendMessage(
