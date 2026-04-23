@@ -12,6 +12,25 @@ import { fetchAddressTxs, getCardanoTx, getCardanoTxsBatch } from '@/services/ca
 import { classifyCardanoTx, CARDANO_TX_TYPE, CARDANO_TX_ICON } from '@/services/cardano/tx-classifier';
 import { cardanoTxUrl } from '@/utils/cardanoExplorer';
 
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false);
+  const copy = (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+  return (
+    <button onClick={copy} title="Copy" className="ml-1 text-dark-500 hover:text-cardano-400 transition-colors flex-shrink-0">
+      {copied
+        ? <svg className="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+        : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+      }
+    </button>
+  );
+}
+
 export default function CardanoTransactionHistory() {
   const { addresses, currentNetwork } = useCardano();
   const { isCardano } = useBlockchain();
@@ -155,17 +174,62 @@ export default function CardanoTransactionHistory() {
                 {/* Detail (expandable) */}
                 {isSelected && (() => {
                   const fee = detail?.fee || detail?.fees || tx.fees;
+                  // Destination addresses: outputs NOT owned by this wallet
+                  const destOutputs = (detail?.outputs || []).filter(o => {
+                    const addr = o.payment_addr?.bech32 || o.address || '';
+                    return addr && !ownAddresses.includes(addr);
+                  });
+                  const destAddresses = [...new Set(destOutputs.map(o => o.payment_addr?.bech32 || o.address || '').filter(Boolean))];
+
                   const outputAda = detail?.output_amount?.find(a => a.unit === 'lovelace');
                   const outputTokens = detail?.output_amount?.filter(a => a.unit !== 'lovelace') || [];
 
                   return (
-                    <div className="bg-dark-900 rounded-lg p-4 mt-1 mb-2 space-y-2 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-dark-400">Transaction ID</span>
-                        <a href={explorerUrl(hash)} target="_blank" rel="noopener noreferrer" className="text-cardano-400 hover:underline font-mono">
-                          {hash.slice(0, 20)}...
+                    <div className="bg-dark-900 rounded-lg p-4 mt-1 mb-2 space-y-3 text-xs">
+                      {/* TX Hash — full + copy + explorer */}
+                      <div>
+                        <div className="text-dark-400 mb-1">Transaction ID</div>
+                        <div className="flex items-start gap-1">
+                          <span className="font-mono text-white break-all leading-relaxed">{hash}</span>
+                          <CopyButton text={hash} />
+                        </div>
+                        <a href={explorerUrl(hash)} target="_blank" rel="noopener noreferrer" className="text-cardano-400 hover:underline mt-1 inline-block">
+                          View on explorer ↗
                         </a>
                       </div>
+
+                      {/* Destination address(es) */}
+                      {destAddresses.length > 0 && (
+                        <div>
+                          <div className="text-dark-400 mb-1">{destAddresses.length > 1 ? 'To (addresses)' : 'To'}</div>
+                          {destAddresses.map((addr, j) => (
+                            <div key={j} className="flex items-start gap-1 mt-1">
+                              <span className="font-mono text-white break-all leading-relaxed">{addr}</span>
+                              <CopyButton text={addr} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Amount */}
+                      {amountStr && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-dark-400">Amount</span>
+                          <span className={`font-mono font-bold ${amountColor}`}>
+                            {cls.direction === 'out' ? '−' : cls.direction === 'in' ? '+' : ''}{amountStr}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Fee */}
+                      {fee && (
+                        <div className="flex justify-between">
+                          <span className="text-dark-400">Fee</span>
+                          <span className="text-white font-mono">{(parseInt(fee) / 1_000_000).toFixed(6)} ADA</span>
+                        </div>
+                      )}
+
+                      {/* Block + time */}
                       {blockHeight && (
                         <div className="flex justify-between">
                           <span className="text-dark-400">Block</span>
@@ -176,37 +240,23 @@ export default function CardanoTransactionHistory() {
                         <span className="text-dark-400">Time</span>
                         <span className="text-white">{formatTime(blockTime)}</span>
                       </div>
-                      {fee && (
-                        <div className="flex justify-between">
-                          <span className="text-dark-400">Fee</span>
-                          <span className="text-white font-mono">{(parseInt(fee) / 1_000_000).toFixed(6)} ADA</span>
-                        </div>
-                      )}
-                      {outputAda && (
-                        <div className="flex justify-between">
-                          <span className="text-dark-400">Output</span>
-                          <span className="text-white font-mono">{(parseInt(outputAda.quantity) / 1_000_000).toFixed(6)} ADA</span>
-                        </div>
-                      )}
+
+                      {/* Output tokens (non-ADA) */}
                       {outputTokens.length > 0 && (
                         <div>
-                          <span className="text-dark-400">Tokens:</span>
+                          <div className="text-dark-400 mb-1">Tokens</div>
                           {outputTokens.map((t, j) => (
-                            <div key={j} className="flex justify-between pl-2 mt-1">
-                              <span className="text-dark-500 font-mono truncate max-w-[200px]">{t.unit.slice(0, 20)}...</span>
-                              <span className="text-white font-mono">{t.quantity}</span>
+                            <div key={j} className="flex justify-between pl-2 mt-1 gap-2">
+                              <span className="text-dark-500 font-mono break-all">{t.unit}</span>
+                              <span className="text-white font-mono flex-shrink-0">{t.quantity}</span>
                             </div>
                           ))}
                         </div>
                       )}
+
                       {!detail && (
                         <div className="text-dark-500 italic">Loading details...</div>
                       )}
-                      <div className="pt-2">
-                        <a href={explorerUrl(hash)} target="_blank" rel="noopener noreferrer" className="text-cardano-400 hover:underline text-xs">
-                          View on explorer →
-                        </a>
-                      </div>
                     </div>
                   );
                 })()}
