@@ -82,12 +82,18 @@ export default function CardanoDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Two-column grid matching Bitcoin dashboard proportions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left (2/3): Balance + actions + addresses */}
-        <div className="lg:col-span-2 card p-6 space-y-5">
+      {/* Header — mirrors Bitcoin dashboard */}
+      <div>
+        <h1 className="text-2xl font-bold gradient-text">Dashboard</h1>
+        <p className="text-dark-400 text-sm mt-1">Welcome to your Cardano Wallet</p>
+      </div>
+
+      {/* Main grid: 3/4 content + 1/4 summary */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Left (3/4): Balance + actions + addresses */}
+        <div className="lg:col-span-3 card p-6 space-y-5">
           <div className="flex justify-between items-center">
-            <h2 className="text-lg font-semibold gradient-text">Cardano Wallet</h2>
+            <h2 className="text-lg font-semibold gradient-text">Cardano Balance</h2>
             <button
               onClick={refresh}
               disabled={isRefreshing}
@@ -154,7 +160,7 @@ export default function CardanoDashboard() {
           </div>
         </div>
 
-        {/* Right (1/3): Portfolio Summary */}
+        {/* Right (1/4): Portfolio Summary */}
         <div>
           <CardanoPortfolioSummary />
         </div>
