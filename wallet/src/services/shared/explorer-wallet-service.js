@@ -4,7 +4,16 @@ import config from '@/config';
 
 // In Chrome extension popup context, fetch() cannot resolve external DNS.
 // Route all requests through the background service worker instead.
+//
+// IMPORTANT: `chrome.runtime.sendMessage` is exposed to regular web pages by
+// Chrome (for externally_connectable scenarios), so testing for it gives a
+// false positive on wallet.charms.dev and throws:
+//   "chrome.runtime.sendMessage() called from a webpage must specify an
+//    Extension ID (string) for its first argument"
+// `chrome.runtime.id` is only defined inside an actual extension context,
+// so it's the canonical extension-context check.
 const _isExtensionPopup = typeof chrome !== 'undefined'
+    && typeof chrome.runtime?.id === 'string'
     && typeof chrome.runtime?.sendMessage === 'function'
     && typeof window !== 'undefined';
 
