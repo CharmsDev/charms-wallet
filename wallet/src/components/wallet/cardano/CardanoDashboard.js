@@ -12,6 +12,7 @@ import { useBlockchain } from '@/stores/blockchainStore';
 import CardanoAssetList from './CardanoAssetList';
 import CardanoAddressCard from './CardanoAddressCard';
 import CardanoSendDialog from './CardanoSendDialog';
+import CardanoPortfolioSummary from './CardanoPortfolioSummary';
 import BeamBackDialog from '@/components/beam/BeamBackDialog';
 import EbtcRedeemDialog from '@/components/beam/EbtcRedeemDialog';
 import ReceiveBitcoinDialog from '@/components/wallet/dashboard/components/ReceiveBitcoinDialog';
@@ -69,66 +70,89 @@ export default function CardanoDashboard() {
 
   if (!isCardano()) return null;
 
+  const adaDisplay = initialized
+    ? (Number(BigInt(adaBalance || '0')) / 1_000_000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })
+    : '—';
+
   return (
     <div className="space-y-6">
-      {/* Balance Card */}
-      <div className="card p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold gradient-text">Cardano Wallet</h2>
-          <button
-            onClick={refresh}
-            disabled={isRefreshing}
-            className="btn btn-secondary text-sm"
-          >
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
-
-        {/* ADA Balance */}
-        <div className="bg-dark-900 rounded-xl p-5 mb-4">
-          <div className="text-sm text-dark-400 mb-1">Total Balance</div>
-          <div className="text-3xl font-bold text-white">
-            {initialized ? (Number(BigInt(adaBalance || '0')) / 1_000_000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }) : '—'}
-            <span className="text-lg text-dark-400 ml-2">ADA</span>
+      {/* Two-column grid matching Bitcoin dashboard proportions */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left (2/3): Balance + actions + addresses */}
+        <div className="lg:col-span-2 card p-6 space-y-5">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold gradient-text">Cardano Wallet</h2>
+            <button
+              onClick={refresh}
+              disabled={isRefreshing}
+              className="glass-effect p-2 rounded-md hover:bg-dark-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title={isRefreshing ? 'Refreshing...' : 'Refresh balance'}
+            >
+              <svg
+                className={`w-5 h-5 text-dark-300 ${isRefreshing ? 'animate-spin' : ''}`}
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none" viewBox="0 0 24 24" stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
+              </svg>
+            </button>
           </div>
-          {!initialized && !isRefreshing && (
-            <div className="text-xs text-dark-500 mt-1">Not yet loaded</div>
+
+          {/* Balance row: amount left, compact action buttons right */}
+          <div className="glass-effect rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <div className="text-xs text-dark-400 mb-1">Total Balance</div>
+              <div className="text-3xl font-bold text-white leading-tight">
+                {adaDisplay}
+                <span className="text-lg text-dark-400 ml-2">ADA</span>
+              </div>
+              {!initialized && !isRefreshing && (
+                <div className="text-xs text-dark-500 mt-1">Not yet loaded</div>
+              )}
+            </div>
+            <div className="flex gap-2 sm:flex-shrink-0">
+              <button
+                onClick={() => setSendAdaOpen(true)}
+                disabled={!initialized || !addresses?.length}
+                className="btn btn-primary px-4 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Send
+              </button>
+              <button
+                onClick={() => setReceiveOpen(true)}
+                disabled={!addresses?.length}
+                className="btn btn-secondary px-4 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Receive
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-900/20 border border-red-700/30 rounded-lg p-3 text-xs text-red-400">
+              {error}
+            </div>
           )}
-          {/* Send / Receive buttons */}
-          <div className="flex gap-3 mt-4">
-            <button
-              onClick={() => setSendAdaOpen(true)}
-              disabled={!initialized || !addresses?.length}
-              className="btn btn-primary flex-1 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Send ADA
-            </button>
-            <button
-              onClick={() => setReceiveOpen(true)}
-              disabled={!addresses?.length}
-              className="btn btn-secondary flex-1 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Receive
-            </button>
+
+          {/* Addresses */}
+          <div className="space-y-0">
+            {addresses.map((addr) => (
+              <CardanoAddressCard key={addr.address} addr={addr} network={activeNetwork} />
+            ))}
           </div>
         </div>
 
-        {error && (
-          <div className="bg-red-900/20 border border-red-700/30 rounded-lg p-3 text-xs text-red-400 mb-4">
-            {error}
-          </div>
-        )}
-
-        {/* Addresses */}
-        {addresses.map((addr) => (
-          <CardanoAddressCard key={addr.address} addr={addr} network={activeNetwork} />
-        ))}
+        {/* Right (1/3): Portfolio Summary */}
+        <div>
+          <CardanoPortfolioSummary />
+        </div>
       </div>
 
-      {/* Native Assets */}
+      {/* Native Assets — full width below */}
       {initialized && assets.length > 0 && (
         <div className="card p-6">
-          <h3 className="text-lg font-bold gradient-text mb-4">
+          <h3 className="text-lg font-semibold gradient-text mb-4">
             Native Assets ({assets.length})
           </h3>
           <CardanoAssetList
