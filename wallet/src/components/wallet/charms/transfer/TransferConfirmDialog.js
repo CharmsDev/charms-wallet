@@ -6,7 +6,7 @@ import { useUTXOs } from '@/stores/utxoStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { charmUtxoSelector } from '@/services/charms/utils/charm-utxo-selector';
-import { bitcoinApiRouter } from '@/services/shared/bitcoin-api-router';
+import { getNetworkFeeRate } from '@/services/shared/fee-rate';
 
 /**
  * Step 2: Confirmation Dialog
@@ -56,10 +56,8 @@ export default function TransferConfirmDialog({
             try {
                 setError(null);
 
-                // Get dynamic fee rate from network
-                const feeEstimates = await bitcoinApiRouter.getFeeEstimates(activeNetwork);
-                // Use 'hour' priority for charm transfers (balance between cost and speed)
-                const networkFeeRate = feeEstimates.fees.hour || 10;
+                // Get dynamic fee rate (halfHour × 1.1, same criterion as charms-cast)
+                const networkFeeRate = await getNetworkFeeRate(activeNetwork);
                 setFeeRate(networkFeeRate);
 
             // Validate change address

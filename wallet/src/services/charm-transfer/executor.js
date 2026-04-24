@@ -18,13 +18,13 @@
  *     → returns { txid }
  */
 
-import { FALLBACK_FEE_RATE, MIN_FEE_RATE, getMempoolBase } from './constants.js';
 import { buildTransferSpell } from './spell-builder.js';
 import { normalizeSpell } from './spell-normalizer.js';
 import { fetchPrevTxs, fetchTxHex } from './tx-fetcher.js';
 import { proveTransfer } from './prover-client.js';
 import { signSpellTxMultiKey } from './tx-signer.js';
 import { broadcastTx } from './broadcaster.js';
+import { getNetworkFeeRate } from '@/services/shared/fee-rate';
 
 // ── Phase 1: Build spell + prove ─────────────────────────────────────────────
 
@@ -74,15 +74,8 @@ export async function proveCharmTransfer(params) {
     return { bitcoin: hex };
   });
 
-  // ── Step 4: Fetch dynamic fee rate ────────────────────────────────────────
-  let feeRate = FALLBACK_FEE_RATE;
-  try {
-    const resp = await fetch(`${getMempoolBase(network)}/v1/fees/recommended`);
-    if (resp.ok) {
-      const fees = await resp.json();
-      feeRate = Math.max(MIN_FEE_RATE, fees.economyFee || fees.hourFee || FALLBACK_FEE_RATE);
-    }
-  } catch (_) { /* use fallback */ }
+  // ── Step 4: Fetch dynamic fee rate (same criterion as charms-cast) ───────
+  const feeRate = await getNetworkFeeRate(network);
   status(`Using fee rate: ${feeRate} sat/vB`);
 
   // ── Step 5: Send to prover ────────────────────────────────────────────────

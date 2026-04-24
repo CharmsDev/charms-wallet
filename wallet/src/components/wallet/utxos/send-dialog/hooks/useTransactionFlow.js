@@ -91,18 +91,9 @@ export function useTransactionFlow(formState, onClose) {
             const { UTXOSelector } = await import('@/services/utxo/core/selector');
             const selector = new UTXOSelector();
             
-            // Get network fee rate
-            const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
-            const feeEstimates = await bitcoinApiRouter.getFeeEstimates(activeNetwork);
-            
-            if (!feeEstimates.success) {
-                const error = 'Failed to fetch network fee estimates. Please try again.';
-                setShowPreparing(false);
-                formState.setError(error);
-                return;
-            }
-            
-            const currentFeeRate = feeEstimates.fees.halfHour;
+            // Get network fee rate (halfHour × 1.1, same criterion as charms-cast)
+            const { getNetworkFeeRate } = await import('@/services/shared/fee-rate');
+            const currentFeeRate = await getNetworkFeeRate(activeNetwork);
 
             // Detect if this is a Max amount transaction
             const totalAvailable = allUtxos.reduce((sum, utxo) => sum + utxo.value, 0);

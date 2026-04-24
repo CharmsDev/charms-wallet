@@ -33,14 +33,10 @@ export default function SendForm({ formState, onSend, onCancel }) {
         setIsCalculatingMax(true);
         
         try {
-            // Get current fee estimates from network
-            const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
-            const feeEstimates = await bitcoinApiRouter.getFeeEstimates(activeNetwork);
-            const feeRate = feeEstimates.fees.halfHour; // Use 30-min confirmation fee
+            // Get current fee rate (halfHour × 1.1, same criterion as charms-cast)
+            const { getNetworkFeeRate } = await import('@/services/shared/fee-rate');
+            const feeRate = await getNetworkFeeRate(activeNetwork);
             setCurrentFeeRate(feeRate);
-            
-            if (!feeEstimates.success) {
-            }
             
             // CRITICAL: getSpendableUtxos filters out charms, ordinals, runes - NEVER use raw utxos for max calculation
             const spendableUtxos = utxoCalculations.getSpendableUtxos(utxos, charms);
