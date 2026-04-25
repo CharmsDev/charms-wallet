@@ -110,8 +110,7 @@ async function proveAndBroadcastCardanoBeamOut({
   placeholderUtxoId, beamToHash, cardanoAddress, collateralUtxoId,
   seedPhrase, addressIndex = 0, network, onStatus,
 }) {
-  const { selectCardanoCollateral, selectCardanoFunding, checkCardanoBeamReadiness, consolidateAdaUtxos } =
-    await import('../chains/cardano/funding');
+  const { prepareCollateralAndFunding } = await import('../chains/cardano/funding');
 
   // Derive changeAmount from the CNT on-chain balance if not supplied.
   // The spell must satisfy sum(in) == sum(out) for the prover to treat it as
@@ -134,32 +133,16 @@ async function proveAndBroadcastCardanoBeamOut({
   // Auto-select funding & collateral if not provided, with auto-consolidation
   if (!fundingUtxoId || !collateralUtxoId) {
     onStatus?.('Checking Cardano funding...');
-    let readiness = await checkCardanoBeamReadiness(cardanoAddress, undefined, network);
-
-    if (!readiness.ok && readiness.needsConsolidation) {
-      onStatus?.('Consolidating ADA UTXOs (one-time setup)...');
-      const consolidation = await consolidateAdaUtxos({
-        address: cardanoAddress,
-        seedPhrase,
-        addressIndex,
-        excludeUtxoIds: [cntUtxoId],
-        onStatus,
-        network,
-      });
-      onStatus?.(`Consolidation tx ${consolidation.txHash.slice(0, 16)}... waiting...`);
-      await new Promise(r => setTimeout(r, 8000));
-      readiness = await checkCardanoBeamReadiness(cardanoAddress, undefined, network);
-    }
-
-    if (!readiness.ok) throw new Error(readiness.message || 'Cardano not ready for beam');
-
-    onStatus?.('Selecting Cardano collateral and funding...');
-    const collateral = await selectCardanoCollateral(cardanoAddress, [cntUtxoId], network);
-    const funding = await selectCardanoFunding(cardanoAddress, [cntUtxoId, collateral.utxoId], undefined, network);
-    if (!funding) throw new Error('No suitable Cardano funding UTXO');
-
-    collateralUtxoId = collateral.utxoId;
-    fundingUtxoId = funding.utxoId;
+    const prepared = await prepareCollateralAndFunding({
+      address: cardanoAddress,
+      seedPhrase,
+      addressIndex,
+      excludeUtxoIds: [cntUtxoId],
+      network,
+      onStatus,
+    });
+    collateralUtxoId = prepared.collateralUtxoId;
+    fundingUtxoId = prepared.fundingUtxoId;
   }
 
   onStatus?.('Building Cardano beam-out spell...');

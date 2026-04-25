@@ -204,25 +204,28 @@ async function proveAndBroadcastAdaBeamOut({
   const ownAddr = cardanoOwnAddress || cardanoAddress;
   const remainingEbtc = ebtcBalance - redeemAmount;
 
-  // Fetch fresh ADA UTXOs and select collateral + funding via wallet's cardano API
+  // Fetch fresh ADA UTXOs (still needed below for the CNT input + prev-tx CBOR).
   // (goes through /api/cardano proxy to avoid CORS on Koios)
   const { fetchUtxos: fetchCardanoUtxos, getCardanoTxCbor, submitCardanoTx } = await import('@/services/cardano/api');
-  onStatus?.('Selecting Cardano collateral + funding...');
   const adaUtxos = await fetchCardanoUtxos(ownAddr);
 
   // fetchUtxos returns normalized shape: { txHash, outputIndex, lovelace, assets, ... }
   const cntU = adaUtxos.find(u => `${u.txHash}:${u.outputIndex}` === cntUtxoId);
   if (!cntU) throw new Error('CNT UTXO not found in latest fetch');
 
-  const pureAda = adaUtxos.filter(u => (!u.assets || u.assets.length === 0) && `${u.txHash}:${u.outputIndex}` !== cntUtxoId);
-  const collateral = pureAda.filter(u => BigInt(u.lovelace) >= 2_000_000n).sort((a, b) => Number(BigInt(a.lovelace) - BigInt(b.lovelace)))[0];
-  if (!collateral) throw new Error('No collateral UTXO ≥ 2 ADA');
-  const funding = pureAda.filter(u => `${u.txHash}:${u.outputIndex}` !== `${collateral.txHash}:${collateral.outputIndex}`)
-    .filter(u => BigInt(u.lovelace) >= 7_000_000n).sort((a, b) => Number(BigInt(b.lovelace) - BigInt(a.lovelace)))[0];
-  if (!funding) throw new Error('No funding UTXO ≥ 7 ADA');
-
-  const collateralUtxoId = `${collateral.txHash}:${collateral.outputIndex}`;
-  const fundingUtxoId = `${funding.txHash}:${funding.outputIndex}`;
+  // Select collateral + funding via the unified helper (auto-consolidates if
+  // the wallet's pure-ADA UTXOs are fragmented). This is what the standard
+  // beam-back path uses; eBTC redeem used to do it inline and threw on
+  // fragmented wallets — see executor-beam-back.js for the same call.
+  const { prepareCollateralAndFunding } = await import('../chains/cardano/funding');
+  const { collateralUtxoId, fundingUtxoId, funding } = await prepareCollateralAndFunding({
+    address: ownAddr,
+    seedPhrase,
+    addressIndex: 0,
+    excludeUtxoIds: [cntUtxoId],
+    network,
+    onStatus,
+  });
   console.log('[eBTC-redeem:ada-out] collateral:', collateralUtxoId, 'funding:', fundingUtxoId);
 
   // Build CBOR spell

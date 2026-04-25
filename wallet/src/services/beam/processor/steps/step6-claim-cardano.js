@@ -10,8 +10,7 @@
  */
 
 import { fetchBtcTxWithProof } from '../../chains/bitcoin/proof';
-import { selectCardanoCollateral, selectCardanoFunding, checkCardanoBeamReadiness, consolidateAdaUtxos, splitForCollateral } from '../../chains/cardano/funding';
-import { fetchUtxos } from '@/services/cardano/api';
+import { prepareCollateralAndFunding } from '../../chains/cardano/funding';
 import { buildClaimSpell } from '../../spells/claim-builder';
 import { normalizeClaimSpell } from '../../spells/claim-normalizer';
 import { buildClaimPayload, submitClaimToProver } from '../../spells/claim-payload';
@@ -35,87 +34,23 @@ export async function claimOnCardano({
   onStatus?.('Fetching Bitcoin finality proof...');
   const btcProofData = await fetchBtcTxWithProof(btcTxid, network);
 
-  // Check Cardano readiness — auto-consolidate if fragmented
+  // Check Cardano readiness — auto-consolidate if fragmented, auto-split if
+  // we only have one big UTXO (so collateral + funding can come from separate
+  // UTXOs as the protocol requires). Step 6 is the only flow that needs the
+  // split because it can run right after a beam-in claim that consolidated
+  // everything into a single output.
   onStatus?.('Checking Cardano funding...');
   const placeholderUtxoIdStr = `${placeholderTxid}:${placeholderVout}`;
-  let readiness = await checkCardanoBeamReadiness(ownAddr, undefined, network);
-
-  if (!readiness.ok && readiness.needsConsolidation) {
-    onStatus?.('Consolidating ADA UTXOs (one-time setup)...');
-    const consolidation = await consolidateAdaUtxos({
-      address: ownAddr,
-      seedPhrase,
-      addressIndex,
-      excludeUtxoIds: [placeholderUtxoIdStr],
-      onStatus,
-      network,
-    });
-    onStatus?.(`Consolidation tx: ${consolidation.txHash.slice(0, 16)}... waiting for confirmation`);
-    await new Promise(r => setTimeout(r, 5000));
-    readiness = await checkCardanoBeamReadiness(ownAddr, undefined, network);
-  }
-
-  if (!readiness.ok) {
-    throw new Error(readiness.message || 'Cardano not ready for beam claim');
-  }
-
-  // Auto-split if we don't have 2 viable pure-ADA UTXOs (≥2 ADA each, not placeholder).
-  // Collateral and funding must be separate UTXOs with enough lovelace each.
-  const cardanoNet = network === 'mainnet' ? 'mainnet' : 'preprod';
-  const MIN_VIABLE = 2_000_000n; // 2 ADA
-  const MIN_FUNDING = 7_000_000n;
-  const allUtxos = await fetchUtxos(ownAddr, cardanoNet);
-  const viable = allUtxos
-    .filter(u => !u.assets || u.assets.length === 0)
-    .filter(u => `${u.txHash}:${u.outputIndex}` !== placeholderUtxoIdStr)
-    .filter(u => BigInt(u.lovelace || '0') >= MIN_VIABLE)
-    .sort((a, b) => Number(BigInt(b.lovelace) - BigInt(a.lovelace))); // largest first
-
-  // Viable set can satisfy beam only if: 2+ UTXOs, largest ≥7 ADA, second ≥2 ADA
-  const canFund = viable.length >= 2
-    && BigInt(viable[0].lovelace) >= MIN_FUNDING
-    && BigInt(viable[1].lovelace) >= MIN_VIABLE;
-
-  if (!canFund) {
-    onStatus?.('Splitting UTXO into collateral + funding...');
-    const split = await splitForCollateral({
-      address: ownAddr, seedPhrase, addressIndex,
-      excludeUtxoIds: [placeholderUtxoIdStr],
-      onStatus, network,
-    });
-    onStatus?.(`Split tx ${split.txHash.slice(0, 16)}... waiting for confirmation`);
-
-    // Poll until split outputs appear on-chain (up to 3 min)
-    const deadline = Date.now() + 3 * 60 * 1000;
-    while (Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 15000));
-      const latest = await fetchUtxos(ownAddr, cardanoNet);
-      const latestViable = latest
-        .filter(u => !u.assets || u.assets.length === 0)
-        .filter(u => `${u.txHash}:${u.outputIndex}` !== placeholderUtxoIdStr)
-        .filter(u => BigInt(u.lovelace || '0') >= MIN_VIABLE);
-      const hasSplitOutputs = latest.some(u => u.txHash === split.txHash);
-      if (latestViable.length >= 2 && hasSplitOutputs) break;
-    }
-  }
-
-  // Select collateral and funding from OUR address
-  onStatus?.('Selecting Cardano collateral and funding...');
-  const collateral = await selectCardanoCollateral(ownAddr, [placeholderUtxoIdStr], network);
-  const fundingUtxo = await selectCardanoFunding(ownAddr, [placeholderUtxoIdStr, collateral.utxoId], undefined, network);
-
-  if (!fundingUtxo) {
-    const totalAdaNum = Number(readiness.totalAda) / 1e6;
-    const collateralAdaNum = Number(BigInt(collateral.lovelace)) / 1e6;
-    throw new Error(
-      `No pure ADA UTXO ≥7 ADA available for funding. ` +
-      `Total: ${totalAdaNum.toFixed(2)} ADA, ` +
-      `collateral ate ${collateralAdaNum.toFixed(2)} ADA, ` +
-      `rest may be fragmented. Retry or send more ADA.`
-    );
-  }
-  const collateralUtxoId = collateral.utxoId;
-  const fundingUtxoId = fundingUtxo.utxoId;
+  const { collateralUtxoId, fundingUtxoId } = await prepareCollateralAndFunding({
+    address: ownAddr,
+    seedPhrase,
+    addressIndex,
+    excludeUtxoIds: [placeholderUtxoIdStr],
+    network,
+    onStatus,
+    enableSplit: true,
+    consolidateWaitMs: 5000,
+  });
 
   // Build claim spell with 2 inputs: placeholder + funding
   onStatus?.('Building claim spell...');
