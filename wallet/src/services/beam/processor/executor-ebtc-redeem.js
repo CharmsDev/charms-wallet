@@ -323,27 +323,26 @@ async function proveAndBroadcastAdaBeamOut({
 async function waitForMithrilFinality(cardanoTxCborHex, signal, onStatus) {
   const { certifyFinal } = await import('@/services/scrolls/scrolls-cardano');
   // Typical finality: 20-60 min. Extreme cases (network congestion, epoch
-  // boundaries) can take hours. We poll for 30 min per attempt; on timeout
-  // we throw MITHRIL_TIMEOUT and the UI offers Retry — clicking resumes
-  // polling for another 30 min. Nothing on-chain is lost, since the
-  // Cardano beam-out is durable and we just need the certificate.
-  const MAX = 30;
-  for (let i = 1; i <= MAX; i++) {
+  // boundaries) can take hours. Mithril certification is entirely
+  // out of our control, so we poll indefinitely — the only exit conditions
+  // are: certificate arrives (success) or user cancels (abort signal).
+  // The Cardano beam-out is already on-chain at this point; aborting the
+  // redeem does NOT roll it back, the BTC vault stays locked. The UX
+  // exposes a Minimize action so the user can do other things while waiting,
+  // and a Cancel action that aborts polling but does not undo the on-chain
+  // state.
+  let elapsedMin = 0;
+  while (true) {
     if (signal?.aborted) throw new Error('Cancelled');
-    // Friendly status — no technical "Mithril" jargon
-    const mins = i;
-    onStatus?.(`Waiting for Cardano finality... (${mins} min elapsed)`);
+    onStatus?.(`Waiting for Cardano finality... (${elapsedMin} min elapsed)`);
     try {
       return await certifyFinal(cardanoTxCborHex);
     } catch (err) {
       if (!err.message?.includes('no certified transaction')) console.warn('[eBTC-redeem] finality check:', err.message);
     }
     await new Promise(r => setTimeout(r, 60_000));
+    elapsedMin++;
   }
-  throw Object.assign(
-    new Error('Cardano finality is taking longer than usual. Click Retry to keep waiting — the Cardano beam-out is safely on-chain and the redeem will complete as soon as finality arrives.'),
-    { code: 'MITHRIL_TIMEOUT' }
-  );
 }
 
 // ── Step 3: Combined BTC redeem ─────────────────────────────────────────────

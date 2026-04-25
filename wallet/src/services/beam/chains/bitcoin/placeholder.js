@@ -100,7 +100,10 @@ export async function createBtcPlaceholder({ btcAddress, seedPhrase, network, on
  */
 export async function waitForBtcInMempool(txid, network, signal) {
   const mempoolBase = getMempoolBase(network);
-  for (let i = 0; i < 60; i++) {
+  // Poll indefinitely. The placeholder was broadcast successfully, so
+  // propagation will eventually happen — there's no useful outcome from
+  // giving up. Only exit conditions: tx visible (success) or user cancels.
+  while (true) {
     if (signal?.aborted) throw new Error('Cancelled');
     try {
       const resp = await fetch(`${mempoolBase}/tx/${txid}`);
@@ -108,8 +111,4 @@ export async function waitForBtcInMempool(txid, network, signal) {
     } catch {}
     await new Promise(r => setTimeout(r, 5000));
   }
-  throw Object.assign(
-    new Error('Placeholder transaction not yet visible. Click Retry to keep waiting — the transaction was broadcast and should propagate shortly.'),
-    { code: 'BTC_MEMPOOL_TIMEOUT' }
-  );
 }
