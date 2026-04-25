@@ -240,7 +240,9 @@ export const useCharmsStore = create((set, get) => ({
     },
 
     /**
-     * Group tokens by appId
+     * Group tokens by appId. Drops groups whose total amount is zero — these
+     * are typically charms whose tokens have already been beamed off-chain
+     * (the UTXO still exists with dust, but the protocol amount is 0).
      */
     groupTokensByAppId: () => {
         const state = get();
@@ -267,7 +269,22 @@ export const useCharmsStore = create((set, get) => ({
             tokenGroups[appId].tokenUtxos.push(charm);
         });
 
-        return Object.values(tokenGroups);
+        const groups = Object.values(tokenGroups);
+
+        // Diagnostic: log what we're about to render so we can spot duplicate
+        // appIds for the "same" token (e.g. two BROs with different identity
+        // hashes) and zero-balance charms that the indexer left behind.
+        if (typeof window !== 'undefined' && groups.length > 0) {
+            console.log('[CharmsStore] token groups:', groups.map(g => ({
+                appId: g.appId,
+                name: g.name,
+                ticker: g.ticker,
+                totalAmount: g.totalAmount,
+                utxos: g.tokenUtxos.length,
+            })));
+        }
+
+        return groups.filter(g => g.totalAmount > 0);
     },
 
     /**

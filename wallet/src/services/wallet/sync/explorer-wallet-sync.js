@@ -83,6 +83,17 @@ async function fetchFromExplorerAPI(explorerService, addressList, network, skipC
     const charms = [];
     const seenKeys = new Set();
     if (!skipCharms && Array.isArray(charmBalances)) {
+        // Diagnostic: log raw response from the indexer so we can see what
+        // appIds + balances it's reporting. Helps explain "two BROs" /
+        // "ghost eBTC" cases where the indexer returns multiple identity
+        // hashes for what the user expects to be one token.
+        console.log('[ExplorerSync] charm balances from indexer:',
+            charmBalances.map(b => ({
+                appId: b.appId,
+                symbol: b.symbol,
+                total: b.total,
+                utxoCount: (b.utxos || []).length,
+            })));
         for (const balance of charmBalances) {
             for (const utxo of (balance.utxos || [])) {
                 const key = `${utxo.txid}:${utxo.vout}`;
