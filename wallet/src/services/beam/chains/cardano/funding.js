@@ -364,17 +364,26 @@ export async function consolidateAdaUtxos({
  * Unified preparation step before any Cardano beam tx that needs both a
  * collateral and a funding UTXO.
  *
- * Pipeline:
- *   1. Check readiness via `checkCardanoBeamReadiness`.
- *   2. If `needsConsolidation` → run `consolidateAdaUtxos`, wait, re-check.
- *   3. If `enableSplit` and we still don't have 2 viable UTXOs (≥2 ADA each,
- *      with the largest ≥7 ADA) → run `splitForCollateral` and poll until the
- *      split outputs appear on-chain.
- *   4. Select collateral + funding (separate UTXOs) and return both.
+ * Goal: leave the wallet with ≥2 pure-ADA UTXOs where the largest is ≥7 ADA
+ * and the second largest is ≥2 ADA (so collateral + funding can be picked
+ * from separate UTXOs as the protocol requires).
+ *
+ * State → action loop (max 4 attempts to allow consolidate → wait → split →
+ * select):
+ *
+ *   - already viable                           → done
+ *   - total ADA < required                     → throw (insufficient funds)
+ *   - ≥ 2 pure UTXOs, not viable               → consolidate, wait, re-check
+ *   - exactly 1 pure UTXO, ≥ required          → split, poll, re-check
+ *   - 0 pure UTXOs (or 1 UTXO < required)      → throw
  *
  * Replaces the per-executor inline logic that had drifted: each callsite was
  * implementing a slightly different version of this — including one (eBTC
- * redeem) that skipped consolidation entirely and threw on fragmented wallets.
+ * redeem) that skipped consolidation entirely. Earlier the helper itself
+ * wasn't smart enough either: it would call consolidate even when only one
+ * UTXO existed, and `consolidateAdaUtxos` correctly throws "Nothing to
+ * consolidate" in that case. The state-machine here picks the right action
+ * (consolidate vs split) for the current UTXO shape.
  *
  * @param {object} params
  * @param {string} params.address          Bech32 Cardano address paying fees + signing
@@ -383,7 +392,6 @@ export async function consolidateAdaUtxos({
  * @param {Array<string>} [params.excludeUtxoIds]  UTXOs never to spend (e.g. CNT being beamed, placeholder)
  * @param {string} params.network          'mainnet' | 'testnet4' | 'preprod'
  * @param {function} [params.onStatus]
- * @param {boolean} [params.enableSplit=false]   Auto-split a single big UTXO into collateral+funding when needed
  * @param {number} [params.consolidateWaitMs=8000]
  * @param {number} [params.splitWaitMaxMs=180000]
  * @param {number} [params.splitPollMs=15000]
@@ -397,69 +405,79 @@ export async function consolidateAdaUtxos({
 export async function prepareCollateralAndFunding({
   address, seedPhrase, addressIndex = 0, excludeUtxoIds = [],
   network, onStatus,
-  enableSplit = false,
-  consolidateWaitMs = 8000,
+  consolidateWaitMs = 8_000,
   splitWaitMaxMs = 3 * 60 * 1000,
   splitPollMs = 15_000,
 }) {
-  // Step 1: Readiness check — also gives us a proper error message if the
-  // user just doesn't have enough ADA for any beam (vs fragmented).
-  let readiness = await checkCardanoBeamReadiness(address, undefined, network);
+  const cardanoNet = toCardanoNet(network);
+  const REQUIRED_TOTAL = MIN_COLLATERAL_LOVELACE + MIN_FUNDING_LOVELACE; // 9 ADA
 
-  // Step 2: Auto-consolidate if fragmented.
-  if (!readiness.ok && readiness.needsConsolidation) {
-    onStatus?.('Consolidating ADA UTXOs (one-time setup)...');
-    const consolidation = await consolidateAdaUtxos({
-      address, seedPhrase, addressIndex, excludeUtxoIds, onStatus, network,
-    });
-    onStatus?.(`Consolidation tx ${consolidation.txHash.slice(0, 16)}... waiting...`);
-    await new Promise(r => setTimeout(r, consolidateWaitMs));
-    readiness = await checkCardanoBeamReadiness(address, undefined, network);
-  }
-
-  if (!readiness.ok) {
-    throw new Error(readiness.message || 'Cardano not ready for beam');
-  }
-
-  // Step 3: Optional split — only used when callers expect to consume an
-  // existing UTXO that leaves the wallet with too few separate UTXOs for
-  // collateral + funding (e.g. immediately after a beam-in claim).
-  if (enableSplit) {
-    const cardanoNet = toCardanoNet(network);
-    const allUtxos = await fetchUtxos(address, cardanoNet);
-    const excludeSet = new Set(excludeUtxoIds);
-    const viable = allUtxos
+  // Build the current pure-ADA view (excluding reservations + caller exclusions).
+  const inspect = async () => {
+    const all = await fetchUtxosAndSync(address, cardanoNet);
+    const reserved = getSpentSet('cardano');
+    const exclude = new Set([...excludeUtxoIds, ...reserved]);
+    const pure = all
       .filter(u => !u.assets || u.assets.length === 0)
-      .filter(u => !excludeSet.has(`${u.txHash}:${u.outputIndex}`))
-      .filter(u => BigInt(u.lovelace || '0') >= MIN_COLLATERAL_LOVELACE)
-      .sort((a, b) => Number(BigInt(b.lovelace) - BigInt(a.lovelace)));
+      .filter(u => !exclude.has(`${u.txHash}:${u.outputIndex}`))
+      .sort((a, b) => Number(BigInt(b.lovelace) - BigInt(a.lovelace))); // largest first
+    const total = pure.reduce((s, u) => s + BigInt(u.lovelace || '0'), 0n);
+    const viable = pure.length >= 2
+      && BigInt(pure[0].lovelace) >= MIN_FUNDING_LOVELACE
+      && BigInt(pure[1].lovelace) >= MIN_COLLATERAL_LOVELACE;
+    return { pure, total, viable };
+  };
 
-    const canFund = viable.length >= 2
-      && BigInt(viable[0].lovelace) >= MIN_FUNDING_LOVELACE
-      && BigInt(viable[1].lovelace) >= MIN_COLLATERAL_LOVELACE;
+  // Up to 4 iterations covers: viable / consolidate-then-split / split / fail.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { pure, total, viable } = await inspect();
+    if (viable) break;
 
-    if (!canFund) {
-      onStatus?.('Splitting UTXO into collateral + funding...');
-      const split = await splitForCollateral({
+    if (total < REQUIRED_TOTAL) {
+      throw new Error(
+        `Insufficient ADA: ${(Number(total) / 1e6).toFixed(2)} ADA available, ` +
+        `need ≥ ${Number(REQUIRED_TOTAL) / 1e6} ADA (collateral + funding).`
+      );
+    }
+
+    if (pure.length >= 2) {
+      // Many small UTXOs — merge them into one big UTXO. After this, we
+      // typically end up with a single UTXO that the next iteration will
+      // split.
+      onStatus?.('Consolidating ADA UTXOs (one-time setup)...');
+      const c = await consolidateAdaUtxos({
         address, seedPhrase, addressIndex, excludeUtxoIds, onStatus, network,
       });
-      onStatus?.(`Split tx ${split.txHash.slice(0, 16)}... waiting for confirmation`);
+      onStatus?.(`Consolidation tx ${c.txHash.slice(0, 16)}... waiting...`);
+      await new Promise(r => setTimeout(r, consolidateWaitMs));
+      continue;
+    }
 
+    if (pure.length === 1 && BigInt(pure[0].lovelace) >= REQUIRED_TOTAL) {
+      // Exactly one big UTXO — split it into collateral + funding.
+      onStatus?.('Splitting UTXO into collateral + funding...');
+      const s = await splitForCollateral({
+        address, seedPhrase, addressIndex, excludeUtxoIds, onStatus, network,
+      });
+      onStatus?.(`Split tx ${s.txHash.slice(0, 16)}... waiting for confirmation`);
       const deadline = Date.now() + splitWaitMaxMs;
       while (Date.now() < deadline) {
         await new Promise(r => setTimeout(r, splitPollMs));
-        const latest = await fetchUtxos(address, cardanoNet);
-        const latestViable = latest
-          .filter(u => !u.assets || u.assets.length === 0)
-          .filter(u => !excludeSet.has(`${u.txHash}:${u.outputIndex}`))
-          .filter(u => BigInt(u.lovelace || '0') >= MIN_COLLATERAL_LOVELACE);
-        const hasSplitOutputs = latest.some(u => u.txHash === split.txHash);
-        if (latestViable.length >= 2 && hasSplitOutputs) break;
+        const latest = await fetchUtxosAndSync(address, cardanoNet);
+        if (latest.some(u => u.txHash === s.txHash)) break;
       }
+      continue;
     }
+
+    // Defensive: total ≥ required but neither branch matched. Shouldn't
+    // happen but throw a clear message instead of looping forever.
+    throw new Error(
+      `Cannot prepare Cardano funding: ${pure.length} pure UTXO(s), ` +
+      `total ${(Number(total) / 1e6).toFixed(2)} ADA. Retry or send more ADA.`
+    );
   }
 
-  // Step 4: Select collateral + funding (must be separate UTXOs).
+  // Final select. By here the wallet should have ≥ 2 viable UTXOs.
   onStatus?.('Selecting Cardano collateral and funding...');
   const collateral = await selectCardanoCollateral(address, excludeUtxoIds, network);
   const funding = await selectCardanoFunding(
@@ -467,13 +485,9 @@ export async function prepareCollateralAndFunding({
   );
 
   if (!funding) {
-    const totalAdaNum = Number(readiness.totalAda) / 1e6;
-    const collateralAdaNum = Number(BigInt(collateral.lovelace)) / 1e6;
     throw new Error(
-      `No pure ADA UTXO ≥${Number(MIN_FUNDING_LOVELACE) / 1e6} ADA available for funding. ` +
-      `Total: ${totalAdaNum.toFixed(2)} ADA, ` +
-      `collateral ate ${collateralAdaNum.toFixed(2)} ADA, ` +
-      `rest may still be fragmented. Retry or send more ADA.`
+      `No pure ADA UTXO ≥ ${Number(MIN_FUNDING_LOVELACE) / 1e6} ADA available for funding ` +
+      `after preparation. The previous consolidation/split tx may still be unconfirmed — retry in a few seconds.`
     );
   }
 

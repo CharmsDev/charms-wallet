@@ -34,11 +34,7 @@ export async function claimOnCardano({
   onStatus?.('Fetching Bitcoin finality proof...');
   const btcProofData = await fetchBtcTxWithProof(btcTxid, network);
 
-  // Check Cardano readiness — auto-consolidate if fragmented, auto-split if
-  // we only have one big UTXO (so collateral + funding can come from separate
-  // UTXOs as the protocol requires). Step 6 is the only flow that needs the
-  // split because it can run right after a beam-in claim that consolidated
-  // everything into a single output.
+  // Prepare collateral + funding — auto-consolidate or auto-split as needed.
   onStatus?.('Checking Cardano funding...');
   const placeholderUtxoIdStr = `${placeholderTxid}:${placeholderVout}`;
   const { collateralUtxoId, fundingUtxoId } = await prepareCollateralAndFunding({
@@ -48,7 +44,6 @@ export async function claimOnCardano({
     excludeUtxoIds: [placeholderUtxoIdStr],
     network,
     onStatus,
-    enableSplit: true,
     consolidateWaitMs: 5000,
   });
 
