@@ -146,8 +146,8 @@
      * @param {string} message - Message to sign
      * @returns {Promise<string>} Signature
      */
-    signMessage: async function(message) {
-      return sendMessage('signMessage', { message });
+    signMessage: async function(message, address) {
+      return sendMessage('signMessage', { message, address });
     },
 
     /**

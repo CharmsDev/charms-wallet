@@ -424,7 +424,7 @@ async function handleWalletProviderRequest(request, sender) {
           return { error: 'Site not connected. Call requestAccounts first.' };
         }
 
-        const { message } = params;
+        const { message, address } = params;
         if (!message) return { error: 'Missing message parameter' };
 
         const signRequestId = Date.now().toString();
@@ -437,6 +437,7 @@ async function handleWalletProviderRequest(request, sender) {
               type: 'signMessage',
               origin,
               message,
+              signingAddress: address || null,
               connectedAddresses,
             }
           }, resolve);

@@ -386,8 +386,8 @@ async function signMessageWithKeys(message, seedPhrase, networkName, addresses) 
 
   const { privateKey, publicKey, type: keyType } = signingKeyInfo;
 
-  // Bitcoin Signed Message hash: dSHA256(prefix + varint(len) + message)
-  const prefix = '\x18Bitcoin Signed Message:\n';
+  // Bitcoin Signed Message hash: dSHA256(varint(24) + "Bitcoin Signed Message:\n" + varint(len) + message)
+  const prefix = 'Bitcoin Signed Message:\n'; // 24 bytes — varint prepended below
   const msgBuffer = Buffer.from(message, 'utf8');
   const prefixBuffer = Buffer.from(prefix, 'utf8');
 
@@ -537,11 +537,15 @@ function SignApproval() {
 
       if (request.type === 'signMessage') {
         let signingAddresses = addresses;
-        if (request.connectedAddresses?.length > 0) {
+        if (request.signingAddress) {
+          // Explicit address from caller — look up by address string
+          const filtered = addresses.filter(a => (a?.address || a) === request.signingAddress);
+          if (filtered.length > 0) signingAddresses = filtered;
+        } else if (request.connectedAddresses?.length > 0) {
+          // Fallback: filter to site's connected addresses, P2WPKH first
           const connectedSet = new Set(request.connectedAddresses);
           const filtered = addresses.filter(a => connectedSet.has(a?.address || a));
           if (filtered.length > 0) {
-            // P2WPKH first so signMessageWithKeys picks the connected segwit key
             signingAddresses = [
               ...filtered.filter(a => isP2wpkhAddress(a?.address || a)),
               ...filtered.filter(a => !isP2wpkhAddress(a?.address || a)),
