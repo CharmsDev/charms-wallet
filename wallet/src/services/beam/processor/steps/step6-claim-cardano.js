@@ -66,19 +66,13 @@ export async function claimOnCardano({
   const { getCardanoTxCbor } = await import('@/services/cardano/api');
   const placeholderCbor = await getCardanoTxCbor(placeholderTxid);
 
-  // Funding tx CBOR (may be same tx as placeholder)
-  let fundingCbor;
-  if (fundingUtxo.txHash === placeholderTxid) {
-    fundingCbor = placeholderCbor;
-  } else {
-    fundingCbor = await getCardanoTxCbor(fundingUtxo.txHash);
-  }
+  const fundingTxHash = fundingUtxoId.split(':')[0];
+  const fundingCbor = fundingTxHash === placeholderTxid
+    ? placeholderCbor
+    : await getCardanoTxCbor(fundingTxHash);
 
-  // Prev txs: Cardano placeholder + Cardano funding + BTC beam with finality proof
-  const claimPrevTxs = [
-    { cardano: placeholderCbor },
-  ];
-  if (fundingUtxo.txHash !== placeholderTxid) {
+  const claimPrevTxs = [{ cardano: placeholderCbor }];
+  if (fundingTxHash !== placeholderTxid) {
     claimPrevTxs.push({ cardano: fundingCbor });
   }
   claimPrevTxs.push({
