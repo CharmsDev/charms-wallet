@@ -31,8 +31,9 @@ async function fetchUtxosAndSync(address, cardanoNet) {
 /** Minimum lovelace for collateral. */
 export const MIN_COLLATERAL_LOVELACE = 2_000_000n; // 2 ADA
 
-/** Minimum lovelace for funding (covers protocol fee + outputs + tx fee + change). */
-export const MIN_FUNDING_LOVELACE = 7_000_000n; // 7 ADA — comfortable margin
+// 10 ADA, not 7: the prover decides output sizes and fees, and 7 left
+// the change output below Cardano's min-UTXO on base addresses.
+export const MIN_FUNDING_LOVELACE = 10_000_000n;
 
 /**
  * Map beam-context BTC network → Cardano network used by providers.

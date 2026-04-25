@@ -186,7 +186,7 @@ function RedeemConfirmStep({ asset, formData, seedPhrase, network, onConfirm, on
   }, [formData.redeemAmount]);
 
   const adaLovelace = BigInt(adaBalance || '0');
-  const MIN_ADA_LOVELACE = BigInt(10_000_000);
+  const MIN_ADA_LOVELACE = BigInt(15_000_000);
   const hasEnoughAda = adaLovelace >= MIN_ADA_LOVELACE;
   const adaDisplay = (Number(adaLovelace) / 1_000_000).toFixed(2);
 
@@ -226,7 +226,7 @@ function RedeemConfirmStep({ asset, formData, seedPhrase, network, onConfirm, on
   }, [btcUtxos, fundingSelection]);
 
   const errors = [];
-  if (!hasEnoughAda) errors.push(`Insufficient ADA. Need ≥10 ADA, have ${adaDisplay}`);
+  if (!hasEnoughAda) errors.push(`Insufficient ADA. Need ≥15 ADA, have ${adaDisplay}`);
   if (btcAddress && !fundingSelection.sufficient) {
     const deficit = FUNDING_TARGET - fundingSelection.totalAvailable;
     errors.push(`Insufficient BTC for fees. You have ${fundingSelection.totalAvailable} sats, need ${FUNDING_TARGET}. Add ~${deficit} sats to your wallet.`);

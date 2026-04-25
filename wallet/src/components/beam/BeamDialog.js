@@ -305,14 +305,8 @@ function BeamConfirmStep({ charm, beamData, onConfirm, onBack, onClose }) {
   const adaBalance = useCardano(s => s.adaBalance);
   const cardanoUtxos = useCardano(s => s.utxos || []);
   const adaLovelace = BigInt(adaBalance || '0');
-  // Minimum ADA needed:
-  //   Placeholder output: 1.3 ADA (min UTXO, returned in claim)
-  //   Placeholder fee:    ~0.17 ADA
-  //   Collateral:         2.0 ADA (refunded on success)
-  //   Funding for claim:  ~7 ADA (covers protocol fee + outputs + change)
-  //   Total minimum:      ~10 ADA
-  //   The executor will auto-consolidate fragmented UTXOs if needed.
-  const MIN_ADA_LOVELACE = BigInt(10_000_000);
+  // 15 ADA = 1.3 placeholder + 2 collateral + 10 funding + ~0.5 fees + buffer.
+  const MIN_ADA_LOVELACE = BigInt(15_000_000);
   const hasEnoughAda = adaLovelace >= MIN_ADA_LOVELACE;
   const adaDisplay = (Number(adaLovelace) / 1_000_000).toFixed(2);
 
@@ -328,7 +322,7 @@ function BeamConfirmStep({ charm, beamData, onConfirm, onBack, onClose }) {
   const errors = [];
   if (!fundingUtxo) errors.push({ type: 'btc', msg: 'No spendable Bitcoin UTXO found (need at least 1,000 sats for fees).' });
   if (!charmInputs.length) errors.push({ type: 'btc', msg: `No ${ticker} UTXOs available for the requested amount.` });
-  if (!hasEnoughAda) errors.push({ type: 'ada', msg: `Insufficient ADA. Need ≥10 ADA to start a beam, have ${adaDisplay} ADA.` });
+  if (!hasEnoughAda) errors.push({ type: 'ada', msg: `Insufficient ADA. Need ≥15 ADA to start a beam, have ${adaDisplay} ADA.` });
   const warnings = [];
   if (isFragmented) warnings.push(`Cardano UTXOs are fragmented (largest pure ADA: ${(Number(largestPureAda)/1e6).toFixed(2)} ADA). Wallet will auto-consolidate before claim (one extra tx).`);
   const canStart = errors.length === 0;
@@ -374,7 +368,7 @@ function BeamConfirmStep({ charm, beamData, onConfirm, onBack, onClose }) {
         {/* Info box */}
         <div className="bg-purple-900/20 border border-purple-700/30 rounded-lg p-3 mb-4 text-xs text-purple-300">
           Beaming locks {beamData.beamAmountDisplay} {ticker} on Bitcoin and mints proxy CNTs on Cardano.
-          Your Cardano wallet pays the placeholder, protocol fee, and claim tx fee. Need ≥10 ADA to start.
+          Your Cardano wallet pays the placeholder, protocol fee, and claim tx fee. Need ≥15 ADA to start.
         </div>
 
         {/* Warnings (non-blocking) */}
@@ -390,7 +384,7 @@ function BeamConfirmStep({ charm, beamData, onConfirm, onBack, onClose }) {
             {e.msg}
             {e.type === 'ada' && cardanoAddr && (
               <div className="mt-2">
-                <div className="text-xs text-dark-400 mb-1">Fund your Cardano address with at least 10 ADA:</div>
+                <div className="text-xs text-dark-400 mb-1">Fund your Cardano address with at least 15 ADA:</div>
                 <div className="flex items-center gap-2">
                   <code className="text-xs font-mono text-dark-300 break-all flex-1">{cardanoAddr}</code>
                   <button

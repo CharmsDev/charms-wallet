@@ -21,7 +21,7 @@ if (typeof window !== 'undefined') {
     // One-time diagnostic so we can see on customer consoles exactly how the
     // extension-context detection resolved. If `_isExtensionPopup` is `true`
     // on wallet.charms.dev, we have another leak to investigate.
-    console.log('[ExplorerAPI] build=v1.3.6 extensionPopup=', _isExtensionPopup,
+    console.log('[ExplorerAPI] build=v1.3.12 extensionPopup=', _isExtensionPopup,
         'chromeDefined=', typeof chrome !== 'undefined',
         'runtimeId=', typeof chrome !== 'undefined' ? typeof chrome.runtime?.id : 'n/a',
         'sendMessageDefined=', typeof chrome !== 'undefined' ? typeof chrome.runtime?.sendMessage : 'n/a');

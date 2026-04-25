@@ -159,7 +159,7 @@ function EbtcConfirmStep({ formData, seedPhrase, network, onConfirm, onBack, onC
   const cardanoDeriveAddresses = useCardano(s => s.deriveAddresses);
   const cardanoInitialized = useCardano(s => s.initialized);
   const adaLovelace = BigInt(adaBalance || '0');
-  const MIN_ADA_LOVELACE = BigInt(10_000_000);
+  const MIN_ADA_LOVELACE = BigInt(15_000_000);
   const hasEnoughAda = adaLovelace >= MIN_ADA_LOVELACE;
   const adaDisplay = (Number(adaLovelace) / 1_000_000).toFixed(2);
 
@@ -189,7 +189,7 @@ function EbtcConfirmStep({ formData, seedPhrase, network, onConfirm, onBack, onC
 
   const errors = [];
   if (!fundingUtxo) errors.push({ type: 'btc', msg: `No Bitcoin UTXO with at least ${(formData.lockSats + 5000).toLocaleString()} sats for lock + fees.` });
-  if (!hasEnoughAda) errors.push({ type: 'ada', msg: `Insufficient ADA. Need at least 10 ADA, have ${adaDisplay} ADA.` });
+  if (!hasEnoughAda) errors.push({ type: 'ada', msg: `Insufficient ADA. Need at least 15 ADA, have ${adaDisplay} ADA.` });
   if (!btcAddress) errors.push({ type: 'btc', msg: 'No Bitcoin address found.' });
   const canStart = errors.length === 0;
 
