@@ -192,6 +192,16 @@ async function createBtcPlaceholder({ btcAddress, seedPhrase, network, onStatus 
   const broadcastTxid = (await bResp.text()).trim();
   console.log('[eBTC-redeem:placeholder] broadcast:', broadcastTxid);
 
+  // Reserve the funding input + placeholder output so concurrent BTC ops
+  // don't spend either before the redeem consumes them.
+  try {
+    const { markBatch } = await import('@/services/utxo-reservations');
+    markBatch('bitcoin', [
+      { txid: funding.txid, vout: funding.vout },
+      { txid: broadcastTxid, vout: 0 },
+    ]);
+  } catch (e) { console.warn('[eBTC-redeem:placeholder] reserve failed:', e?.message); }
+
   return { utxo: `${broadcastTxid}:0`, txid: broadcastTxid, vout: 0 };
 }
 

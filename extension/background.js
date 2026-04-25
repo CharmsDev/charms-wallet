@@ -428,6 +428,8 @@ async function handleWalletProviderRequest(request, sender) {
         if (!message) return { error: 'Missing message parameter' };
 
         const signRequestId = Date.now().toString();
+        const connectedSites = await getConnectedSites();
+        const connectedAddresses = connectedSites[origin]?.addresses || [];
         await new Promise(resolve => {
           chrome.storage.local.set({
             [EXT.PENDING_SIGN]: {
@@ -435,6 +437,7 @@ async function handleWalletProviderRequest(request, sender) {
               type: 'signMessage',
               origin,
               message,
+              connectedAddresses,
             }
           }, resolve);
         });

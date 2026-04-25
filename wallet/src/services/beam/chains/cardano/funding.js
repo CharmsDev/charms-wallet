@@ -14,7 +14,7 @@
  */
 
 import { fetchUtxos, getProtocolParams, submitCardanoTx } from '@/services/cardano/api';
-import { getSpentSet, syncWithChain } from '@/services/utxo-reservations';
+import { getSpentSet, syncWithChain, markBatch } from '@/services/utxo-reservations';
 
 /**
  * Fetch UTXOs and prune stale reservations based on fresh on-chain state.
@@ -282,6 +282,11 @@ export async function splitForCollateral({
   const txHash = fixedTx.transaction_hash().to_hex();
   await submitCardanoTx(fixedTx.to_bytes(), cardanoNet);
 
+  // Reserve the consumed input so the next call within the same beam (the
+  // helper's loop) doesn't see it as available before mempool propagation.
+  // syncWithChain drops the reservation automatically once the tx is on-chain.
+  markBatch('cardano', [{ txHash: target.txHash, outputIndex: target.outputIndex }]);
+
   return { txHash };
 }
 
@@ -356,6 +361,11 @@ export async function consolidateAdaUtxos({
   onStatus?.('Submitting consolidation tx...');
   const txHash = fixedTx.transaction_hash().to_hex();
   await submitCardanoTx(fixedTx.to_bytes(), cardanoNet);
+
+  // Reserve all consumed inputs so the helper loop's next inspect() doesn't
+  // see them before the tx propagates to Koios. syncWithChain drops them
+  // automatically once they're off-chain.
+  markBatch('cardano', pureAda.map(u => ({ txHash: u.txHash, outputIndex: u.outputIndex })));
 
   return { txHash, consolidatedLovelace: totalLovelace.toString() };
 }

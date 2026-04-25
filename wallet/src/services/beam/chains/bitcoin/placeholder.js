@@ -77,6 +77,17 @@ export async function createBtcPlaceholder({ btcAddress, seedPhrase, network, on
   if (!bResp.ok) throw new Error(`Placeholder broadcast failed: ${await bResp.text()}`);
   const broadcastTxid = (await bResp.text()).trim();
 
+  // Reserve the placeholder output so concurrent BTC ops (UTXO selectors,
+  // sends, charm transfers) don't accidentally spend it before the claim
+  // consumes it. The funding input is already on-chain spent.
+  try {
+    const { markBatch } = await import('@/services/utxo-reservations');
+    markBatch('bitcoin', [
+      { txid: funding.txid, vout: funding.vout },
+      { txid: broadcastTxid, vout: 0 },
+    ]);
+  } catch (e) { console.warn('[BtcPlaceholder] reserve failed:', e?.message); }
+
   return { utxo: `${broadcastTxid}:0`, txid: broadcastTxid, vout: 0 };
 }
 

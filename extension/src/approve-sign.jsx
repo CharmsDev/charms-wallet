@@ -536,7 +536,19 @@ function SignApproval() {
       if (addresses.length === 0) throw new Error('No wallet addresses found');
 
       if (request.type === 'signMessage') {
-        const signature = await signMessageWithKeys(request.message, seedPhrase, networkName, addresses);
+        let signingAddresses = addresses;
+        if (request.connectedAddresses?.length > 0) {
+          const connectedSet = new Set(request.connectedAddresses);
+          const filtered = addresses.filter(a => connectedSet.has(a?.address || a));
+          if (filtered.length > 0) {
+            // P2WPKH first so signMessageWithKeys picks the connected segwit key
+            signingAddresses = [
+              ...filtered.filter(a => isP2wpkhAddress(a?.address || a)),
+              ...filtered.filter(a => !isP2wpkhAddress(a?.address || a)),
+            ];
+          }
+        }
+        const signature = await signMessageWithKeys(request.message, seedPhrase, networkName, signingAddresses);
         await chrome.storage.local.set({ [EXT_SIGN_RESPONSE]: { approved: true, requestId: request.id, signature } });
       } else {
         const signedPsbtHex = await signPsbtWithKeys(request.psbtHex, request.options, seedPhrase, networkName, addresses);

@@ -112,14 +112,21 @@ export async function createPlaceholder({ cardanoAddress, cardanoOwnAddress, see
   const submittedHash = await submitCardanoTx(fixedTx.to_bytes());
   const finalHash = fixedTx.transaction_hash().to_hex();
 
-  // Reserve the funding UTXO so concurrent ops don't reuse it
+  const placeholderTxHash = typeof submittedHash === 'string' ? submittedHash : finalHash;
+
+  // Reserve both the input (funding UTXO, now spent) and the placeholder
+  // output (must be preserved for the claim) so concurrent beams or
+  // consolidate/split operations don't touch them.
   try {
-    const { useCardano } = await import('@/stores/cardanoStore');
-    useCardano.getState().markUtxoAsSpent(funding.txHash, funding.outputIndex);
-  } catch (e) { console.warn('[Step1Placeholder] mark spent failed:', e?.message); }
+    const { markBatch } = await import('@/services/utxo-reservations');
+    markBatch('cardano', [
+      { txHash: funding.txHash, outputIndex: funding.outputIndex },
+      { txHash: placeholderTxHash, outputIndex: 0 },
+    ]);
+  } catch (e) { console.warn('[Step1Placeholder] reserve failed:', e?.message); }
 
   return {
-    txHash: typeof submittedHash === 'string' ? submittedHash : finalHash,
+    txHash: placeholderTxHash,
     outputIndex: 0,
   };
 }
