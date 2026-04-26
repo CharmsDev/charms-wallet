@@ -129,10 +129,12 @@ export async function executeEbtcBeam(params) {
 
 // ── Combined Mint+Beam Prover ───────────────────────────────────────────────
 
-async function proveMintAndBeam({ btcInputUtxo, lockSats, btcAddress, beamToHash, seedPhrase, network, charms, onStatus }) {
+async function proveMintAndBeam({ btcInputUtxo, btcExtraInputs, lockSats, btcAddress, beamToHash, seedPhrase, network, charms, onStatus }) {
   const mintAmount = lockSats - DUST_PER_VAULT;
   if (mintAmount <= 0) throw new Error(`Lock amount must be > ${DUST_PER_VAULT} sats`);
   console.log('[eBTC:proveMint] lockSats:', lockSats, 'mintAmount:', mintAmount);
+
+  let extraInputUtxoIds = btcExtraInputs || [];
 
   // Fetch fresh UTXOs from mempool and select funding (avoids stale/spent UTXOs)
   if (!btcInputUtxo) {
@@ -141,21 +143,34 @@ async function proveMintAndBeam({ btcInputUtxo, lockSats, btcAddress, beamToHash
     const mempoolUtxos = await fetch(`${mempoolBase}/address/${btcAddress}/utxo`).then(r => r.json());
     console.log('[eBTC:proveMint] fresh UTXOs from mempool:', mempoolUtxos.length);
 
-    // Map to format selectBtcFunding expects.
-    // Include unconfirmed (mempool) UTXOs — the change from a concurrent beam
-    // is already in mempool and spendable via chain-of-spend. Only exclude
-    // UTXOs that are reserved by another in-progress operation.
+    // Include unconfirmed (mempool) UTXOs — change from a concurrent beam is
+    // spendable via chain-of-spend. Reserved UTXOs are filtered inside the
+    // selector via getSpentSet('bitcoin').
     const freshUtxos = mempoolUtxos
       .map(u => ({ txid: u.txid, outputIndex: u.vout, vout: u.vout, value: u.value, address: btcAddress, confirmed: !!u.status?.confirmed }));
 
-    const { selectBtcFunding } = await import('../chains/bitcoin/funding');
-    const funding = selectBtcFunding(freshUtxos, charms || [], { minSats: lockSats + 5000 });
-    if (!funding) throw new Error(`No confirmed Bitcoin UTXO with at least ${lockSats + 5000} sats`);
-    btcInputUtxo = funding.utxoId;
-    console.log('[eBTC:proveMint] selected funding:', funding.utxoId, funding.value, 'sats');
-    onStatus?.(`Selected funding: ${funding.utxoId.slice(0, 16)}... (${funding.value} sats)`);
+    const minSats = lockSats + 5000;
+    const { selectBtcFundingAccumulated } = await import('../chains/bitcoin/funding');
+    const result = selectBtcFundingAccumulated(freshUtxos, charms || [], { minSats });
+    if (!result) {
+      const available = freshUtxos
+        .filter(u => !(charms || []).some(c => c.txid === u.txid && (c.outputIndex === u.outputIndex || c.vout === u.outputIndex)))
+        .reduce((s, u) => s + (u.value || 0), 0);
+      throw new Error(
+        `Insufficient Bitcoin funding. Need ${minSats} sats, have ${available} non-charm sats.`
+      );
+    }
+    btcInputUtxo = result.funding.utxoId;
+    extraInputUtxoIds = result.extras.map(e => e.utxoId);
+    console.log('[eBTC:proveMint] funding:', result.funding.utxoId, result.funding.value, 'sats',
+      result.extras.length ? `(+ ${result.extras.length} extras, total ${result.totalSats} sats)` : '');
+    onStatus?.(
+      result.extras.length
+        ? `Funding: ${result.totalSats} sats across ${result.extras.length + 1} UTXOs`
+        : `Funding: ${result.funding.value} sats`
+    );
   }
-  console.log('[eBTC:proveMint] btcInputUtxo:', btcInputUtxo);
+  console.log('[eBTC:proveMint] btcInputUtxo:', btcInputUtxo, 'extras:', extraInputUtxoIds.length);
   console.log('[eBTC:proveMint] btcAddress:', btcAddress);
 
   onStatus?.('Building eBTC mint spell (CBOR)...');
@@ -178,10 +193,16 @@ async function proveMintAndBeam({ btcInputUtxo, lockSats, btcAddress, beamToHash
   const beamedOuts = new Map();
   beamedOuts.set(0, beamToBytes);  // output 0 (tokens) beamed to Cardano
 
+  // Funding inputs: the primary BTC UTXO + any extras the accumulator picked
+  // up when the user's wallet was fragmented. Extras carry only sats (no
+  // charm), they sit alongside the main funding input.
+  const allInputUtxoIds = [btcInputUtxo, ...extraInputUtxoIds];
+  const spellIns = allInputUtxoIds.map(utxoIdToBytes);
+
   const normalizedSpell = {
     version: SPELL_VERSION,
     tx: {
-      ins: [utxoIdToBytes(btcInputUtxo)],
+      ins: spellIns,
       outs: [
         new Map([[1, mintAmount]]),   // tag 1 = token app (eBTC tokens) — beamed to Cardano
         new Map([[0, null]]),         // tag 0 = vault app (vault state) — stays on BTC
@@ -200,12 +221,19 @@ async function proveMintAndBeam({ btcInputUtxo, lockSats, btcAddress, beamToHash
   console.log('[eBTC:proveMint] spell CBOR hex length:', spellHex.length, 'bytes:', spellHex.length / 2);
   console.log('[eBTC:proveMint] spell hex preview:', spellHex.substring(0, 80) + '...');
 
-  // Fetch prev tx
-  const [txid] = btcInputUtxo.split(':');
-  const mempoolBase = getMempoolBase(network);
-  onStatus?.('Fetching previous transaction...');
-  const prevTxHex = await fetch(`${mempoolBase}/tx/${txid}/hex`).then(r => r.text());
-  console.log('[eBTC:prove] prevTx length:', prevTxHex.length);
+  // Fetch prev_txs aligned 1:1 with spell.ins. Cache so duplicate txids only
+  // get fetched once (same pattern as eBTC redeem).
+  onStatus?.('Fetching previous transactions...');
+  const { fetchTxHex } = await import('@/services/charm-transfer/tx-fetcher');
+  const txCache = new Map();
+  const getTxHex = (txid) => {
+    if (!txCache.has(txid)) txCache.set(txid, fetchTxHex(txid, network));
+    return txCache.get(txid);
+  };
+  const prevTxList = await Promise.all(
+    allInputUtxoIds.map(async id => ({ bitcoin: await getTxHex(id.split(':')[0]) }))
+  );
+  console.log('[eBTC:prove] prev_txs:', prevTxList.length);
 
   onStatus?.('Loading eBTC contract binary...');
   const { loadWasmBase64 } = await import('../chains/wasm-loader');
@@ -221,7 +249,7 @@ async function proveMintAndBeam({ btcInputUtxo, lockSats, btcAddress, beamToHash
     },
     tx_ins_beamed_source_utxos: {},
     binaries: { [EBTC_APP_VK]: wasmBase64 },
-    prev_txs: [{ bitcoin: prevTxHex }],
+    prev_txs: prevTxList,
     change_address: btcAddress,
     fee_rate: 2,
     chain: 'bitcoin',
