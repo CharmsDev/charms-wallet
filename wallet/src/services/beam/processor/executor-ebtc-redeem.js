@@ -323,24 +323,23 @@ async function proveAndBroadcastAdaBeamOut({
     collateral_utxo: collateralUtxoId,
   };
 
-  // TEMPORARY: dump spell + payload for v1.3.23 multi-input verification.
-  // Re-comment after the redeem completes successfully end-to-end.
-  dumpBeamPayload('ebtc-redeem-ada-out-v23', {
-    version: SPELL_VERSION,
-    cnt_inputs: cntInputs.map(i => `${i.utxoId} (${i.amount} eBTC)`),
-    funding: fundingUtxoId,
-    outs: change > 0n
-      ? [`{0: ${redeem}} (beamed)`, `{0: ${change}} (change)`]
-      : [`{0: ${redeem}} (beamed — full)`],
-    beamed_outs: { 0: beamToHash },
-    apps: [EBTC_TOKEN_APP],
-    token_math: {
-      total_in: cntTotal.toString(),
-      total_out: (redeem + change).toString(),
-      balanced: cntTotal === redeem + change,
-    },
-    collateralUtxoId, network,
-  }, payload);
+  // Uncomment to dump spell + payload for offline inspection.
+  // dumpBeamPayload('ebtc-redeem-ada-out', {
+  //   version: SPELL_VERSION,
+  //   cnt_inputs: cntInputs.map(i => `${i.utxoId} (${i.amount} eBTC)`),
+  //   funding: fundingUtxoId,
+  //   outs: change > 0n
+  //     ? [`{0: ${redeem}} (beamed)`, `{0: ${change}} (change)`]
+  //     : [`{0: ${redeem}} (beamed — full)`],
+  //   beamed_outs: { 0: beamToHash },
+  //   apps: [EBTC_TOKEN_APP],
+  //   token_math: {
+  //     total_in: cntTotal.toString(),
+  //     total_out: (redeem + change).toString(),
+  //     balanced: cntTotal === redeem + change,
+  //   },
+  //   collateralUtxoId, network,
+  // }, payload);
 
   onStatus?.('Submitting to prover (5-10 min)...');
   const proverUrl = getProverUrl(network);

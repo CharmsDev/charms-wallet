@@ -157,13 +157,13 @@ function BeamBackConfirmStep({ asset, amountRaw, changeRaw, destAddress, ownBtcA
 
     // Executor creates the BTC placeholder, waits for mempool, and derives
     // beam_to hash internally. Dialog just provides addresses + amounts.
+    // assetUnit = policy_id || asset_name_hex; executor selects CNT UTXOs.
     const label = `${amountDisplay} ${asset.ticker || asset.name} → Bitcoin`;
     onConfirm(label, {
       direction: 'ada-to-btc',
       tokenAppId,
-      cntUtxoId: `${asset.utxoTxHash}:${asset.utxoOutputIndex || 0}`,
+      assetUnit: asset.unit,
       beamAmount: parseInt(amountRaw),
-      changeAmount: parseInt(changeRaw),
       cardanoAddress,
       btcOwnAddress: ownBtcAddress,
       btcDestAddress: destAddress,

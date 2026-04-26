@@ -106,29 +106,36 @@ export async function executeBeamBack(params) {
 // ── Step 1: Cardano Beam-Out ────────────────────────────────────────────────
 
 async function proveAndBroadcastCardanoBeamOut({
-  tokenAppId, cntUtxoId, fundingUtxoId, beamAmount, changeAmount,
+  tokenAppId, assetUnit, cntUtxoId, fundingUtxoId, beamAmount,
   placeholderUtxoId, beamToHash, cardanoAddress, collateralUtxoId,
   seedPhrase, addressIndex = 0, network, onStatus,
 }) {
   const { prepareCollateralAndFunding } = await import('../chains/cardano/funding');
 
-  // Derive changeAmount from the CNT on-chain balance if not supplied.
-  // The spell must satisfy sum(in) == sum(out) for the prover to treat it as
-  // a simple token transfer; a missing change output unbalances the tx and
-  // forces the prover to require the app binary unnecessarily.
-  if (changeAmount === undefined || changeAmount === null) {
+  // Legacy fallback: ops persisted before multi-input refactor only saved
+  // `cntUtxoId`. Derive `assetUnit` from that UTXO's assets so resume works.
+  if (!assetUnit) {
+    if (!cntUtxoId) throw new Error('Beam-back requires assetUnit (or legacy cntUtxoId)');
     const { fetchUtxos } = await import('@/services/cardano/api');
     const cardanoNet = network === 'mainnet' ? 'mainnet' : 'preprod';
     const utxos = await fetchUtxos(cardanoAddress, cardanoNet);
     const [cntTxH, cntIdxStr] = cntUtxoId.split(':');
-    const cntIdx = parseInt(cntIdxStr, 10);
-    const cntU = utxos.find(u => u.txHash === cntTxH && u.outputIndex === cntIdx);
-    if (!cntU) throw new Error(`CNT UTXO ${cntUtxoId} not found`);
-    const tokenAsset = (cntU.assets || []).find(a => a.quantity);
-    const cntAmount = parseInt(tokenAsset?.quantity || '0', 10);
-    changeAmount = cntAmount - beamAmount;
-    if (changeAmount < 0) throw new Error(`Beam amount ${beamAmount} exceeds CNT balance ${cntAmount}`);
+    const cntU = utxos.find(u => u.txHash === cntTxH && u.outputIndex === parseInt(cntIdxStr, 10));
+    assetUnit = cntU?.assets?.find(a => a.unit && a.quantity)?.unit;
+    if (!assetUnit) throw new Error(`Cannot derive assetUnit from legacy cntUtxoId ${cntUtxoId}`);
   }
+
+  // Pick CNT inputs that cover the beam amount (largest-first accumulator).
+  // Token math MUST balance: sum(input_amounts) == beam + change. A single
+  // UTXO breaks the spell when the user's CNT is fragmented.
+  onStatus?.('Selecting CNT UTXOs...');
+  const { selectCntUtxos } = await import('../chains/cardano/cnt-selector');
+  const beam = BigInt(beamAmount);
+  const { inputs: cntInputs, totalAmount: cntTotal } =
+    await selectCntUtxos(cardanoAddress, assetUnit, beam, network);
+  const change = cntTotal - beam;
+  console.log('[BeamBack:ada-out] CNT inputs:', cntInputs.length,
+    'total:', cntTotal.toString(), 'beam:', beam.toString(), 'change:', change.toString());
 
   // Auto-select funding & collateral if not provided, with auto-consolidation
   if (!fundingUtxoId || !collateralUtxoId) {
@@ -137,7 +144,7 @@ async function proveAndBroadcastCardanoBeamOut({
       address: cardanoAddress,
       seedPhrase,
       addressIndex,
-      excludeUtxoIds: [cntUtxoId],
+      excludeUtxoIds: cntInputs.map(i => i.utxoId),
       network,
       onStatus,
     });
@@ -148,21 +155,23 @@ async function proveAndBroadcastCardanoBeamOut({
   onStatus?.('Building Cardano beam-out spell...');
   const { normalizeCardanoBeamOutSpell } = await import('../spells/beam-back-normalizer');
   const { normalizedSpellHex, appPrivateInputs } = await normalizeCardanoBeamOutSpell({
-    tokenAppId, cntUtxoId, fundingUtxoId,
-    beamAmount, changeAmount, beamToHash, cardanoAddress,
+    tokenAppId, cntInputs, fundingUtxoId,
+    beamAmount: Number(beam), changeAmount: Number(change), beamToHash, cardanoAddress,
   });
 
-  // Fetch prev tx CBORs
+  // Fetch prev tx CBORs (1:1 with spell.ins, dedupe via cache).
   onStatus?.('Fetching previous transactions...');
   const { getCardanoTxCbor } = await import('@/services/cardano/api');
-  const cntTxHash = cntUtxoId.split(':')[0];
+  const cborCache = new Map();
+  const getCbor = async (txHash) => {
+    if (!cborCache.has(txHash)) cborCache.set(txHash, getCardanoTxCbor(txHash));
+    return cborCache.get(txHash);
+  };
   const fundingTxHash = fundingUtxoId.split(':')[0];
-  const cntCbor = await getCardanoTxCbor(cntTxHash);
-  const fundingCbor = cntTxHash === fundingTxHash ? cntCbor : await getCardanoTxCbor(fundingTxHash);
-
-  // Build prover payload
-  const prevTxs = [{ cardano: cntCbor }];
-  if (cntTxHash !== fundingTxHash) prevTxs.push({ cardano: fundingCbor });
+  const prevTxs = await Promise.all([
+    ...cntInputs.map(async i => ({ cardano: await getCbor(i.txHash) })),
+    (async () => ({ cardano: await getCbor(fundingTxHash) }))(),
+  ]);
 
   const payload = {
     spell: normalizedSpellHex,
@@ -243,12 +252,12 @@ async function proveAndBroadcastCardanoBeamOut({
     ? adaResult.replace(/"/g, '').trim()
     : fixedTx.transaction_hash().to_hex();
 
-  // Mark spent UTXOs as reserved (CNT + funding + collateral) so concurrent
+  // Mark spent UTXOs as reserved (CNTs + funding + collateral) so concurrent
   // operations don't try to re-select them before next refresh.
   try {
     const { useCardano } = await import('@/stores/cardanoStore');
     useCardano.getState().updateAfterTransaction([
-      { utxoId: cntUtxoId },
+      ...cntInputs.map(i => ({ utxoId: i.utxoId })),
       { utxoId: fundingUtxoId },
       { utxoId: collateralUtxoId },
     ]);
@@ -438,11 +447,11 @@ function snapshot(ctx) {
     direction: 'ada-to-btc',
     tokenAppId: ctx.tokenAppId,
     beamAmount: ctx.beamAmount,
-    changeAmount: ctx.changeAmount,
     cardanoAddress: ctx.cardanoAddress,
     btcOwnAddress: ctx.btcOwnAddress,
     btcDestAddress: ctx.btcDestAddress,
     btcNetwork: ctx.network,
+    assetUnit: ctx.assetUnit,
     cntUtxoId: ctx.cntUtxoId,
     placeholderUtxoId: ctx.placeholderUtxoId,
     placeholderTxid: ctx.placeholderTxid,

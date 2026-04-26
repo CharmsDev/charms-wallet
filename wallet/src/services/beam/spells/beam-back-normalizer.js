@@ -23,9 +23,13 @@ async function cardanoAddressToRawBytes(bech32Addr) {
 /**
  * Normalize a Cardano beam-out spell (ADA → BTC).
  *
+ * Accepts an array of CNT inputs so the spell can balance token math when
+ * the user's CNT is fragmented across multiple UTXOs. Single-UTXO callers
+ * just pass a 1-element array.
+ *
  * @param {object} spell
  * @param {string} spell.tokenAppId - "t/identity/vk"
- * @param {string} spell.cntUtxoId - "txHash:outputIndex" of CNT UTXO
+ * @param {Array<{utxoId:string}>} spell.cntInputs - CNT UTXOs to spend (>=1)
  * @param {string} spell.fundingUtxoId - "txHash:outputIndex" of ADA funding
  * @param {number} spell.beamAmount - Raw token units to beam out
  * @param {number} spell.changeAmount - Raw token units to keep as change (0 = no change)
@@ -35,21 +39,22 @@ async function cardanoAddressToRawBytes(bech32Addr) {
  */
 export async function normalizeCardanoBeamOutSpell(spell) {
   const {
-    tokenAppId, cntUtxoId, fundingUtxoId,
+    tokenAppId, cntInputs, fundingUtxoId,
     beamAmount, changeAmount, beamToHash, cardanoAddress,
   } = spell;
 
+  if (!Array.isArray(cntInputs) || cntInputs.length === 0) {
+    throw new Error('normalizeCardanoBeamOutSpell: cntInputs must be a non-empty array');
+  }
+
   const addrBytes = await cardanoAddressToRawBytes(cardanoAddress);
 
-  // App public inputs
   const appPublicInputs = new Map();
   appPublicInputs.set(appToCborTuple(tokenAppId), null);
 
-  // Outputs: [beamed, change] or [beamed]
   const outs = [new Map([[0, beamAmount]])];
   if (changeAmount > 0) outs.push(new Map([[0, changeAmount]]));
 
-  // beamed_outs: { 0: beamToHash_bytes }
   const beamToBytes = [];
   for (let i = 0; i < 64; i += 2) {
     beamToBytes.push(parseInt(beamToHash.substring(i, i + 2), 16));
@@ -57,22 +62,16 @@ export async function normalizeCardanoBeamOutSpell(spell) {
   const beamedOuts = new Map();
   beamedOuts.set(0, beamToBytes);
 
-  // Coins: Cardano outputs with raw address bytes
-  const coins = [
-    { amount: 2000000, dest: addrBytes },
+  const coins = outs.map(() => ({ amount: 2_000_000, dest: addrBytes }));
+
+  const ins = [
+    ...cntInputs.map(i => utxoIdToBytes(i.utxoId)),
+    utxoIdToBytes(fundingUtxoId),
   ];
-  if (changeAmount > 0) {
-    coins.push({ amount: 2000000, dest: addrBytes });
-  }
 
   const normalizedSpell = {
     version: SPELL_VERSION,
-    tx: {
-      ins: [utxoIdToBytes(cntUtxoId), utxoIdToBytes(fundingUtxoId)],
-      outs,
-      beamed_outs: beamedOuts,
-      coins,
-    },
+    tx: { ins, outs, beamed_outs: beamedOuts, coins },
     app_public_inputs: appPublicInputs,
   };
 
