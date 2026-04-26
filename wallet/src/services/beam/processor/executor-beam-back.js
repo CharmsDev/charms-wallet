@@ -20,7 +20,7 @@ import { saveBeamState } from '../core/persistence';
 import { getProverUrl } from '@/services/charm-transfer/constants';
 import { createBtcPlaceholder, waitForBtcInMempool } from '../chains/bitcoin/placeholder';
 import { utxoIdHash } from '../core/crypto';
-import { dumpPayload } from '../core/debug-dump';
+import { dumpBeamPayload } from '../core/debug-dump';
 
 export async function executeBeamBack(params) {
   const { beamId, onPhase, onCheckpoint, signal } = params;
@@ -176,11 +176,11 @@ async function proveAndBroadcastCardanoBeamOut({
     collateral_utxo: collateralUtxoId,
   };
 
-  // Dump payload for post-mortem inspection (dev only, no-op in prod).
-  {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    dumpPayload(`beam-back-ada-${ts}.json`, payload);
-  }
+  // Uncomment to dump spell + payload to _rjj/tmp for offline inspection.
+  // dumpBeamPayload('beam-back-ada', {
+  //   tokenAppId, cntUtxoId, fundingUtxoId, beamAmount, changeAmount,
+  //   beamToHash, cardanoAddress, collateralUtxoId,
+  // }, payload);
 
   // Submit to prover
   onStatus?.('Proving Cardano beam-out (5-10 min)...');
@@ -199,10 +199,6 @@ async function proveAndBroadcastCardanoBeamOut({
   }
 
   const raw = await resp.text();
-  {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    dumpPayload(`beam-back-ada-response-${ts}.json`, { raw });
-  }
 
   // v14 prover returns JSON like [{ "cardano": "<cbor hex>" }] or { cardano: ... }.
   // Legacy formats also supported: { cborHex: ... } or raw hex string.
@@ -362,10 +358,11 @@ async function proveAndBroadcastBtcClaim({
     collateral_utxo: null,
   };
 
-  {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    dumpPayload(`beam-back-btc-${ts}.json`, payload);
-  }
+  // Uncomment to dump spell + payload to _rjj/tmp for offline inspection.
+  // dumpBeamPayload('beam-back-btc', {
+  //   tokenAppId, placeholderUtxoId, btcFundingUtxoId, beamAmount,
+  //   cardanoBeamOutTxHash, btcOwnAddress, btcDestAddress,
+  // }, payload);
 
   onStatus?.('Proving Bitcoin claim (5-10 min)...');
   const proverUrl = getProverUrl(network);
@@ -380,10 +377,6 @@ async function proveAndBroadcastBtcClaim({
   if (!resp.ok) throw new Error(`Prover failed: ${await resp.text()}`);
 
   const raw = await resp.text();
-  {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    dumpPayload(`beam-back-btc-response-${ts}.json`, { raw });
-  }
 
   // v14 prover returns [{"bitcoin": "<hex>"}] for a BTC claim.
   let result;

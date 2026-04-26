@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server';
 
-export const runtime = 'edge';
+// Node runtime so `fs` is available in local dev. In prod (Cloudflare) the
+// route is a no-op fs-wise; just logs to the worker console.
+export const runtime = 'nodejs';
 
 export async function POST(req) {
-  // In edge/Cloudflare: no fs available. Just log to console instead.
   try {
     const { filename, data } = await req.json();
-    // Log payload summary to server console (visible in dev terminal)
     console.log(`[debug-dump] ${filename} (${JSON.stringify(data).length} bytes)`);
 
-    // In local dev, try to write to disk via dynamic import
     if (process.env.NODE_ENV === 'development') {
       try {
         const fs = await import('fs');
@@ -17,7 +16,7 @@ export async function POST(req) {
         const DUMP_DIR = '/Users/ricartjuncadella/Documents/Prj/bitcoinos/_rjj/tmp';
         const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
         fs.writeFileSync(path.join(DUMP_DIR, safeName), JSON.stringify(data, null, 2));
-      } catch {}
+      } catch (e) { console.warn('[debug-dump] write failed:', e?.message); }
     }
 
     return NextResponse.json({ ok: true });

@@ -21,7 +21,7 @@ import { waitForBtcInMempool } from '../chains/bitcoin/placeholder';
 import { utxoIdHash, hexToBytes } from '../core/crypto';
 import { cborToHex, utxoIdToBytes, appToCborTuple } from '../core/cbor';
 import { compactToDER } from '../chains/bitcoin/signer-utils';
-import { dumpPayload } from '../core/debug-dump';
+import { dumpBeamPayload } from '../core/debug-dump';
 
 // ── eBTC constants ──────────────────────────────────────────────────────────
 
@@ -283,6 +283,26 @@ async function proveAndBroadcastAdaBeamOut({
     collateral_utxo: collateralUtxoId,
   };
 
+  // Comment this line to disable payload dump.
+  dumpBeamPayload('ebtc-redeem-ada-out', {
+    version: SPELL_VERSION,
+    ins: [`${cntUtxoId} (CNT, ${ebtcBalance} eBTC)`, `${fundingUtxoId} (funding)`],
+    outs: remainingEbtc > 0
+      ? [`{0: ${redeemAmount}} (eBTC, beamed)`, `{0: ${remainingEbtc}} (eBTC, change)`]
+      : [`{0: ${redeemAmount}} (eBTC, beamed — full burn)`],
+    beamed_outs: { 0: beamToHash },
+    coins: remainingEbtc > 0
+      ? ['2 ADA → cardanoAddress', '2 ADA → cardanoAddress']
+      : ['2 ADA → cardanoAddress'],
+    apps: [EBTC_TOKEN_APP],
+    token_math: {
+      input_cnt_balance: ebtcBalance,
+      output_total: redeemAmount + remainingEbtc,
+      simple_transfer: ebtcBalance === redeemAmount + remainingEbtc,
+    },
+    cardanoAddress, ownAddr, collateralUtxoId, network,
+  }, payload);
+
   onStatus?.('Submitting to prover (5-10 min)...');
   const proverUrl = getProverUrl(network);
   const t0 = Date.now();
@@ -488,19 +508,11 @@ async function proveCombinedRedeem({
     );
   }
 
-  // Load eBTC WASM. Required because this tx combines beam-claim with vault
-  // release (burn semantics) — the prover needs the app binary to verify
+  // Combined claim + vault release needs the app binary to verify
   // token_delta == vault_delta. (Pure beams don't need it; redeem does.)
   onStatus?.('Loading ebtc.wasm...');
-  const wasmResp = await fetch('/wasm/ebtc.wasm');
-  if (!wasmResp.ok) throw new Error('Failed to load ebtc.wasm');
-  const wasmBytes = new Uint8Array(await wasmResp.arrayBuffer());
-  let wasmBinary = '';
-  const chunk = 8192;
-  for (let i = 0; i < wasmBytes.length; i += chunk) {
-    wasmBinary += String.fromCharCode.apply(null, Array.from(wasmBytes.subarray(i, i + chunk)));
-  }
-  const wasmBase64 = btoa(wasmBinary);
+  const { loadWasmBase64 } = await import('../chains/wasm-loader');
+  const wasmBase64 = await loadWasmBase64('/wasm/ebtc.wasm');
 
   onStatus?.('Building combined redeem spell...');
   const appPublicInputs = new Map();
@@ -531,25 +543,25 @@ async function proveCombinedRedeem({
   const spellHex = cborToHex(normalizedSpell);
   console.log('[eBTC-redeem:prove] spell:', spellHex.length, 'chars');
 
-  // Fetch prev txs (dedup by txid to avoid sending duplicates to prover)
-  const mempoolBase = getMempoolBase(network);
-  const [phTxid] = placeholderUtxoId.split(':');
-  const [vaultTxid] = vaultUtxo.split(':');
+  // prev_txs must be 1:1 with spell.ins (one entry per input, even if same
+  // txid appears twice). Use the resilient Explorer→mempool fetcher and
+  // cache locally so we don't refetch the same tx hex.
+  const { fetchTxHex } = await import('@/services/charm-transfer/tx-fetcher');
+  const txCache = new Map();
+  const getTxHex = (txid) => {
+    if (!txCache.has(txid)) txCache.set(txid, fetchTxHex(txid, network));
+    return txCache.get(txid);
+  };
 
-  const prevTxIds = new Set();
-  const prevTxs = [];
-  async function addPrev(txid) {
-    if (!txid || prevTxIds.has(txid)) return;
-    const hex = await fetch(`${mempoolBase}/tx/${txid}/hex`).then(r => r.text());
-    prevTxs.push({ bitcoin: hex });
-    prevTxIds.add(txid);
-  }
-  await addPrev(phTxid);
-  await addPrev(vaultTxid);
-  for (const f of fundingUtxos) await addPrev(f.utxo.split(':')[0]);
-
-  const cardanoPrevTx = { cardano: { tx: cardanoTxCborHex, signature: finalitySig } };
-  prevTxs.push(cardanoPrevTx);
+  const inputUtxoIds = [
+    placeholderUtxoId,
+    vaultUtxo,
+    ...fundingUtxos.map(f => f.utxo),
+  ];
+  const prevTxs = await Promise.all(
+    inputUtxoIds.map(async id => ({ bitcoin: await getTxHex(id.split(':')[0]) }))
+  );
+  prevTxs.push({ cardano: { tx: cardanoTxCborHex, signature: finalitySig } });
 
   const txInsBeamedSourceUtxos = { 0: [`${cardanoBeamOutTxHash}:0`, null] };
 
@@ -578,36 +590,28 @@ async function proveCombinedRedeem({
     collateral_utxo: null,
   };
 
-  // Debug dump (dev only — no-op in production).
+  // Comment this line to disable payload dump.
   {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const totalInputSats = 546 + vaultSats + fundingTotal;
     const insDesc = [
       placeholderUtxoId + ' (placeholder, 546 sats, beamed_from ADA)',
       vaultUtxo + ' (vault, ' + vaultSats + ' sats)',
     ];
     fundingUtxos.forEach((f, i) => insDesc.push(f.utxo + ` (funding[${i}], ${f.sats} sats)`));
-    dumpPayload(`ebtc-redeem-btc-${ts}.json`, {
-      spell_human: {
-        version: SPELL_VERSION,
-        ins: insDesc,
-        outs: ['{0: null} (vault state)'],
-        coins: [remainingVault + ' sats → vault (prover auto-adds Scrolls fee, user redeem, change)'],
-        beamed_from_source: cardanoBeamOutTxHash + ':0',
-        apps: [EBTC_VAULT_APP + ' (tag 0)', EBTC_TOKEN_APP + ' (tag 1)'],
-        total_input_sats: totalInputSats,
-        funding_count: fundingUtxos.length,
-        funding_total_sats: fundingTotal,
-        total_coin_output_sats: remainingVault,
-        fee_budget_sats: totalInputSats - remainingVault,
-        user_should_get_approx_sats: redeemAmount,
-      },
-      spell_hex: spellHex,
-      change_address: btcAddress,
-      fee_rate: FEE_RATE,
+    dumpBeamPayload('ebtc-redeem-btc', {
+      version: SPELL_VERSION,
+      ins: insDesc,
+      outs: ['{0: null} (vault state — no token output = burn)'],
+      coins: [remainingVault + ' sats → vault (prover auto-adds Scrolls fee + user redeem + change)'],
+      beamed_from_source: cardanoBeamOutTxHash + ':0',
+      apps: [EBTC_VAULT_APP + ' (tag 0)', EBTC_TOKEN_APP + ' (tag 1)'],
+      total_input_sats: 546 + vaultSats + fundingTotal,
+      funding_count: fundingUtxos.length,
+      funding_total_sats: fundingTotal,
+      remaining_vault_sats: remainingVault,
+      user_redeem_sats: redeemAmount,
       finality_sig_len: finalitySig?.length,
       cardano_tx_cbor_len: cardanoTxCborHex?.length,
-    });
+    }, payload);
   }
 
   onStatus?.('Proving (5-10 min)...');

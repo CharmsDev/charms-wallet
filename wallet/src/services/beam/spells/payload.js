@@ -6,7 +6,7 @@
  */
 
 import { getProverUrl } from '@/services/charm-transfer/constants';
-import { dumpPayload } from '@/services/beam/core/debug-dump';
+import { dumpBeamPayload } from '@/services/beam/core/debug-dump';
 
 /**
  * Build the prover API payload for a beam spell.
@@ -55,9 +55,8 @@ export async function submitToProver(payload, network, onStatus) {
 
   onStatus?.('Sending to prover...');
 
-  // Dump payload for debugging (no-op in production).
-  const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  dumpPayload(`beam-payload-${ts}.json`, payload);
+  // Uncomment to dump spell + payload to _rjj/tmp for offline inspection.
+  // dumpBeamPayload('beam-bro-btc-out', { spell_hex_len: payload.spell?.length }, payload);
 
   const MAX_RETRIES = 3;
   let lastError;

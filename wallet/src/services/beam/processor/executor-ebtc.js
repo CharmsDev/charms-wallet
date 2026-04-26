@@ -19,7 +19,7 @@ import { saveBeamState } from '../core/persistence';
 import { SPELL_VERSION, getProverUrl, getMempoolBase } from '@/services/charm-transfer/constants';
 import { hexToBytes } from '../core/crypto';
 import { cborToHex, utxoIdToBytes, appToCborTuple } from '../core/cbor';
-import { dumpPayload } from '../core/debug-dump';
+import { dumpBeamPayload } from '../core/debug-dump';
 
 const destToBytes = hexToBytes;
 
@@ -207,17 +207,9 @@ async function proveMintAndBeam({ btcInputUtxo, lockSats, btcAddress, beamToHash
   const prevTxHex = await fetch(`${mempoolBase}/tx/${txid}/hex`).then(r => r.text());
   console.log('[eBTC:prove] prevTx length:', prevTxHex.length);
 
-  // Load ebtc.wasm
   onStatus?.('Loading eBTC contract binary...');
-  const wasmResp = await fetch('/wasm/ebtc.wasm');
-  if (!wasmResp.ok) throw new Error('Failed to load ebtc.wasm');
-  const wasmBytes = new Uint8Array(await wasmResp.arrayBuffer());
-  let wasmBinary = '';
-  const chunk = 8192;
-  for (let i = 0; i < wasmBytes.length; i += chunk) {
-    wasmBinary += String.fromCharCode.apply(null, Array.from(wasmBytes.subarray(i, i + chunk)));
-  }
-  const wasmBase64 = btoa(wasmBinary);
+  const { loadWasmBase64 } = await import('../chains/wasm-loader');
+  const wasmBase64 = await loadWasmBase64('/wasm/ebtc.wasm');
   console.log('[eBTC:prove] wasm:', wasmBase64.length, 'chars');
 
   // Build prover payload
@@ -242,24 +234,14 @@ async function proveMintAndBeam({ btcInputUtxo, lockSats, btcAddress, beamToHash
   // Prove
   const proverUrl = getProverUrl(network);
 
-  // Dump debug info (dev only — no-op in production).
-  const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  dumpPayload(`ebtc-mintbeam-${ts}.json`, {
-    spell_human: {
-      version: SPELL_VERSION, input: btcInputUtxo,
-      outs: [`{1: ${mintAmount}} (eBTC, beamed)`, '{0: null} (vault)'],
-      beamed_outs: { 0: beamToHash },
-      coins: [`${DUST_PER_VAULT} sats → user`, `${lockSats} sats → vault`],
-      apps: [EBTC_VAULT_APP + ' (tag 0)', EBTC_TOKEN_APP + ' (tag 1)'],
-    },
-    spell_hex: spellHex,
-    spell_hex_length: spellHex.length,
-    app_private_inputs: payload.app_private_inputs,
-    prev_txs_count: payload.prev_txs.length,
-    change_address: payload.change_address,
-    fee_rate: payload.fee_rate,
-    prover_url: proverUrl,
-  });
+  // Uncomment to dump spell + payload to _rjj/tmp for offline inspection.
+  // dumpBeamPayload('ebtc-mintbeam', {
+  //   version: SPELL_VERSION, input: btcInputUtxo,
+  //   outs: [`{1: ${mintAmount}} (eBTC, beamed)`, '{0: null} (vault)'],
+  //   beamed_outs: { 0: beamToHash },
+  //   coins: [`${DUST_PER_VAULT} sats → user`, `${lockSats} sats → vault`],
+  //   apps: [EBTC_VAULT_APP + ' (tag 0)', EBTC_TOKEN_APP + ' (tag 1)'],
+  // }, payload);
 
   onStatus?.('Proving mint+beam (may take a few minutes)...');
 
