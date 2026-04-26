@@ -283,25 +283,25 @@ async function proveAndBroadcastAdaBeamOut({
     collateral_utxo: collateralUtxoId,
   };
 
-  // Comment this line to disable payload dump.
-  dumpBeamPayload('ebtc-redeem-ada-out', {
-    version: SPELL_VERSION,
-    ins: [`${cntUtxoId} (CNT, ${ebtcBalance} eBTC)`, `${fundingUtxoId} (funding)`],
-    outs: remainingEbtc > 0
-      ? [`{0: ${redeemAmount}} (eBTC, beamed)`, `{0: ${remainingEbtc}} (eBTC, change)`]
-      : [`{0: ${redeemAmount}} (eBTC, beamed — full burn)`],
-    beamed_outs: { 0: beamToHash },
-    coins: remainingEbtc > 0
-      ? ['2 ADA → cardanoAddress', '2 ADA → cardanoAddress']
-      : ['2 ADA → cardanoAddress'],
-    apps: [EBTC_TOKEN_APP],
-    token_math: {
-      input_cnt_balance: ebtcBalance,
-      output_total: redeemAmount + remainingEbtc,
-      simple_transfer: ebtcBalance === redeemAmount + remainingEbtc,
-    },
-    cardanoAddress, ownAddr, collateralUtxoId, network,
-  }, payload);
+  // Uncomment to dump spell + payload to _rjj/tmp for offline inspection.
+  // dumpBeamPayload('ebtc-redeem-ada-out', {
+  //   version: SPELL_VERSION,
+  //   ins: [`${cntUtxoId} (CNT, ${ebtcBalance} eBTC)`, `${fundingUtxoId} (funding)`],
+  //   outs: remainingEbtc > 0
+  //     ? [`{0: ${redeemAmount}} (eBTC, beamed)`, `{0: ${remainingEbtc}} (eBTC, change)`]
+  //     : [`{0: ${redeemAmount}} (eBTC, beamed — full burn)`],
+  //   beamed_outs: { 0: beamToHash },
+  //   coins: remainingEbtc > 0
+  //     ? ['2 ADA → cardanoAddress', '2 ADA → cardanoAddress']
+  //     : ['2 ADA → cardanoAddress'],
+  //   apps: [EBTC_TOKEN_APP],
+  //   token_math: {
+  //     input_cnt_balance: ebtcBalance,
+  //     output_total: redeemAmount + remainingEbtc,
+  //     simple_transfer: ebtcBalance === redeemAmount + remainingEbtc,
+  //   },
+  //   cardanoAddress, ownAddr, collateralUtxoId, network,
+  // }, payload);
 
   onStatus?.('Submitting to prover (5-10 min)...');
   const proverUrl = getProverUrl(network);
@@ -590,29 +590,29 @@ async function proveCombinedRedeem({
     collateral_utxo: null,
   };
 
-  // Comment this line to disable payload dump.
-  {
-    const insDesc = [
-      placeholderUtxoId + ' (placeholder, 546 sats, beamed_from ADA)',
-      vaultUtxo + ' (vault, ' + vaultSats + ' sats)',
-    ];
-    fundingUtxos.forEach((f, i) => insDesc.push(f.utxo + ` (funding[${i}], ${f.sats} sats)`));
-    dumpBeamPayload('ebtc-redeem-btc', {
-      version: SPELL_VERSION,
-      ins: insDesc,
-      outs: ['{0: null} (vault state — no token output = burn)'],
-      coins: [remainingVault + ' sats → vault (prover auto-adds Scrolls fee + user redeem + change)'],
-      beamed_from_source: cardanoBeamOutTxHash + ':0',
-      apps: [EBTC_VAULT_APP + ' (tag 0)', EBTC_TOKEN_APP + ' (tag 1)'],
-      total_input_sats: 546 + vaultSats + fundingTotal,
-      funding_count: fundingUtxos.length,
-      funding_total_sats: fundingTotal,
-      remaining_vault_sats: remainingVault,
-      user_redeem_sats: redeemAmount,
-      finality_sig_len: finalitySig?.length,
-      cardano_tx_cbor_len: cardanoTxCborHex?.length,
-    }, payload);
-  }
+  // Uncomment to dump spell + payload to _rjj/tmp for offline inspection.
+  // {
+  //   const insDesc = [
+  //     placeholderUtxoId + ' (placeholder, 546 sats, beamed_from ADA)',
+  //     vaultUtxo + ' (vault, ' + vaultSats + ' sats)',
+  //   ];
+  //   fundingUtxos.forEach((f, i) => insDesc.push(f.utxo + ` (funding[${i}], ${f.sats} sats)`));
+  //   dumpBeamPayload('ebtc-redeem-btc', {
+  //     version: SPELL_VERSION,
+  //     ins: insDesc,
+  //     outs: ['{0: null} (vault state — no token output = burn)'],
+  //     coins: [remainingVault + ' sats → vault (prover auto-adds Scrolls fee + user redeem + change)'],
+  //     beamed_from_source: cardanoBeamOutTxHash + ':0',
+  //     apps: [EBTC_VAULT_APP + ' (tag 0)', EBTC_TOKEN_APP + ' (tag 1)'],
+  //     total_input_sats: 546 + vaultSats + fundingTotal,
+  //     funding_count: fundingUtxos.length,
+  //     funding_total_sats: fundingTotal,
+  //     remaining_vault_sats: remainingVault,
+  //     user_redeem_sats: redeemAmount,
+  //     finality_sig_len: finalitySig?.length,
+  //     cardano_tx_cbor_len: cardanoTxCborHex?.length,
+  //   }, payload);
+  // }
 
   onStatus?.('Proving (5-10 min)...');
   const proverUrl = getProverUrl(network);
