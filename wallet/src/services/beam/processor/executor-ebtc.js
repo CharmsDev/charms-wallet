@@ -207,17 +207,9 @@ async function proveMintAndBeam({ btcInputUtxo, lockSats, btcAddress, beamToHash
   const prevTxHex = await fetch(`${mempoolBase}/tx/${txid}/hex`).then(r => r.text());
   console.log('[eBTC:prove] prevTx length:', prevTxHex.length);
 
-  // Load ebtc.wasm
   onStatus?.('Loading eBTC contract binary...');
-  const wasmResp = await fetch('/wasm/ebtc.wasm');
-  if (!wasmResp.ok) throw new Error('Failed to load ebtc.wasm');
-  const wasmBytes = new Uint8Array(await wasmResp.arrayBuffer());
-  let wasmBinary = '';
-  const chunk = 8192;
-  for (let i = 0; i < wasmBytes.length; i += chunk) {
-    wasmBinary += String.fromCharCode.apply(null, Array.from(wasmBytes.subarray(i, i + chunk)));
-  }
-  const wasmBase64 = btoa(wasmBinary);
+  const { loadWasmBase64 } = await import('../chains/wasm-loader');
+  const wasmBase64 = await loadWasmBase64('/wasm/ebtc.wasm');
   console.log('[eBTC:prove] wasm:', wasmBase64.length, 'chars');
 
   // Build prover payload
