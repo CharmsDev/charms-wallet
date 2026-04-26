@@ -271,16 +271,11 @@ async function proveAndBroadcastAdaBeamOut({
   const prevTxs = [{ cardano: cntCbor }];
   if (funding.txHash !== cntU.txHash) prevTxs.push({ cardano: fundingCbor });
 
-  // Prover requires the eBTC binary to validate the spell against the app VK.
-  onStatus?.('Loading eBTC contract binary...');
-  const { loadWasmBase64 } = await import('../chains/wasm-loader');
-  const wasmBase64 = await loadWasmBase64('/wasm/ebtc.wasm');
-
   const payload = {
     spell: spellHex,
     app_private_inputs: { [EBTC_TOKEN_APP]: 'f6' },
     tx_ins_beamed_source_utxos: {},
-    binaries: { [EBTC_APP_VK]: wasmBase64 },
+    binaries: {},
     prev_txs: prevTxs,
     change_address: ownAddr,
     fee_rate: 0,
