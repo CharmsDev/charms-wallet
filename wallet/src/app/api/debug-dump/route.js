@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 
-// Node runtime so `fs` is available in local dev. In prod (Cloudflare) the
-// route is a no-op fs-wise; just logs to the worker console.
-export const runtime = 'nodejs';
+// Edge runtime — required by Cloudflare Pages for all non-static routes.
+// fs is not available; the route only console.logs.
+export const runtime = 'edge';
 
 export async function POST(req) {
   try {
