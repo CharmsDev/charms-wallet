@@ -208,11 +208,30 @@ async function createBtcPlaceholder({ btcAddress, seedPhrase, network, onStatus 
 // ── Step 2: ADA beam-out ────────────────────────────────────────────────────
 
 async function proveAndBroadcastAdaBeamOut({
-  assetUnit, redeemAmount, beamToHash,
+  assetUnit, cntUtxoId, redeemAmount, beamToHash,
   cardanoAddress, cardanoOwnAddress, seedPhrase, network, onStatus,
 }) {
   const ownAddr = cardanoOwnAddress || cardanoAddress;
   const redeem = BigInt(redeemAmount);
+
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║ TEMPORARY LEGACY FALLBACK — REMOVE AFTER STUCK REDEEM RESOLVES       ║
+  // ║ Ops persisted before v1.3.23 saved `cntUtxoId` instead of            ║
+  // ║ `assetUnit`. Derives the unit by looking up the legacy UTXO on       ║
+  // ║ chain so a stuck retry can continue. Once the in-flight customer     ║
+  // ║ redeem (e018d779...) completes, DELETE this whole block.             ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+  if (!assetUnit && cntUtxoId) {
+    onStatus?.('Resolving asset from legacy CNT UTXO...');
+    const { fetchUtxos } = await import('@/services/cardano/api');
+    const cardanoNet = network === 'mainnet' ? 'mainnet' : 'preprod';
+    const utxos = await fetchUtxos(ownAddr, cardanoNet);
+    const u = utxos.find(x => `${x.txHash}:${x.outputIndex}` === cntUtxoId);
+    const tokenAsset = u?.assets?.find(a => a.unit && a.quantity);
+    assetUnit = tokenAsset?.unit;
+    if (!assetUnit) throw new Error(`Cannot derive assetUnit from legacy cntUtxoId ${cntUtxoId} (UTXO missing or has no asset)`);
+    console.log('[eBTC-redeem:ada-out] derived legacy assetUnit:', assetUnit);
+  }
 
   // 1) Pick CNT inputs that cover the redeem amount (largest-first accumulator).
   //    Token math MUST balance: sum(input_amounts) == redeem + change. Using a
