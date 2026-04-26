@@ -123,7 +123,7 @@ function BeamBackFormStep({ asset, ownBtcAddress, onNext, onClose }) {
 
 // ── Step 2: Confirm ─────────────────────────────────────────────────────────
 
-function BeamBackConfirmStep({ asset, amountRaw, changeRaw, destAddress, ownBtcAddress, btcUtxosLoaded, hasEnoughBtc, onBack, onClose, onConfirm }) {
+function BeamBackConfirmStep({ asset, amountRaw, changeRaw, destAddress, ownBtcAddress, btcUtxosLoaded, hasEnoughBtc, hasEnoughAda, adaDisplay, onBack, onClose, onConfirm }) {
   const { seedPhrase } = useWallet();
   const { addresses: cardanoAddresses } = useCardano();
 
@@ -131,14 +131,15 @@ function BeamBackConfirmStep({ asset, amountRaw, changeRaw, destAddress, ownBtcA
   const amountDisplay = (Number(amountRaw) / Math.pow(10, decimals)).toFixed(decimals > 4 ? 4 : decimals);
 
   // Executor creates the BTC placeholder + picks funding at runtime. Dialog
-  // only validates that the wallet has enough sats to fund both.
+  // only validates that the wallet has enough sats and ADA.
   const error = useMemo(() => {
     if (!btcUtxosLoaded) return 'Loading Bitcoin UTXOs...';
     if (!ownBtcAddress) return 'No Bitcoin address found';
     if (!hasEnoughBtc) return 'Insufficient Bitcoin sats (need ≥ 7000 sats: placeholder + fees + claim funding)';
+    if (!hasEnoughAda) return `Insufficient ADA. Need ≥15 ADA on Cardano, have ${adaDisplay} ADA.`;
     if (!destAddress) return 'No destination Bitcoin address';
     return null;
-  }, [btcUtxosLoaded, ownBtcAddress, hasEnoughBtc, destAddress]);
+  }, [btcUtxosLoaded, ownBtcAddress, hasEnoughBtc, hasEnoughAda, adaDisplay, destAddress]);
 
   const cardanoAddress = cardanoAddresses?.[0]?.address;
 
@@ -263,6 +264,13 @@ export default function BeamBackDialog({ asset, isOpen, onClose }) {
   // ~5000 sats funding UTXO for the BTC claim tx fee.
   const hasEnoughBtc = btcUtxos.reduce((s, u) => s + (u.value || 0), 0) >= 7000;
 
+  // Cardano side: ~15 ADA covers placeholder, collateral, funding + fees with
+  // headroom for the prover. Same floor as the other beam dialogs.
+  const adaLovelace = BigInt(useCardano.getState().adaBalance || '0');
+  const MIN_ADA_LOVELACE = BigInt(15_000_000);
+  const hasEnoughAda = adaLovelace >= MIN_ADA_LOVELACE;
+  const adaDisplay = (Number(adaLovelace) / 1_000_000).toFixed(2);
+
   if (!isOpen) return null;
 
   const handleConfirm = (label, payload) => {
@@ -295,6 +303,8 @@ export default function BeamBackDialog({ asset, isOpen, onClose }) {
             ownBtcAddress={ownBtcAddress}
             btcUtxosLoaded={btcUtxosLoaded}
             hasEnoughBtc={hasEnoughBtc}
+            hasEnoughAda={hasEnoughAda}
+            adaDisplay={adaDisplay}
             onBack={() => setStep('form')}
             onClose={onClose}
             onConfirm={handleConfirm}

@@ -91,3 +91,8 @@ secrets/
 
 # ====== Temporary directories ======
 **/tmp/
+
+# ====== Infra config ======
+api/Dockerfile
+api/fly.toml
+wallet/wrangler.toml
