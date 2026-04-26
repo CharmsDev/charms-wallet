@@ -10,10 +10,32 @@
  */
 export async function dumpBeamPayload(prefix, spellHuman, payload) {
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  if (typeof window !== 'undefined') {
+    console.log(`[dump] ${prefix} spell:`, spellHuman);
+    console.log(`[dump] ${prefix} payload:`, payload);
+    // Trigger browser downloads so the user can send us the files (works on
+    // any OS without dev/server fs access).
+    triggerDownload(`${prefix}-spell-${ts}.json`, spellHuman);
+    triggerDownload(`${prefix}-payload-${ts}.json`, payload);
+  }
   await Promise.all([
     post(`${prefix}-spell-${ts}.json`, spellHuman),
     post(`${prefix}-payload-${ts}.json`, payload),
   ]);
+}
+
+function triggerDownload(filename, data) {
+  try {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch { /* never break the caller */ }
 }
 
 async function post(filename, data) {

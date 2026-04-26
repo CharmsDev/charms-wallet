@@ -46,7 +46,7 @@ export async function executeEbtcRedeem(params) {
   const { beamId, onPhase, signal } = params;
   const ctx = { ...params };
   const save = (phase) => saveBeamState(beamId, { phase, direction: 'ebtc-ada-to-btc', ...snapshot(ctx) });
-  console.log('[eBTC-redeem] Starting. redeemAmount:', ctx.redeemAmount, 'cntUtxoId:', ctx.cntUtxoId);
+  console.log('[eBTC-redeem] Starting. redeemAmount:', ctx.redeemAmount, 'assetUnit:', ctx.assetUnit);
 
   // ═══ Step 1: Create BTC placeholder ════════════════════════════════════
   if (!ctx.placeholderUtxoId) {
@@ -208,37 +208,38 @@ async function createBtcPlaceholder({ btcAddress, seedPhrase, network, onStatus 
 // ── Step 2: ADA beam-out ────────────────────────────────────────────────────
 
 async function proveAndBroadcastAdaBeamOut({
-  cntUtxoId, ebtcBalance, redeemAmount, beamToHash,
+  assetUnit, redeemAmount, beamToHash,
   cardanoAddress, cardanoOwnAddress, seedPhrase, network, onStatus,
 }) {
   const ownAddr = cardanoOwnAddress || cardanoAddress;
-  const remainingEbtc = ebtcBalance - redeemAmount;
+  const redeem = BigInt(redeemAmount);
 
-  // Fetch fresh ADA UTXOs (still needed below for the CNT input + prev-tx CBOR).
-  // (goes through /api/cardano proxy to avoid CORS on Koios)
-  const { fetchUtxos: fetchCardanoUtxos, getCardanoTxCbor, submitCardanoTx } = await import('@/services/cardano/api');
-  const adaUtxos = await fetchCardanoUtxos(ownAddr);
+  // 1) Pick CNT inputs that cover the redeem amount (largest-first accumulator).
+  //    Token math MUST balance: sum(input_amounts) == redeem + change. Using a
+  //    single UTXO when the user's CNT is fragmented breaks this and the
+  //    prover rejects with `well_formed` because tokens_in ≠ tokens_out.
+  onStatus?.('Selecting CNT UTXOs...');
+  const { selectCntUtxos } = await import('../chains/cardano/cnt-selector');
+  const { inputs: cntInputs, totalAmount: cntTotal } =
+    await selectCntUtxos(ownAddr, assetUnit, redeem, network);
+  const change = cntTotal - redeem;
+  console.log('[eBTC-redeem:ada-out] CNT inputs:', cntInputs.length,
+    'total:', cntTotal.toString(), 'redeem:', redeem.toString(), 'change:', change.toString());
 
-  // fetchUtxos returns normalized shape: { txHash, outputIndex, lovelace, assets, ... }
-  const cntU = adaUtxos.find(u => `${u.txHash}:${u.outputIndex}` === cntUtxoId);
-  if (!cntU) throw new Error('CNT UTXO not found in latest fetch');
-
-  // Select collateral + funding via the unified helper (auto-consolidates if
-  // the wallet's pure-ADA UTXOs are fragmented). This is what the standard
-  // beam-back path uses; eBTC redeem used to do it inline and threw on
-  // fragmented wallets — see executor-beam-back.js for the same call.
+  // 2) Pick collateral + funding (auto-consolidate/split if fragmented).
   const { prepareCollateralAndFunding } = await import('../chains/cardano/funding');
+  const cntUtxoIds = cntInputs.map(i => i.utxoId);
   const { collateralUtxoId, fundingUtxoId, funding } = await prepareCollateralAndFunding({
     address: ownAddr,
     seedPhrase,
     addressIndex: 0,
-    excludeUtxoIds: [cntUtxoId],
+    excludeUtxoIds: cntUtxoIds,
     network,
     onStatus,
   });
   console.log('[eBTC-redeem:ada-out] collateral:', collateralUtxoId, 'funding:', fundingUtxoId);
 
-  // Build CBOR spell
+  // 3) Build CBOR spell.
   onStatus?.('Building Cardano beam-out spell...');
   const csl = await import('@emurgo/cardano-serialization-lib-asmjs');
   const addrBytes = Array.from(csl.Address.from_bech32(cardanoAddress).to_bytes());
@@ -246,30 +247,40 @@ async function proveAndBroadcastAdaBeamOut({
   const appPublicInputs = new Map();
   appPublicInputs.set(appToCborTuple(EBTC_TOKEN_APP), null);
 
-  const outs = [new Map([[0, redeemAmount]])];
-  if (remainingEbtc > 0) outs.push(new Map([[0, remainingEbtc]]));
+  const outs = [new Map([[0, Number(redeem)]])];
+  if (change > 0n) outs.push(new Map([[0, Number(change)]]));
 
   const beamToBytes = [];
   for (let i = 0; i < 64; i += 2) beamToBytes.push(parseInt(beamToHash.substring(i, i + 2), 16));
   const beamedOuts = new Map();
   beamedOuts.set(0, beamToBytes);
 
-  const coins = [{ amount: 2_000_000, dest: addrBytes }];
-  if (remainingEbtc > 0) coins.push({ amount: 2_000_000, dest: addrBytes });
+  const coins = outs.map(() => ({ amount: 2_000_000, dest: addrBytes }));
+
+  const ins = [
+    ...cntInputs.map(i => utxoIdToBytes(i.utxoId)),
+    utxoIdToBytes(fundingUtxoId),
+  ];
 
   const normalizedSpell = {
     version: SPELL_VERSION,
-    tx: { ins: [utxoIdToBytes(cntUtxoId), utxoIdToBytes(fundingUtxoId)], outs, beamed_outs: beamedOuts, coins },
+    tx: { ins, outs, beamed_outs: beamedOuts, coins },
     app_public_inputs: appPublicInputs,
   };
 
   const spellHex = cborToHex(normalizedSpell);
 
-  // Fetch prev txs CBOR (via proxy)
-  const cntCbor = await getCardanoTxCbor(cntU.txHash);
-  const fundingCbor = funding.txHash === cntU.txHash ? cntCbor : await getCardanoTxCbor(funding.txHash);
-  const prevTxs = [{ cardano: cntCbor }];
-  if (funding.txHash !== cntU.txHash) prevTxs.push({ cardano: fundingCbor });
+  // 4) prev_txs aligned 1:1 with spell.ins (cache to dedupe fetches).
+  const { fetchUtxos: fetchCardanoUtxos, getCardanoTxCbor, submitCardanoTx } = await import('@/services/cardano/api');
+  const cborCache = new Map();
+  const getCbor = async (txHash) => {
+    if (!cborCache.has(txHash)) cborCache.set(txHash, getCardanoTxCbor(txHash));
+    return cborCache.get(txHash);
+  };
+  const prevTxs = await Promise.all([
+    ...cntInputs.map(async i => ({ cardano: await getCbor(i.txHash) })),
+    (async () => ({ cardano: await getCbor(funding.txHash) }))(),
+  ]);
 
   const payload = {
     spell: spellHex,
@@ -283,25 +294,24 @@ async function proveAndBroadcastAdaBeamOut({
     collateral_utxo: collateralUtxoId,
   };
 
-  // Uncomment to dump spell + payload to _rjj/tmp for offline inspection.
-  // dumpBeamPayload('ebtc-redeem-ada-out', {
-  //   version: SPELL_VERSION,
-  //   ins: [`${cntUtxoId} (CNT, ${ebtcBalance} eBTC)`, `${fundingUtxoId} (funding)`],
-  //   outs: remainingEbtc > 0
-  //     ? [`{0: ${redeemAmount}} (eBTC, beamed)`, `{0: ${remainingEbtc}} (eBTC, change)`]
-  //     : [`{0: ${redeemAmount}} (eBTC, beamed — full burn)`],
-  //   beamed_outs: { 0: beamToHash },
-  //   coins: remainingEbtc > 0
-  //     ? ['2 ADA → cardanoAddress', '2 ADA → cardanoAddress']
-  //     : ['2 ADA → cardanoAddress'],
-  //   apps: [EBTC_TOKEN_APP],
-  //   token_math: {
-  //     input_cnt_balance: ebtcBalance,
-  //     output_total: redeemAmount + remainingEbtc,
-  //     simple_transfer: ebtcBalance === redeemAmount + remainingEbtc,
-  //   },
-  //   cardanoAddress, ownAddr, collateralUtxoId, network,
-  // }, payload);
+  // TEMPORARY: dump spell + payload for v1.3.23 multi-input verification.
+  // Re-comment after the redeem completes successfully end-to-end.
+  dumpBeamPayload('ebtc-redeem-ada-out-v23', {
+    version: SPELL_VERSION,
+    cnt_inputs: cntInputs.map(i => `${i.utxoId} (${i.amount} eBTC)`),
+    funding: fundingUtxoId,
+    outs: change > 0n
+      ? [`{0: ${redeem}} (beamed)`, `{0: ${change}} (change)`]
+      : [`{0: ${redeem}} (beamed — full)`],
+    beamed_outs: { 0: beamToHash },
+    apps: [EBTC_TOKEN_APP],
+    token_math: {
+      total_in: cntTotal.toString(),
+      total_out: (redeem + change).toString(),
+      balanced: cntTotal === redeem + change,
+    },
+    collateralUtxoId, network,
+  }, payload);
 
   onStatus?.('Submitting to prover (5-10 min)...');
   const proverUrl = getProverUrl(network);
@@ -764,10 +774,8 @@ function snapshot(ctx) {
   return {
     direction: 'ebtc-ada-to-btc',
     tokenAppId: EBTC_TOKEN_APP,
-    cntUtxoId: ctx.cntUtxoId,
-    ebtcBalance: ctx.ebtcBalance,
+    assetUnit: ctx.assetUnit,
     redeemAmount: ctx.redeemAmount,
-    remainingEbtc: ctx.ebtcBalance - ctx.redeemAmount,
     vaultUtxo: ctx.vaultUtxo,
     vaultSats: ctx.vaultSats,
     remainingVault: ctx.remainingVault,

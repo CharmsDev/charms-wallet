@@ -40,14 +40,8 @@ export default function CardanoDashboard() {
   }, []);
 
   const handleRedeem = useCallback((asset) => {
-    // Find CNT UTXO that holds this asset (need txHash:outputIndex)
-    const utxos = useCardano.getState().utxos || [];
-    const cntUtxo = utxos.find(u =>
-      (u.assets || []).some(a => a.unit === asset.unit)
-    );
-    if (cntUtxo) {
-      asset._cntUtxoId = `${cntUtxo.txHash}:${cntUtxo.outputIndex}`;
-    }
+    // The redeem flow now selects all CNT UTXOs internally via `asset.unit`
+    // (multi-input spell). No need to pre-pick a single UTXO here.
     setRedeemAsset(asset);
   }, []);
 
