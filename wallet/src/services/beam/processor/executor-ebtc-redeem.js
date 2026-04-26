@@ -437,9 +437,16 @@ async function proveCombinedRedeem({
     } catch (e) {
       console.warn('[eBTC-redeem:prove] Could not fetch own UTXOs:', e.message);
     }
+    // Skip UTXOs that look like charm/beamed-charm outputs from prior eBTC
+    // ops (300 sats vault dust, 546 sats charm dust). The protocol rejects
+    // these as funding because their parent spell tagged them beamed_out.
+    // 1000 sats is a safe floor — real funding change always lands above.
+    const NON_CHARM_FLOOR = 1000;
     const ownMap = new Map();
     for (const u of ownList) {
-      if (u.status?.confirmed) ownMap.set(`${u.txid}:${u.vout}`, u.value);
+      if (!u.status?.confirmed) continue;
+      if (u.value <= NON_CHARM_FLOOR) continue;
+      ownMap.set(`${u.txid}:${u.vout}`, u.value);
     }
 
     // Re-verify each stored funding UTXO is still confirmed + unspent
