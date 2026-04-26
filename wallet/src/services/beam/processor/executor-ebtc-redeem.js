@@ -217,19 +217,29 @@ async function proveAndBroadcastAdaBeamOut({
   // ╔══════════════════════════════════════════════════════════════════════╗
   // ║ TEMPORARY LEGACY FALLBACK — REMOVE AFTER STUCK REDEEM RESOLVES       ║
   // ║ Ops persisted before v1.3.23 saved `cntUtxoId` instead of            ║
-  // ║ `assetUnit`. Derives the unit by looking up the legacy UTXO on       ║
-  // ║ chain so a stuck retry can continue. Once the in-flight customer     ║
-  // ║ redeem (e018d779...) completes, DELETE this whole block.             ║
+  // ║ `assetUnit`. We try in order:                                        ║
+  // ║   1) The legacy cntUtxoId on chain                                   ║
+  // ║   2) Any UTXO at ownAddr carrying an eBTC asset (same policy)        ║
+  // ║ Step 2 covers the case where the legacy UTXO was already spent.      ║
+  // ║ Once the in-flight customer redeem completes, DELETE this block.     ║
   // ╚══════════════════════════════════════════════════════════════════════╝
-  if (!assetUnit && cntUtxoId) {
-    onStatus?.('Resolving asset from legacy CNT UTXO...');
+  if (!assetUnit) {
+    onStatus?.('Resolving eBTC asset (legacy)...');
     const { fetchUtxos } = await import('@/services/cardano/api');
     const cardanoNet = network === 'mainnet' ? 'mainnet' : 'preprod';
     const utxos = await fetchUtxos(ownAddr, cardanoNet);
-    const u = utxos.find(x => `${x.txHash}:${x.outputIndex}` === cntUtxoId);
-    const tokenAsset = u?.assets?.find(a => a.unit && a.quantity);
-    assetUnit = tokenAsset?.unit;
-    if (!assetUnit) throw new Error(`Cannot derive assetUnit from legacy cntUtxoId ${cntUtxoId} (UTXO missing or has no asset)`);
+
+    if (cntUtxoId) {
+      const u = utxos.find(x => `${x.txHash}:${x.outputIndex}` === cntUtxoId);
+      assetUnit = u?.assets?.find(a => a.unit && a.quantity)?.unit;
+    }
+    if (!assetUnit) {
+      const ebtcAsset = utxos
+        .flatMap(u => u.assets || [])
+        .find(a => a.unit?.startsWith(EBTC_POLICY_ID) && BigInt(a.quantity || '0') > 0n);
+      assetUnit = ebtcAsset?.unit;
+    }
+    if (!assetUnit) throw new Error('No eBTC UTXOs found at ownAddr — cannot resolve assetUnit');
     console.log('[eBTC-redeem:ada-out] derived legacy assetUnit:', assetUnit);
   }
 
