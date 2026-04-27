@@ -5,8 +5,6 @@ import { useTransactions } from '@/stores/transactionStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useUTXOStore } from '@/stores/utxoStore';
-import { useCharmsStore } from '@/stores/charms';
-import { scanCharmTransactions } from '@/services/wallet/sync/transaction-scanner';
 import TransactionList from './components/TransactionList';
 import TransactionDetail from './components/TransactionDetail';
 
@@ -16,14 +14,12 @@ export default function TransactionHistory() {
         isLoading,
         loadTransactions,
         processUTXOsForReceivedTransactions,
-        recordSentTransaction,
         reprocessCharmTransactions
     } = useTransactions();
-    
+
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const { addresses } = useAddresses();
-    const { utxos, refreshUTXOs } = useUTXOStore();
-    const { charms } = useCharmsStore();
+    const { utxos } = useUTXOStore();
     
     const [selectedTransaction, setSelectedTransaction] = useState(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -88,18 +84,22 @@ export default function TransactionHistory() {
         setIsRefreshing(true);
         try {
             if (activeBlockchain === 'cardano') { setIsRefreshing(false); return; }
+            // 1) Balance + UTXOs + charms (single balance/batch round trip)
             const { syncWalletExplorer } = await import('@/services/wallet/sync/explorer-wallet-sync');
             await syncWalletExplorer({ blockchain: activeBlockchain, network: activeNetwork, fullScan: true, skipCharms: false });
-            
+
+            // 2) Tx history via transactions/batch — incremental via watermark.
+            //    Inline charm.detected + assets[] eliminates the per-tx 404 path.
+            const { syncTransactionHistory } = await import('@/services/wallet/sync/transactions-sync');
+            await syncTransactionHistory({ blockchain: activeBlockchain, network: activeNetwork, mode: 'incremental' });
+
+            // 3) Backstop: scan current UTXOs for received txs the indexer
+            //    might have missed (defensive — harmless if redundant).
             if (utxos && Object.keys(utxos).length > 0) {
                 await processUTXOsForReceivedTransactions(utxos, addresses, activeBlockchain, activeNetwork);
             }
-            
-            if (charms && charms.length > 0) {
-                const walletAddresses = new Set(addresses.map(a => a.address));
-                await scanCharmTransactions(charms, activeBlockchain, activeNetwork, recordSentTransaction, walletAddresses);
-            }
-            
+
+            // 4) Enrich + reclassify charm txs (fetches vin/vout for new ones).
             await reprocessCharmTransactions(activeBlockchain, activeNetwork, addresses);
             await loadTransactions(activeBlockchain, activeNetwork);
         } catch (error) {

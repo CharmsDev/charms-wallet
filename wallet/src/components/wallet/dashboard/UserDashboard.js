@@ -181,12 +181,21 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
      */
     const handleRefresh = async () => {
         if (isRefreshing) return;
-        
+
         try {
-            // Use unified sync service - scans all addresses
+            // 1) Balance + UTXOs + charms via unified sync (Cardano-aware).
             await syncFullWallet();
-            
-            // Refresh addresses (non-critical)
+
+            // 2) BTC tx history — incremental via watermark. Cardano is a no-op.
+            //    Doing it here means the dashboard's single Refresh button covers
+            //    both balance and history; per-section buttons stay only when
+            //    they cover something specific.
+            if (activeBlockchain !== 'cardano') {
+                const { syncTransactionHistory } = await import('@/services/wallet/sync/transactions-sync');
+                await syncTransactionHistory({ blockchain: activeBlockchain, network: activeNetwork, mode: 'incremental' });
+            }
+
+            // 3) Refresh address list (non-critical).
             await loadAddresses(activeBlockchain, activeNetwork);
         } catch (error) {
             console.error("Failed to refresh wallet data:", error);

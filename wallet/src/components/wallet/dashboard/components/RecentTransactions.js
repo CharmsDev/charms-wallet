@@ -3,12 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useTransactions } from '@/stores/transactionStore';
 import { useBlockchain } from '@/stores/blockchainStore';
-import { useAddresses } from '@/stores/addressesStore';
-import { useUTXOStore } from '@/stores/utxoStore';
-import { useCharmsStore } from '@/stores/charms';
 import TransactionDetailsModal from './TransactionDetailsModal';
 import { getTransactionLabel, getTransactionIcon } from '@/services/transactions/transaction-classifier';
-import { scanCharmTransactions } from '@/services/wallet/sync/transaction-scanner';
 import { formatBTC, formatTransactionDate } from '@/utils/formatters';
 
 export default function RecentTransactions({ utxos, isLoading, onViewAllTransactions }) {
@@ -16,17 +12,10 @@ export default function RecentTransactions({ utxos, isLoading, onViewAllTransact
         transactions,
         isLoading: txLoading,
         loadTransactions,
-        processUTXOsForReceivedTransactions,
-        recordSentTransaction,
-        reprocessCharmTransactions,
         getRecentTransactions
     } = useTransactions();
     const { activeBlockchain, activeNetwork } = useBlockchain();
-    const { addresses } = useAddresses();
-    const { refreshUTXOs } = useUTXOStore();
-    const { charms } = useCharmsStore();
     const [selectedTransaction, setSelectedTransaction] = useState(null);
-    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const recentTransactions = getRecentTransactions(8);
 
@@ -37,38 +26,6 @@ export default function RecentTransactions({ utxos, isLoading, onViewAllTransact
     useEffect(() => {
         loadTransactions(activeBlockchain, activeNetwork);
     }, [activeBlockchain, activeNetwork, loadTransactions]);
-
-    /**
-     * Refreshes recent transactions by syncing UTXOs and charm data
-     * Optimized for dashboard by limiting UTXO scan to first 10 addresses
-     */
-    const handleRefreshTransactions = async () => {
-        if (isRefreshing || !addresses || addresses.length === 0) {
-            return;
-        }
-
-        setIsRefreshing(true);
-        try {
-            const { syncWalletExplorer } = await import('@/services/wallet/sync/explorer-wallet-sync');
-            await syncWalletExplorer({ blockchain: activeBlockchain, network: activeNetwork, fullScan: true, skipCharms: false });
-            
-            if (utxos && Object.keys(utxos).length > 0) {
-                await processUTXOsForReceivedTransactions(utxos, addresses, activeBlockchain, activeNetwork);
-            }
-            
-            if (charms && charms.length > 0) {
-                const walletAddresses = new Set(addresses.map(a => a.address));
-                await scanCharmTransactions(charms, activeBlockchain, activeNetwork, recordSentTransaction, walletAddresses);
-            }
-            
-            await reprocessCharmTransactions(activeBlockchain, activeNetwork, addresses);
-            loadTransactions(activeBlockchain, activeNetwork);
-        } catch (error) {
-            // Silently handle errors
-        } finally {
-            setIsRefreshing(false);
-        }
-    };
 
     const getStatusColor = (status) => {
         switch (status) {
@@ -114,17 +71,9 @@ export default function RecentTransactions({ utxos, isLoading, onViewAllTransact
         <div className="card p-6">
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold gradient-text">Recent Transactions</h3>
-                <button 
-                    onClick={handleRefreshTransactions}
-                    disabled={isRefreshing}
-                    className="text-sm text-primary-400 hover:text-primary-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                    title="Refresh transaction history"
-                >
-                    <svg className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    {isRefreshing ? 'Refreshing...' : 'Refresh'}
-                </button>
+                {/* Refresh handled by the dashboard's main Refresh button (it
+                    runs the same balance + tx history sync). Keeping a button
+                    here would be a redundant second trigger on the same screen. */}
             </div>
 
             {isLoading || txLoading ? (

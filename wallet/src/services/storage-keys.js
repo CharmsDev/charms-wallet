@@ -33,6 +33,7 @@ export const DATA_TYPES = {
   ASSETS:       'assets',       // Cardano native assets (CNTs, proxy tokens)
   ASSET_META:   'asset_meta',   // Cardano asset metadata cache
   INFO:         'info',
+  SYNC_META:    'sync_meta',    // Sync watermark (lastSyncBlock, lastSyncTs)
 };
 
 // ─── Extension-only ephemeral keys ───────────────────────────────────

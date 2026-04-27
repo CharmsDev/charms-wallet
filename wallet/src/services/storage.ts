@@ -105,6 +105,23 @@ export const clearWalletInfo = async (blockchain?: string, network?: string): Pr
     await StorageAdapter.remove(storageKey);
 };
 
+// Sync metadata: watermark for incremental tx history sync.
+export interface SyncMeta {
+    lastSyncBlock?: number | null;
+    lastSyncTs?: number;
+}
+
+export const getSyncMeta = async (blockchain?: string, network?: string): Promise<SyncMeta> => {
+    const storageKey = await resolveChainKey(DATA_TYPES.SYNC_META, blockchain, network);
+    const data = await StorageAdapter.get(storageKey);
+    return data ? JSON.parse(data) : {};
+};
+
+export const saveSyncMeta = async (meta: SyncMeta, blockchain?: string, network?: string): Promise<void> => {
+    const storageKey = await resolveChainKey(DATA_TYPES.SYNC_META, blockchain, network);
+    await StorageAdapter.set(storageKey, JSON.stringify(meta));
+};
+
 // Wallet addresses storage
 export const saveAddresses = async (addresses: AddressEntry[], blockchain?: string, network?: string): Promise<void> => {
     const storageKey = await resolveChainKey(DATA_TYPES.ADDRESSES, blockchain, network);

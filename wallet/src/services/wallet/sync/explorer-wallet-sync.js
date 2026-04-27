@@ -69,29 +69,113 @@ function toCharmObj(utxo, balanceEntry) {
 // ============================================
 
 /**
+ * Adapter: balance/batch UTXO row → wallet's internal UTXO shape.
+ * Balance endpoint omits `address` (implicit from outer key) and `confirmations`
+ * (we derive from `confirmed: bool` + chain tip).
+ */
+function adaptBalanceUtxo(u, address, currentHeight) {
+    const confirmed = u.confirmed === true;
+    const blockHeight = u.blockHeight ?? null;
+    const confirmations = confirmed && blockHeight && currentHeight
+        ? Math.max(1, currentHeight - blockHeight + 1)
+        : (confirmed ? 1 : 0);
+    return {
+        txid: u.txid,
+        vout: u.vout,
+        value: u.value,
+        address,
+        confirmations,
+        blockHeight,
+        coinbase: false,
+        hasCharms: u.hasCharms === true,
+        status: {
+            confirmed,
+            block_height: blockHeight,
+            block_hash: null,
+            block_time: null,
+        },
+    };
+}
+
+/**
+ * Aggregate balance/batch result into the same `(utxos, charmBalances)` pair
+ * that the legacy code path produced. Charm balances are merged across
+ * addresses by appId.
+ */
+function aggregateBalanceBatch(data, currentHeight, skipCharms) {
+    const utxos = [];
+    const charmMap = {};
+    for (const [addr, result] of Object.entries(data?.results || {})) {
+        if (result?.error) continue;
+        for (const u of (result.btc?.utxos || [])) {
+            utxos.push(adaptBalanceUtxo(u, addr, currentHeight));
+        }
+        if (skipCharms) continue;
+        for (const b of (result.charms?.balances || [])) {
+            const key = b.appId || b.app_id;
+            if (!charmMap[key]) {
+                charmMap[key] = {
+                    appId: key,
+                    assetType: b.assetType || b.asset_type || 'token',
+                    symbol: b.symbol || '',
+                    confirmed: 0, unconfirmed: 0, total: 0,
+                    utxos: [],
+                };
+            }
+            charmMap[key].confirmed += b.confirmed || 0;
+            charmMap[key].unconfirmed += b.unconfirmed || 0;
+            charmMap[key].total += b.total || 0;
+            // Inject appId + outer address onto each utxo (legacy shape).
+            charmMap[key].utxos.push(...(b.utxos || []).map(u => ({
+                appId: key, address: addr, ...u,
+            })));
+        }
+    }
+    return { utxos, charmBalances: Object.values(charmMap) };
+}
+
+/**
  * Fetch balance + charms from the Explorer indexed API.
- * Returns { balanceResult, charms, tokenBalances, utxos } or throws on failure.
+ * Tries the new unified balance/batch endpoint first. If unavailable
+ * (404 from older deploys or transient error) falls back to the legacy
+ * utxos/batch + charms/batch pair so prod wallets keep working through
+ * staged backend rollouts.
+ *
+ * Returns { balanceResult, charms, tokenBalances, utxos } in the same shape
+ * downstream code expects.
  */
 async function fetchFromExplorerAPI(explorerService, addressList, network, skipCharms) {
-    // Use batch endpoints (single POST per type) instead of N individual GETs
-    const [utxos, charmBalances] = await Promise.all([
-        explorerService.getAggregateUTXOsBatch(addressList, network, { minValue: 1000 }),
-        skipCharms ? [] : explorerService.getAggregateCharmBalancesBatch(addressList, network),
-    ]);
+    let utxos, charmBalances;
 
-    // Normalize charms first — needed for isCharmUtxo check below
+    try {
+        const [batchData, tip] = await Promise.all([
+            explorerService.getBatchBalance(addressList, network),
+            explorerService.getTip(network).catch(() => ({ height: null })),
+        ]);
+        const agg = aggregateBalanceBatch(batchData, tip?.height || null, skipCharms);
+        utxos = agg.utxos;
+        charmBalances = agg.charmBalances;
+    } catch (err) {
+        // Backend hasn't deployed balance/batch yet, or transient failure.
+        // Fall back to the legacy split endpoints — same final shape.
+        if (err?.status !== 404 && err?.status !== 405) {
+            console.warn('[ExplorerSync] balance/batch failed, using legacy batch:', err.message);
+        }
+        const [legacyUtxos, legacyCharms] = await Promise.all([
+            explorerService.getAggregateUTXOsBatch(addressList, network, { minValue: 1000 }),
+            skipCharms ? [] : explorerService.getAggregateCharmBalancesBatch(addressList, network),
+        ]);
+        utxos = legacyUtxos;
+        charmBalances = legacyCharms;
+    }
+
+    // Normalize charms — used for isCharmUtxo check below
     const charms = [];
     const seenKeys = new Set();
     if (!skipCharms && Array.isArray(charmBalances)) {
-        // Diagnostic: log raw response from the indexer so we can see what
-        // appIds + balances it's reporting. Helps explain "two BROs" /
-        // "ghost eBTC" cases where the indexer returns multiple identity
-        // hashes for what the user expects to be one token.
         console.log('[ExplorerSync] charm balances from indexer:',
             charmBalances.map(b => ({
-                appId: b.appId,
-                symbol: b.symbol,
-                total: b.total,
+                appId: b.appId, symbol: b.symbol, total: b.total,
                 utxoCount: (b.utxos || []).length,
             })));
         for (const balance of charmBalances) {
@@ -104,22 +188,21 @@ async function fetchFromExplorerAPI(explorerService, addressList, network, skipC
         }
     }
 
-    // Calculate BTC balance using existing spendability checks (same logic as calculateBalances)
-    let confirmed = 0;
-    let unconfirmed = 0;
+    // Spendable BTC = UTXOs that don't carry charms. Prefer the indexer's
+    // `hasCharms` flag (source of truth) when present; fall back to the
+    // ≤1000-sats heuristic for legacy responses.
+    let confirmed = 0, unconfirmed = 0;
     for (const utxo of utxos) {
-        if (isPotentialCharm(utxo)) continue;      // ≤ 1000 sats — dust / charm outputs
-        if (isCharmUtxo(utxo, charms)) continue;   // known charm-bearing UTXOs
+        const isCharm = utxo.hasCharms === true
+            || isPotentialCharm(utxo)
+            || isCharmUtxo(utxo, charms);
+        if (isCharm) continue;
         const sats = utxo.value || 0;
-        if ((utxo.confirmations || 0) >= 1) {
-            confirmed += sats;
-        } else {
-            unconfirmed += sats;
-        }
+        if ((utxo.confirmations || 0) >= 1) confirmed += sats;
+        else unconfirmed += sats;
     }
     const balanceResult = { confirmed, unconfirmed, total: confirmed + unconfirmed };
 
-    // Build token balance summary
     const tokenBalances = (Array.isArray(charmBalances) ? charmBalances : []).map(b => ({
         appId: b.appId,
         name: KNOWN_TOKENS[b.appId]?.name || b.symbol || 'Unknown',

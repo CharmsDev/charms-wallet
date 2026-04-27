@@ -571,6 +571,51 @@ export class ExplorerWalletService {
         return Object.values(map);
     }
 
+    // ── Unified balance batch (UTXOs + charms in one call) ──────────────
+
+    /**
+     * Batch fetch unified balance (BTC + UTXOs + charms) for multiple addresses
+     * (max 50). Single round trip that subsumes utxos/batch + charms/batch.
+     *
+     * POST /v1/wallet/balance/batch { addresses, network }
+     * Returns { results: { addr: BalanceResponse } } where BalanceResponse is
+     * the same shape as GET /v1/wallet/balance/{address}.
+     */
+    async getBatchBalance(addresses, network) {
+        const net = (network || 'mainnet').toString().toLowerCase();
+        return this._makeRequest('/v1/wallet/balance/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ addresses, network: net }),
+        }, network);
+    }
+
+    // ── Transaction history batch ──────────────────────────────────────
+
+    /**
+     * Batch fetch tx history for multiple addresses (max 50). Replaces N
+     * per-address GETs and inlines `charm.detected` + `assets[]` so the
+     * caller skips the per-tx /v1/charms/{txid} round trip (which used to
+     * 404 on non-charm txs).
+     *
+     * POST /v1/wallet/transactions/batch
+     *   { addresses, network, since_block?, page_size? }
+     *
+     * Returns { results: { addr: { transactions, total, last_block } } }.
+     * `since_block` enables incremental sync — the caller persists the
+     * highest `last_block` seen and passes it on the next call.
+     */
+    async getBatchTransactions(addresses, network, { sinceBlock = null, pageSize = 100 } = {}) {
+        const net = (network || 'mainnet').toString().toLowerCase();
+        const body = { addresses, network: net, page_size: pageSize };
+        if (sinceBlock != null) body.since_block = sinceBlock;
+        return this._makeRequest('/v1/wallet/transactions/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        }, network);
+    }
+
     // ── UTXO spent check ─────────────────────────────────────────────────
 
     async isUtxoSpent(txid, vout, network) {
