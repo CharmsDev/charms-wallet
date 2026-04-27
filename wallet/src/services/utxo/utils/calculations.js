@@ -3,6 +3,27 @@ import { hasOrdinals } from './ordinals';
 import { hasRunes, isRuneUtxo } from './runes';
 import { isCharmUtxo, isPotentialCharm } from './charms';
 import { calculateFee, calculateMixedFee as calculateMixedFeeUtil } from '@/services/wallet/utils/fee';
+import { isSpent as isUtxoReserved } from '@/services/utxo-reservations';
+
+/**
+ * Classify a UTXO into one of three states for the UI:
+ *   - 'reserved'  → currently used by an in-flight operation (beam, transfer, etc.)
+ *   - 'protected' → unspendable as plain BTC (charm-bearing, ≤1000 sats dust, ordinal, rune)
+ *   - null        → spendable
+ *
+ * 'reserved' takes priority over 'protected' so the user always sees
+ * the most actionable label.
+ */
+export function getUtxoStatus(utxo, charms = [], transactionData = null) {
+    if (!utxo) return null;
+    if (isUtxoReserved('bitcoin', utxo.txid, utxo.vout)) return 'reserved';
+    if (utxo.hasCharms === true) return 'protected';
+    if (isPotentialCharm(utxo)) return 'protected';
+    if (transactionData && hasOrdinals(transactionData, utxo.vout)) return 'protected';
+    if (isRuneUtxo(utxo, transactionData)) return 'protected';
+    if (isCharmUtxo(utxo, charms)) return 'protected';
+    return null;
+}
 
 export class UTXOCalculations {
     /**

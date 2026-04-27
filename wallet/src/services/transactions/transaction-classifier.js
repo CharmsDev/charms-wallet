@@ -142,9 +142,10 @@ function isBtcPlaceholder(outputs, inputs, ownSet) {
     if (!has546) return false;
     const allInsOwn = (inputs || []).every(i => i.address && ownSet.has(i.address));
     if (!allInsOwn) return false;
-    // Reject if any charm amounts involved (that'd be a different operation)
+    // Reject if any legacy charm amounts (330/1000 sats) — the 546 dust is
+    // the placeholder amount itself, not a charm marker.
     const anyCharm = [...(inputs || []), ...(outputs || [])].some(u =>
-        isCharmAmount(u.value ?? u.amount)
+        isLegacyCharmAmount(u.value ?? u.amount)
     );
     return !anyCharm;
 }

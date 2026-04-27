@@ -10,6 +10,7 @@ import { useWalletSync } from '@/hooks/useWalletSync';
 import config from '@/config';
 import { utxoService } from '@/services/utxo';
 import { utxoCalculations } from '@/services/utxo/utils/calculations';
+import { getUtxoStatus } from '@/services/utxo/utils/calculations';
 import { getUIPreferences, updateUIPreference } from '@/services/preferences/ui-preferences';
 import Switch from '@/components/ui/Switch';
 import SendBitcoinDialog from './SendBitcoinDialog';
@@ -207,7 +208,7 @@ export default function UTXOList() {
                         <Switch
                             checked={showOnlySpendable}
                             onChange={(e) => setShowOnlySpendable(e.target.checked)}
-                            label="Hide reserved"
+                            label="Hide protected"
                         />
                     </div>
                     {isBitcoin() && (
@@ -323,11 +324,24 @@ export default function UTXOList() {
                                                             Pending
                                                         </span>
                                                     )}
-                                                    {!utxoCalculations.isUtxoSpendable(utxo, charms, null, null) && (
-                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900/30 text-red-400">
-                                                            Reserved
-                                                        </span>
-                                                    )}
+                                                    {(() => {
+                                                        const status = getUtxoStatus(utxo, charms, null);
+                                                        if (status === 'reserved') {
+                                                            return (
+                                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-900/30 text-orange-400" title="In use by an active operation (beam / transfer)">
+                                                                    Reserved
+                                                                </span>
+                                                            );
+                                                        }
+                                                        if (status === 'protected') {
+                                                            return (
+                                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-900/30 text-blue-400" title="Carries a charm or is dust (≤1000 sats) — not spendable as plain BTC">
+                                                                    Protected
+                                                                </span>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
                                                 </div>
                                             </div>
                                         </td>

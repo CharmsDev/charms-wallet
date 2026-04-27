@@ -344,52 +344,24 @@ export class MempoolService {
     }
 
     /**
-     * Get address transaction history — queries BOTH the Explorer API (indexed,
-     * fast, tagged) and mempool.space (chain source of truth) in parallel,
-     * then merges the results. Using only one source misses txs when the
-     * indexer lags or returns a partial page.
+     * Get address transaction history via mempool.space.
+     *
+     * History sync goes through Explorer's transactions/batch — this method
+     * exists only for `bb_getaddress` (operational lookups outside the sync
+     * flow). The Explorer-paralela rama was removed because batch covers it.
      */
     async getAddressTransactions(address, network = null) {
-        const targetNetwork = network || config.bitcoin.network;
         const baseUrl = this._getMempoolUrl(network);
-
-        // Kick off both queries in parallel — Explorer paginates, mempool.space
-        // returns ≤50 confirmed (newer) + ≤25 mempool. Merging covers both the
-        // "indexer lag" case and the ">50 history" case.
-        const explorerPromise = (async () => {
-            try {
-                const { explorerWalletService } = await import('./explorer-wallet-service');
-                if (!explorerWalletService.isAvailable(targetNetwork)) return [];
-                return await explorerWalletService.getAllTransactions(address, targetNetwork);
-            } catch { return []; }
-        })();
-        const mempoolPromise = (async () => {
-            try {
-                return await this._makeHttpRequest(`${baseUrl}/address/${address}/txs`);
-            } catch { return []; }
-        })();
-
-        const [explorerList, mempoolList] = await Promise.all([explorerPromise, mempoolPromise]);
-
-        // Merge, Explorer wins on tagged data, mempool fills gaps
-        const merged = new Map();
-        for (const tx of explorerList) {
-            const txid = tx.txid || tx.hash;
-            if (txid) merged.set(txid, tx);
+        try {
+            const txs = await this._makeHttpRequest(`${baseUrl}/address/${address}/txs`);
+            return Array.isArray(txs) ? txs.map(tx => ({
+                txid: tx.txid || tx.hash,
+                block_height: tx.status?.block_height ?? null,
+                block_time: tx.status?.block_time ?? null,
+            })) : [];
+        } catch {
+            return [];
         }
-        for (const tx of mempoolList) {
-            const txid = tx.txid || tx.hash;
-            if (!txid) continue;
-            if (!merged.has(txid)) {
-                // Normalize mempool.space shape to what the recorder expects
-                merged.set(txid, {
-                    txid,
-                    block_height: tx.status?.block_height ?? null,
-                    block_time: tx.status?.block_time ?? null,
-                });
-            }
-        }
-        return [...merged.values()];
     }
 
     /**

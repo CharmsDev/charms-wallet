@@ -153,15 +153,14 @@ const useTransactionStore = create((set, get) => ({
         }
     },
 
-    // Process UTXOs to detect received transactions (manual refresh only)
+    // Process UTXOs to detect received transactions (manual refresh only).
+    // The full per-address history scan was removed — `transactions/batch`
+    // covers all sent + received history with `since_block` watermark.
+    // Kept as a defensive backstop for the UTXO-only path until we're sure
+    // the indexer covers every edge case.
     processUTXOsForReceivedTransactions: async (utxos, addresses, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
         try {
             const transactionRecorder = new TransactionRecorder(blockchain, network);
-            // Full history: captures sent txs and txs whose outputs are now
-            // spent (invisible to the UTXO-only scan).
-            await transactionRecorder.syncFullTransactionHistory(addresses);
-            // UTXO scan: still runs for pending/unconfirmed detection + extra
-            // metadata on active UTXOs.
             await transactionRecorder.processUTXOsForReceivedTransactions(utxos, addresses);
             await get().loadTransactions(blockchain, network);
         } catch (error) {
@@ -175,16 +174,17 @@ const useTransactionStore = create((set, get) => ({
             const { getTransactions, saveTransactions } = await import('@/services/storage');
             const { extractCharmTokenData } = await import('@/services/transactions/charm-transaction-extractor');
             const { classifyTransaction, CHARM_TRANSACTION_TYPES } = await import('@/services/transactions/transaction-classifier');
-            const { mempoolService } = await import('@/services/shared/mempool-service');
+            const { explorerWalletService } = await import('@/services/shared/explorer-wallet-service');
 
             const transactions = await getTransactions(blockchain, network);
 
             const updatedTransactions = await Promise.all(transactions.map(async (tx) => {
-                // Fill in missing inputs/outputs from the tx detail endpoint
-                if (!tx.inputs?.length || !tx.outputs?.length) {
+                // Fill in missing inputs/outputs via Explorer-only path.
+                // `detailsChecked: true` is set after the first attempt
+                // (success or 404) to prevent retries on every refresh.
+                if ((!tx.inputs?.length || !tx.outputs?.length) && !tx.detailsChecked) {
                     try {
-                        const response = await mempoolService.getTransaction(tx.txid, network);
-                        const txDetails = response?.tx || response;
+                        const txDetails = await explorerWalletService.getTransaction(tx.txid, network);
                         if (txDetails) {
                             tx.inputs = (txDetails.vin || []).map(i => ({
                                 txid: i.txid, vout: i.vout,
@@ -198,12 +198,17 @@ const useTransactionStore = create((set, get) => ({
                             }));
                             tx.fee = txDetails.fee || tx.fee;
                         }
-                    } catch { /* optional */ }
+                    } catch { /* tx not indexed — flag below stops retry */ }
+                    tx.detailsChecked = true;
                 }
 
                 tx.type = classifyTransaction(tx, addresses);
 
-                if (CHARM_TRANSACTION_TYPES.has(tx.type)) {
+                // Skip the indexer round trip if we already have the answer.
+                // `charmChecked: true` is set by transactions-sync (from the
+                // batch endpoint's `charm.detected` field) and by the migration
+                // after its one-shot pass — so we never re-query.
+                if (!tx.charmChecked && CHARM_TRANSACTION_TYPES.has(tx.type)) {
                     try {
                         const charmData = await extractCharmTokenData(tx.txid, network, addresses);
                         if (charmData) {
@@ -216,7 +221,9 @@ const useTransactionStore = create((set, get) => ({
                                 tokenAmount: charmData.tokenAmount,
                             };
                         }
-                    } catch { /* optional */ }
+                    } catch { /* tx not indexed — silenced; flag below stops retry */ }
+                    // Always flag — success or 404 — so we don't retry next refresh.
+                    tx.charmChecked = true;
                 }
                 return tx;
             }));

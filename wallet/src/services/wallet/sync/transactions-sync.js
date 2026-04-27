@@ -41,6 +41,13 @@ export async function syncTransactionHistory({
     const { explorerWalletService } = await import('@/services/shared/explorer-wallet-service');
     if (!explorerWalletService.isAvailable(network)) return { newTxCount: 0, lastBlock: null };
 
+    // One-shot: refresh charm metadata for txs saved by older versions
+    // (which used the deprecated /v1/charms/{txid}). No-op after first run.
+    try {
+        const { migrateCharmMetadataIfNeeded } = await import('@/services/migrations/charm-metadata-v1328');
+        await migrateCharmMetadataIfNeeded(blockchain, network);
+    } catch { /* migration is best-effort, never blocks sync */ }
+
     const stored = await getAddresses(blockchain, network);
     const addressList = stored
         .filter(a => !a.blockchain || a.blockchain === blockchain)
@@ -104,11 +111,12 @@ export async function syncTransactionHistory({
                 : { from: Array.from(addresses) },
             blockHeight: tx.block_height ?? null,
             confirmations: tx.confirmations || 0,
+            // Indexer is authoritative for charm detection — no second fetch needed.
+            // `charmChecked: true` short-circuits the reprocess loop so we never
+            // re-query /v1/transactions/{txid} on subsequent refreshes.
+            charmChecked: true,
         };
 
-        // Inline charm metadata from the indexer so charm txs get a
-        // ticker/name immediately, before reprocessCharmTransactions
-        // does the full classifier pass.
         if (tx.charm?.detected && Array.isArray(tx.assets) && tx.assets.length) {
             const asset = tx.assets[0];
             entry.charmTokenData = {

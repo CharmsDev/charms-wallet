@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useTransactions } from '@/stores/transactionStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useAddresses } from '@/stores/addressesStore';
-import { useUTXOStore } from '@/stores/utxoStore';
 import TransactionList from './components/TransactionList';
 import TransactionDetail from './components/TransactionDetail';
 
@@ -13,13 +12,11 @@ export default function TransactionHistory() {
         transactions,
         isLoading,
         loadTransactions,
-        processUTXOsForReceivedTransactions,
         reprocessCharmTransactions
     } = useTransactions();
 
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const { addresses } = useAddresses();
-    const { utxos } = useUTXOStore();
     
     const [selectedTransaction, setSelectedTransaction] = useState(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -89,17 +86,12 @@ export default function TransactionHistory() {
             await syncWalletExplorer({ blockchain: activeBlockchain, network: activeNetwork, fullScan: true, skipCharms: false });
 
             // 2) Tx history via transactions/batch — incremental via watermark.
-            //    Inline charm.detected + assets[] eliminates the per-tx 404 path.
+            //    Inline charm.detected + assets[] eliminates per-tx fetches.
             const { syncTransactionHistory } = await import('@/services/wallet/sync/transactions-sync');
             await syncTransactionHistory({ blockchain: activeBlockchain, network: activeNetwork, mode: 'incremental' });
 
-            // 3) Backstop: scan current UTXOs for received txs the indexer
-            //    might have missed (defensive — harmless if redundant).
-            if (utxos && Object.keys(utxos).length > 0) {
-                await processUTXOsForReceivedTransactions(utxos, addresses, activeBlockchain, activeNetwork);
-            }
-
-            // 4) Enrich + reclassify charm txs (fetches vin/vout for new ones).
+            // 3) Reclassify with full vin/vout for charm txs lacking it
+            //    (gated by tx.charmChecked so we never re-query a known answer).
             await reprocessCharmTransactions(activeBlockchain, activeNetwork, addresses);
             await loadTransactions(activeBlockchain, activeNetwork);
         } catch (error) {

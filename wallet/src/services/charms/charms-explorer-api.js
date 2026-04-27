@@ -18,37 +18,73 @@ export const getBroTokenAppId = () => BRO_TOKEN_APP_ID;
  * This service is responsible for fetching reference data for Charms and handling
  * special cases like the BRO token. It is designed as a singleton.
  */
+// Persistent negative cache for reference-NFT 404s. Many tokens have no
+// reference-NFT (e.g. eBTC), and re-querying on every page load spams 404s.
+// Stored in localStorage so the cache survives reloads — only invalidated
+// by an explicit nuke (settings → clear caches) or a fresh wallet.
+const REF_NFT_404_KEY = 'wallet:assetMeta:reference-nft:miss';
+const REF_NFT_HIT_KEY = 'wallet:assetMeta:reference-nft:hit';
+
+function loadJsonSafe(key) {
+    try {
+        if (typeof localStorage === 'undefined') return null;
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+}
+
+function saveJsonSafe(key, value) {
+    try {
+        if (typeof localStorage === 'undefined') return;
+        localStorage.setItem(key, JSON.stringify(value));
+    } catch { /* quota, private mode, etc. — best-effort */ }
+}
+
 class CharmsExplorerAPI {
     constructor() {
         this.baseUrl = config.explorerWallet?.apiUrl || null;
         this.isApiReady = !!this.baseUrl;
-        // Cache reference-NFT results per identity hash. Caches both hits
-        // (reference data) and misses (null) so we don't re-hit the endpoint
-        // on every dashboard re-render — the miss case for tokens without a
-        // reference-NFT (e.g. eBTC) was spamming the console with 404s.
-        this._refCache = new Map();    // identityHash → referenceData | null
-        this._refInflight = new Map(); // identityHash → Promise
+
+        // Hydrate persistent caches from localStorage.
+        const missArr = loadJsonSafe(REF_NFT_404_KEY) || [];
+        const hitObj = loadJsonSafe(REF_NFT_HIT_KEY) || {};
+
+        this._refMiss = new Set(missArr);                   // identityHash with confirmed 404
+        this._refHits = new Map(Object.entries(hitObj));    // identityHash → referenceData
+        this._refInflight = new Map();                      // identityHash → Promise (in-flight only)
+    }
+
+    _persistMiss() {
+        saveJsonSafe(REF_NFT_404_KEY, [...this._refMiss]);
+    }
+
+    _persistHits() {
+        saveJsonSafe(REF_NFT_HIT_KEY, Object.fromEntries(this._refHits));
     }
 
     async _fetchReferenceData(identityHash) {
-        if (this._refCache.has(identityHash)) {
-            return this._refCache.get(identityHash);
-        }
-        if (this._refInflight.has(identityHash)) {
-            return this._refInflight.get(identityHash);
-        }
+        if (this._refMiss.has(identityHash)) return null;
+        if (this._refHits.has(identityHash)) return this._refHits.get(identityHash);
+        if (this._refInflight.has(identityHash)) return this._refInflight.get(identityHash);
+
         const p = (async () => {
             try {
                 const response = await fetch(`${this.baseUrl}/v1/assets/reference-nft/${identityHash}`);
+                if (response.status === 404) {
+                    this._refMiss.add(identityHash);
+                    this._persistMiss();
+                    return null;
+                }
                 if (!response.ok) return null;
-                return await response.json();
+                const data = await response.json();
+                this._refHits.set(identityHash, data);
+                this._persistHits();
+                return data;
             } catch {
                 return null;
             }
-        })().then((data) => {
-            this._refCache.set(identityHash, data);
+        })().finally(() => {
             this._refInflight.delete(identityHash);
-            return data;
         });
         this._refInflight.set(identityHash, p);
         return p;

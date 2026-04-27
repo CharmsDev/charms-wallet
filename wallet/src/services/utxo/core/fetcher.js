@@ -166,14 +166,30 @@ export class UTXOFetcher {
             console.log(`[${_ts()}] [UTXOSync] ▶ ${filteredAddresses.length} addresses, network=${network}, Explorer=${hasExplorer}`);
 
             if (hasExplorer) {
-                // Primary: Explorer API batch (single POST for all addresses)
+                // Primary: unified balance/batch — UTXOs + charm flags in one POST.
                 try {
-                    const data = await explorerWalletService.getBatchUTXOs(filteredAddresses, network);
+                    const data = await explorerWalletService.getBatchBalance(filteredAddresses, network);
                     let processedCount = 0;
                     for (const [addr, result] of Object.entries(data.results || {})) {
                         processedCount++;
-                        if (result.error) continue;
-                        const utxos = (result.utxos || []).map(u => ({ ...u, address: u.address || addr }));
+                        if (result?.error) continue;
+                        const rawUtxos = result?.btc?.utxos || [];
+                        const utxos = rawUtxos.map(u => ({
+                            txid: u.txid,
+                            vout: u.vout,
+                            value: u.value,
+                            address: addr,
+                            confirmations: u.confirmed ? 1 : 0,
+                            blockHeight: u.blockHeight ?? null,
+                            coinbase: false,
+                            hasCharms: u.hasCharms === true,
+                            status: {
+                                confirmed: u.confirmed === true,
+                                block_height: u.blockHeight ?? null,
+                                block_hash: null,
+                                block_time: null,
+                            },
+                        }));
                         if (utxos.length > 0) {
                             utxoMap[addr] = utxos;
                             currentUTXOs[addr] = utxos;
@@ -188,13 +204,13 @@ export class UTXOFetcher {
                     const totalUtxos = Object.values(utxoMap).reduce((s, list) => s + list.length, 0);
                     console.log(`[${_ts()}] [UTXOSync] ⚡ Batch done: ${totalUtxos} UTXOs (${ms}ms)`);
                 } catch (err) {
-                    console.warn(`[${_ts()}] [UTXOSync] Batch failed: ${err.message} — falling back to per-address`);
-                    // Fall through to mempool failover below
-                    await this._fetchPerAddress(filteredAddresses, blockchain, network, currentUTXOs, utxoMap, onProgress, _ts);
+                    // Explorer-only: surface the error rather than silently
+                    // looping per-address against mempool.space.
+                    console.error(`[${_ts()}] [UTXOSync] balance/batch failed: ${err.message}`);
+                    throw err;
                 }
             } else {
-                // Failover: mempool.space per-address (sequential, rate limited)
-                await this._fetchPerAddress(filteredAddresses, blockchain, network, currentUTXOs, utxoMap, onProgress, _ts);
+                throw new Error('Explorer API unavailable — cannot sync UTXOs');
             }
 
             await saveUTXOs(currentUTXOs, blockchain, network);
@@ -206,35 +222,6 @@ export class UTXOFetcher {
         } catch (error) {
             console.error('UTXO fetching failed:', error.message);
             return {};
-        }
-    }
-
-    /**
-     * Failover: fetch UTXOs per-address via mempool.space (sequential to avoid 429)
-     */
-    async _fetchPerAddress(addresses, blockchain, network, currentUTXOs, utxoMap, onProgress, _ts) {
-        let processedCount = 0;
-        for (const address of addresses) {
-            if (this.cancelRequested) break;
-            processedCount++;
-            try {
-                const utxos = await this.getAddressUTXOs(address, blockchain, network);
-                if (utxos && utxos.length > 0) {
-                    utxoMap[address] = utxos;
-                    currentUTXOs[address] = utxos;
-                } else {
-                    delete currentUTXOs[address];
-                }
-                if (onProgress) {
-                    onProgress({ address, utxos: utxos || [], processed: processedCount, total: addresses.length, hasUtxos: utxos?.length > 0 });
-                }
-            } catch (err) {
-                console.warn(`[${_ts()}] [UTXOSync] ✗ ...${address.slice(-8)}: ${err.message}`);
-            }
-            // Rate limit for mempool.space
-            if (processedCount < addresses.length) {
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
         }
     }
 

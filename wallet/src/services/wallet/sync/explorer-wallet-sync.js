@@ -136,38 +136,18 @@ function aggregateBalanceBatch(data, currentHeight, skipCharms) {
 
 /**
  * Fetch balance + charms from the Explorer indexed API.
- * Tries the new unified balance/batch endpoint first. If unavailable
- * (404 from older deploys or transient error) falls back to the legacy
- * utxos/batch + charms/batch pair so prod wallets keep working through
- * staged backend rollouts.
+ * Single round trip via balance/batch (UTXOs + charms inline). Failures
+ * propagate — there is no legacy fallback; the deprecated endpoints are
+ * not part of this client.
  *
- * Returns { balanceResult, charms, tokenBalances, utxos } in the same shape
- * downstream code expects.
+ * Returns { balanceResult, charms, tokenBalances, utxos }.
  */
 async function fetchFromExplorerAPI(explorerService, addressList, network, skipCharms) {
-    let utxos, charmBalances;
-
-    try {
-        const [batchData, tip] = await Promise.all([
-            explorerService.getBatchBalance(addressList, network),
-            explorerService.getTip(network).catch(() => ({ height: null })),
-        ]);
-        const agg = aggregateBalanceBatch(batchData, tip?.height || null, skipCharms);
-        utxos = agg.utxos;
-        charmBalances = agg.charmBalances;
-    } catch (err) {
-        // Backend hasn't deployed balance/batch yet, or transient failure.
-        // Fall back to the legacy split endpoints — same final shape.
-        if (err?.status !== 404 && err?.status !== 405) {
-            console.warn('[ExplorerSync] balance/batch failed, using legacy batch:', err.message);
-        }
-        const [legacyUtxos, legacyCharms] = await Promise.all([
-            explorerService.getAggregateUTXOsBatch(addressList, network, { minValue: 1000 }),
-            skipCharms ? [] : explorerService.getAggregateCharmBalancesBatch(addressList, network),
-        ]);
-        utxos = legacyUtxos;
-        charmBalances = legacyCharms;
-    }
+    const [batchData, tip] = await Promise.all([
+        explorerService.getBatchBalance(addressList, network),
+        explorerService.getTip(network).catch(() => ({ height: null })),
+    ]);
+    const { utxos, charmBalances } = aggregateBalanceBatch(batchData, tip?.height || null, skipCharms);
 
     // Normalize charms — used for isCharmUtxo check below
     const charms = [];
@@ -268,37 +248,6 @@ async function applyResults(balanceResult, charms, tokenBalances, blockchain, ne
 }
 
 // ============================================
-// Fallback path (mempool.space + prover)
-// ============================================
-
-async function runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, result, _ts) {
-    const { fallbackProvider } = await import('@/services/shared/fallback-provider');
-
-    const fbBalance = await fallbackProvider.getBalance(addressList, network);
-    console.log(`[${_ts()}] [ExplorerWalletSync] Fallback balance: ${fbBalance.total} sats`);
-
-    let fbCharms = { charms: [], tokenBalances: [], degraded: false };
-    if (!skipCharms) {
-        try {
-            fbCharms = await fallbackProvider.getCharmBalances(addressList, network);
-            if (fbCharms.degraded) {
-                console.warn(`[${_ts()}] [ExplorerWalletSync] Prover unavailable — charm data degraded`);
-            }
-        } catch (charmErr) {
-            console.warn(`[${_ts()}] [ExplorerWalletSync] Charm fallback failed: ${charmErr.message}`);
-            fbCharms = { charms: [], tokenBalances: [], degraded: true };
-        }
-    }
-
-    await applyResults(fbBalance, fbCharms.charms, fbCharms.tokenBalances, blockchain, network, onPhase1Complete, onCharmFound);
-
-    result.totalBalance = fbBalance.total || 0;
-    result.charmsFound = fbCharms.charms.length;
-    result.success = true;
-    return result;
-}
-
-// ============================================
 // Main entry point
 // ============================================
 
@@ -341,20 +290,23 @@ export async function syncWalletExplorer(options = {}) {
         console.log(`[${_ts()}] [ExplorerWalletSync] Address list:`, addressList);
 
         // ============================================
-        // PRIMARY: Explorer indexed API (instant)
+        // Explorer indexed API (the only data source)
         // ============================================
-        if (explorerAvailable && addressList.length > 0) {
-            // Step 1: Fetch data from Explorer API
-            let fetchedData = null;
-            try {
-                const t0 = performance.now();
-                fetchedData = await fetchFromExplorerAPI(explorerWalletService, addressList, network, skipCharms);
-                const ms = (performance.now() - t0).toFixed(0);
-                console.log(`[${_ts()}] [ExplorerWalletSync] ⚡ Explorer API: ${ms}ms — balance=${fetchedData.balanceResult.total} sats, charms=${fetchedData.charms.length}`);
-            } catch (err) {
-                console.warn(`[${_ts()}] [ExplorerWalletSync] ⚡ Explorer API fetch failed: ${err.message} — activating fallback`);
-                return await runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, result, _ts);
-            }
+        if (!explorerAvailable) {
+            // Surface a clear error instead of silently falling back to
+            // mempool.space — the wallet is Explorer-only by design.
+            result.error = 'Explorer API unavailable. Try again in a moment.';
+            console.warn(`[${_ts()}] [ExplorerWalletSync] ${result.error}`);
+            return result;
+        }
+
+        if (addressList.length > 0) {
+            // Step 1: Fetch data from Explorer API. Errors propagate — no
+            // silent fallback to mempool.space.
+            const t0 = performance.now();
+            const fetchedData = await fetchFromExplorerAPI(explorerWalletService, addressList, network, skipCharms);
+            const ms = (performance.now() - t0).toFixed(0);
+            console.log(`[${_ts()}] [ExplorerWalletSync] ⚡ Explorer API: ${ms}ms — balance=${fetchedData.balanceResult.total} sats, charms=${fetchedData.charms.length}`);
 
             // Step 2: Save UTXOs from batch result (no separate sync needed)
             try {
@@ -392,10 +344,6 @@ export async function syncWalletExplorer(options = {}) {
             console.log(`[${_ts()}] [ExplorerWalletSync] ■ Complete: balance=${result.totalBalance}, utxos=${result.utxosUpdated}, charms=${result.charmsFound}`);
             result.success = true;
             return result;
-
-        } else if (!explorerAvailable) {
-            console.log(`[${_ts()}] [ExplorerWalletSync] Explorer unavailable — using fallback`);
-            return await runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, result, _ts);
         }
 
         // No addresses — nothing to sync
