@@ -1,23 +1,29 @@
 /**
- * One-shot migration: re-extract charm metadata for txs already in storage.
+ * One-shot migration: re-decode every stored tx via the new helper that
+ * resolves prevout addresses + decodes outputs in sats with proper
+ * OP_RETURN detection.
  *
- * v1.3.27 and earlier populated `charmTokenData` via the deprecated
- * `/v1/charms/{txid}` endpoint, which 404'd on non-charm txs and skipped
- * metadata for any tx that the legacy flow couldn't classify. v1.3.28
- * switches to `/v1/transactions/{txid}` (charm.detected + assets[] inline).
+ * Why: v1.3.27/28 parsed `/v1/wallet/tx/{txid}` (RPC verbose) as if it
+ * were mempool.space format — wrong field names AND wrong units. Result:
+ *   - inputs[].address always null  → UI shows "Unknown"
+ *   - outputs[].address always null → UI shows "OP_RETURN" for everything
+ *   - amount stayed at the indexer's 0 because tx.amount never got recomputed
+ *   - classifier failed (CHARM_RECEIVED/SENT/EBTC_REDEEM detection needs vin)
  *
- * This migration runs once per (blockchain, network) per wallet. It calls
- * the existing reprocess loop, which now uses the new endpoint, refreshing
- * `charmTokenData` for all stored txs. Idempotent — a `migrationVersion`
- * flag in sync_meta prevents re-runs.
- *
- * Storage shape is NOT modified by this migration; only field values are
- * refreshed. Prod wallets keep all their existing data.
+ * Fix runs once per (blockchain, network). Clears the `detailsChecked`
+ * flag so reprocessCharmTransactions re-fetches with the new decoder.
+ * Storage shape is preserved — only values are refreshed.
  */
 
-import { getSyncMeta, saveSyncMeta, getAddresses } from '@/services/storage';
+import {
+    getSyncMeta,
+    saveSyncMeta,
+    getAddresses,
+    getTransactions,
+    saveTransactions,
+} from '@/services/storage';
 
-const FLAG = 'v1.3.28-charm-extractor';
+const FLAG = 'v1.3.30-decoded-tx';
 
 export async function migrateCharmMetadataIfNeeded(blockchain, network) {
     if (!blockchain || !network) return false;
@@ -25,14 +31,25 @@ export async function migrateCharmMetadataIfNeeded(blockchain, network) {
     if (meta?.migrationVersion === FLAG) return false;
 
     try {
+        // 1) Clear stale per-tx flags so the decoder runs fresh on every entry.
+        const txs = await getTransactions(blockchain, network);
+        for (const tx of txs) {
+            tx.detailsChecked = false;
+            tx.charmChecked = false;
+        }
+        await saveTransactions(txs, blockchain, network);
+
+        // 2) Run reprocess — fetches decoded vin/vout, recalculates amount,
+        //    re-runs classifier with full data, refreshes charmTokenData.
         const addresses = await getAddresses(blockchain, network);
         const { useTransactionStore } = await import('@/stores/transactionStore');
         await useTransactionStore.getState().reprocessCharmTransactions(blockchain, network, addresses);
+
         await saveSyncMeta({ ...meta, migrationVersion: FLAG }, blockchain, network);
-        console.log('[Migration] charm metadata refreshed via /v1/transactions/{txid}');
+        console.log('[Migration] tx history re-decoded via getDecodedTransaction');
         return true;
     } catch (e) {
-        console.warn('[Migration] charm metadata refresh failed:', e?.message);
+        console.warn('[Migration] re-decode failed:', e?.message);
         return false;
     }
 }

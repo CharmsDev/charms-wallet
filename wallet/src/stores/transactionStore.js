@@ -177,32 +177,39 @@ const useTransactionStore = create((set, get) => ({
             const { explorerWalletService } = await import('@/services/shared/explorer-wallet-service');
 
             const transactions = await getTransactions(blockchain, network);
+            const ownAddrs = new Set((addresses || []).map(a => a.address || a).filter(Boolean));
+            // Seed placeholder txids — beam-in vs beam-out detection needs them.
+            const placeholderTxids = new Set(
+                transactions.filter(t => t.type === 'btc_placeholder').map(t => t.txid)
+            );
 
             const updatedTransactions = await Promise.all(transactions.map(async (tx) => {
-                // Fill in missing inputs/outputs via Explorer-only path.
-                // `detailsChecked: true` is set after the first attempt
-                // (success or 404) to prevent retries on every refresh.
+                // Fill in missing inputs/outputs via the decoded-tx helper
+                // (which resolves prevout addresses by fetching parent txs).
+                // `detailsChecked: true` short-circuits retries.
                 if ((!tx.inputs?.length || !tx.outputs?.length) && !tx.detailsChecked) {
                     try {
-                        const txDetails = await explorerWalletService.getTransaction(tx.txid, network);
-                        if (txDetails) {
-                            tx.inputs = (txDetails.vin || []).map(i => ({
-                                txid: i.txid, vout: i.vout,
-                                address: i.prevout?.scriptpubkey_address || null,
-                                value: i.prevout?.value || null,
-                            }));
-                            tx.outputs = (txDetails.vout || []).map(o => ({
-                                address: o.scriptpubkey_address || null,
-                                amount: o.value || 0,
-                                vout: o.n,
-                            }));
-                            tx.fee = txDetails.fee || tx.fee;
+                        const decoded = await explorerWalletService.getDecodedTransaction(tx.txid, network);
+                        if (decoded) {
+                            tx.inputs = decoded.inputs;
+                            tx.outputs = decoded.outputs;
+                            tx.fee = decoded.fee || tx.fee;
+                            // Re-derive net amount from vin/vout instead of trusting
+                            // the indexer's per-address number (which is 0 for txs
+                            // where the user's main receive address didn't change
+                            // balance, but the wallet still holds dust outputs).
+                            const inFromUs = tx.inputs.reduce((s, i) =>
+                                s + (ownAddrs.has(i.address) ? (i.value || 0) : 0), 0);
+                            const outToUs = tx.outputs.reduce((s, o) =>
+                                s + (ownAddrs.has(o.address) ? (o.amount || 0) : 0), 0);
+                            const delta = outToUs - inFromUs;
+                            if (delta !== 0) tx.amount = Math.abs(delta);
                         }
-                    } catch { /* tx not indexed — flag below stops retry */ }
+                    } catch { /* parent fetch failed — flag below stops retry */ }
                     tx.detailsChecked = true;
                 }
 
-                tx.type = classifyTransaction(tx, addresses);
+                tx.type = classifyTransaction(tx, addresses, { placeholderTxids });
 
                 // Skip the indexer round trip if we already have the answer.
                 // `charmChecked: true` is set by transactions-sync (from the
@@ -222,7 +229,6 @@ const useTransactionStore = create((set, get) => ({
                             };
                         }
                     } catch { /* tx not indexed — silenced; flag below stops retry */ }
-                    // Always flag — success or 404 — so we don't retry next refresh.
                     tx.charmChecked = true;
                 }
                 return tx;

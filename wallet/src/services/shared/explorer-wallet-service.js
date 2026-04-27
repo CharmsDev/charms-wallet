@@ -434,6 +434,88 @@ export class ExplorerWalletService {
         return resp?.spent === true;
     }
 
+    // ── Fully decoded transaction (vin + vout addresses + sats) ─────────
+
+    /**
+     * Returns a transaction in the wallet's canonical shape:
+     *
+     *   {
+     *     txid, block_height, block_time, confirmations, fee,
+     *     inputs:  [{ txid, vout, address, value }],   // value in sats
+     *     outputs: [{ vout, address, amount, isOpReturn, scriptType }], // amount in sats
+     *   }
+     *
+     * Bitcoin RPC verbose=true (the source of /v1/wallet/tx/{txid}) does NOT
+     * include prevout addresses on inputs, so we fetch each parent tx and
+     * pick the corresponding output. Parent fetches run in parallel and are
+     * deduped by an instance-level cache so a tx with N inputs from the same
+     * parent only triggers one fetch.
+     */
+    async getDecodedTransaction(txid, network) {
+        if (!this._txCache) this._txCache = new Map();
+        const cacheKey = `${network || 'mainnet'}:${txid}`;
+        if (this._txCache.has(cacheKey)) return this._txCache.get(cacheKey);
+
+        const data = await this._makeRequest(`/v1/wallet/tx/${txid}`, {}, network);
+        const toSats = (v) => typeof v === 'string' ? Math.round(parseFloat(v) * 1e8) : (v || 0);
+
+        const outputs = (data.outputs || []).map(o => {
+            const sp = o.script_pubkey || {};
+            const type = sp.type || '';
+            const isOpReturn = type === 'nulldata' || type === 'op_return';
+            return {
+                vout: o.n,
+                address: isOpReturn ? null : (sp.address || null),
+                amount: toSats(o.value),
+                isOpReturn,
+                scriptType: type,
+            };
+        });
+
+        // Resolve input prevouts via parent-tx fetches (parallel, deduped).
+        const parentTxids = [...new Set((data.inputs || [])
+            .filter(i => i.txid && !i.coinbase)
+            .map(i => i.txid))];
+        const parents = await Promise.all(parentTxids.map(async (parentTxid) => {
+            const pkey = `${network || 'mainnet'}:${parentTxid}`;
+            if (this._txCache.has(pkey)) return [parentTxid, this._txCache.get(pkey)];
+            try {
+                const p = await this._makeRequest(`/v1/wallet/tx/${parentTxid}`, {}, network);
+                return [parentTxid, p];
+            } catch {
+                return [parentTxid, null];
+            }
+        }));
+        const parentMap = new Map(parents);
+
+        const inputs = (data.inputs || []).map(inp => {
+            if (inp.coinbase || !inp.txid) {
+                return { txid: null, vout: null, address: null, value: 0, coinbase: true };
+            }
+            const parent = parentMap.get(inp.txid);
+            const pout = parent?.outputs?.[inp.vout];
+            const psp = pout?.script_pubkey || {};
+            return {
+                txid: inp.txid,
+                vout: inp.vout,
+                address: psp.address || null,
+                value: toSats(pout?.value),
+            };
+        });
+
+        const result = {
+            txid: data.txid,
+            block_height: data.block_height ?? null,
+            block_time: data.time ?? null,
+            confirmations: data.confirmations ?? 0,
+            fee: data.fee ?? 0,
+            inputs,
+            outputs,
+        };
+        this._txCache.set(cacheKey, result);
+        return result;
+    }
+
     // ── Indexed transaction (with charm metadata) ────────────────────────
 
     /**

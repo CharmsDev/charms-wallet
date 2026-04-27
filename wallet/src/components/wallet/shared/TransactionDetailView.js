@@ -226,18 +226,34 @@ export default function TransactionDetailView({ transaction, network, compact = 
                         Outputs ({transaction.outputs.length})
                     </h3>
                     <div className="glass-effect p-3 rounded-lg space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
-                        {transaction.outputs.map((output, index) => (
-                            <div key={index} className="text-sm">
-                                <div className="flex items-center justify-between">
-                                    <code className="text-primary-400 text-xs break-all font-mono">
-                                        {output.address || 'OP_RETURN'}
-                                    </code>
-                                    <span className="text-dark-400 ml-2 flex-shrink-0">
-                                        {formatBTC(output.amount)} BTC
-                                    </span>
+                        {transaction.outputs.map((output, index) => {
+                            // Three states: real address, real OP_RETURN, or unresolved.
+                            // Don't fall back to "OP_RETURN" when the address simply
+                            // failed to resolve — that's the bug the user caught.
+                            let label;
+                            let labelClass = 'text-primary-400';
+                            if (output.address) {
+                                label = output.address;
+                            } else if (output.isOpReturn) {
+                                label = 'OP_RETURN';
+                                labelClass = 'text-dark-500';
+                            } else {
+                                label = 'Unknown';
+                                labelClass = 'text-dark-500';
+                            }
+                            return (
+                                <div key={index} className="text-sm">
+                                    <div className="flex items-center justify-between">
+                                        <code className={`${labelClass} text-xs break-all font-mono`}>
+                                            {label}
+                                        </code>
+                                        <span className="text-dark-400 ml-2 flex-shrink-0">
+                                            {formatBTC(output.amount)} BTC
+                                        </span>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             )}
