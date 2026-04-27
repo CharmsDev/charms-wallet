@@ -160,8 +160,12 @@ function getSats(item) {
     return item?.value ?? item?.amount;
 }
 
-/** Split UTXOs (inputs or outputs) by ownership + charm-amount filter. */
-function splitCharmByOwnership(utxos, ownSet, isCharm = isLegacyCharmAmount) {
+/** Split UTXOs (inputs or outputs) by ownership + charm-amount filter.
+ *  Defaults to `isCharmBearingAmount` (330 / 1000 / 546) so that v14 modern
+ *  charms (which use 546-sat dust) are detected — the previous default of
+ *  `isLegacyCharmAmount` only matched the deprecated 330/1000 amounts and
+ *  caused every modern charm tx to fall through to RECEIVED/SENT. */
+function splitCharmByOwnership(utxos, ownSet, isCharm = isCharmBearingAmount) {
     const internal = [];
     const external = [];
     for (const u of utxos || []) {

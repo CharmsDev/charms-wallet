@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect } from 'react';
-import { GLOBAL_KEYS, chainPrefix } from '@/services/storage-keys';
+import { SYSTEM_KEYS, netPrefix } from '@/services/storage-keys';
 
 // Define supported blockchains and networks
 export const BLOCKCHAINS = {
@@ -38,26 +38,29 @@ export function NetworkProvider({ children }) {
     const [activeNetwork, setActiveNetwork] = useState(NETWORKS.BITCOIN.MAINNET);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Load saved preferences on mount
+    // Load saved preferences on mount; persist defaults if absent so any
+    // downstream code that reads localStorage directly (e.g. cardano/api.js
+    // getNetwork()) sees a consistent value — important right after a
+    // schema wipe, when these keys are gone.
     useEffect(() => {
         const loadSavedPreferences = () => {
-            const savedBlockchain = localStorage.getItem(GLOBAL_KEYS.ACTIVE_BLOCKCHAIN);
-            const savedNetwork = localStorage.getItem(GLOBAL_KEYS.ACTIVE_NETWORK);
+            const savedBlockchain = localStorage.getItem(SYSTEM_KEYS.ACTIVE_BLOCKCHAIN);
+            const savedNetwork    = localStorage.getItem(SYSTEM_KEYS.ACTIVE_NETWORK);
 
-            if (savedBlockchain) {
-                setActiveBlockchain(savedBlockchain);
-            }
+            const effBlockchain = savedBlockchain || BLOCKCHAINS.BITCOIN;
+            const effNetwork    = savedNetwork || (
+                effBlockchain === BLOCKCHAINS.CARDANO
+                    ? NETWORKS.CARDANO.MAINNET
+                    : NETWORKS.BITCOIN.MAINNET
+            );
 
-            if (savedNetwork) {
-                setActiveNetwork(savedNetwork);
-            } else {
-                // Set default network based on blockchain
-                if (savedBlockchain === BLOCKCHAINS.CARDANO) {
-                    setActiveNetwork(NETWORKS.CARDANO.MAINNET);
-                } else {
-                    setActiveNetwork(NETWORKS.BITCOIN.MAINNET);
-                }
-            }
+            setActiveBlockchain(effBlockchain);
+            setActiveNetwork(effNetwork);
+
+            // Persist defaults — only if missing — so the keys exist for
+            // every reader from this point on.
+            if (!savedBlockchain) localStorage.setItem(SYSTEM_KEYS.ACTIVE_BLOCKCHAIN, effBlockchain);
+            if (!savedNetwork)    localStorage.setItem(SYSTEM_KEYS.ACTIVE_NETWORK, effNetwork);
 
             setIsLoading(false);
         };
@@ -67,22 +70,22 @@ export function NetworkProvider({ children }) {
 
     // Save blockchain selection to localStorage
     const saveBlockchain = (blockchain) => {
-        localStorage.setItem(GLOBAL_KEYS.ACTIVE_BLOCKCHAIN, blockchain);
+        localStorage.setItem(SYSTEM_KEYS.ACTIVE_BLOCKCHAIN, blockchain);
         setActiveBlockchain(blockchain);
 
         // Update network to match the blockchain's default mainnet
         if (blockchain === BLOCKCHAINS.BITCOIN) {
             setActiveNetwork(NETWORKS.BITCOIN.MAINNET);
-            localStorage.setItem(GLOBAL_KEYS.ACTIVE_NETWORK, NETWORKS.BITCOIN.MAINNET);
+            localStorage.setItem(SYSTEM_KEYS.ACTIVE_NETWORK, NETWORKS.BITCOIN.MAINNET);
         } else if (blockchain === BLOCKCHAINS.CARDANO) {
             setActiveNetwork(NETWORKS.CARDANO.MAINNET);
-            localStorage.setItem(GLOBAL_KEYS.ACTIVE_NETWORK, NETWORKS.CARDANO.MAINNET);
+            localStorage.setItem(SYSTEM_KEYS.ACTIVE_NETWORK, NETWORKS.CARDANO.MAINNET);
         }
     };
 
     // Save network selection to localStorage
     const saveNetwork = (network) => {
-        localStorage.setItem(GLOBAL_KEYS.ACTIVE_NETWORK, network);
+        localStorage.setItem(SYSTEM_KEYS.ACTIVE_NETWORK, network);
         setActiveNetwork(network);
     };
 
@@ -114,7 +117,7 @@ export function NetworkProvider({ children }) {
         return false;
     };
     const isTestnet = () => !isMainnet();
-    const getStorageKeyPrefix = () => chainPrefix(activeBlockchain, activeNetwork);
+    const getStorageKeyPrefix = () => netPrefix(activeBlockchain, activeNetwork);
 
     // Context value - single source of truth
     const value = {

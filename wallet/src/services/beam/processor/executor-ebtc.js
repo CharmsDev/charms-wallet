@@ -61,7 +61,7 @@ export async function executeEbtcBeam(params) {
   }
 
   onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, 'Waiting for Cardano confirmation...');
-  await waitForCardanoConfirm({ txHash: ctx.placeholderTxid, onStatus: m => onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, m), signal });
+  await waitForCardanoConfirm({ txHash: ctx.placeholderTxid, network: ctx.network, adaNetwork: ctx.adaNetwork, onStatus: m => onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, m), signal });
   save(BEAM_PHASE.PROVING);
 
   // ═══ Step 2: BTC mint+beam (single tx) ═════════════════════════════════

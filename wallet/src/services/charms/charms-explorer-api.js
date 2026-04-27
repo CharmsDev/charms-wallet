@@ -22,8 +22,8 @@ export const getBroTokenAppId = () => BRO_TOKEN_APP_ID;
 // reference-NFT (e.g. eBTC), and re-querying on every page load spams 404s.
 // Stored in localStorage so the cache survives reloads — only invalidated
 // by an explicit nuke (settings → clear caches) or a fresh wallet.
-const REF_NFT_404_KEY = 'wallet:assetMeta:reference-nft:miss';
-const REF_NFT_HIT_KEY = 'wallet:assetMeta:reference-nft:hit';
+const REF_NFT_404_KEY = 'wallet:cache:reference-nft:miss';
+const REF_NFT_HIT_KEY = 'wallet:cache:reference-nft:hit';
 
 function loadJsonSafe(key) {
     try {

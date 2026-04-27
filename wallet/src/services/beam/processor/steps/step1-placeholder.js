@@ -15,11 +15,20 @@ import { submitCardanoTx } from '@/services/cardano/api';
  * @param {object} p
  * @param {string} p.cardanoAddress
  * @param {string} p.seedPhrase
+ * @param {string} [p.adaNetwork]   — Cardano network ('mainnet' | 'preprod')
+ * @param {string} [p.network]       — Bitcoin network (used as fallback for ADA when same-named)
  * @param {number} [p.addressIndex=0]
  * @param {function} [p.onStatus]
  * @returns {Promise<{ txHash: string, outputIndex: number }>}
  */
-export async function createPlaceholder({ cardanoAddress, cardanoOwnAddress, seedPhrase, addressIndex = 0, onStatus }) {
+export async function createPlaceholder({ cardanoAddress, cardanoOwnAddress, seedPhrase, adaNetwork, network, addressIndex = 0, onStatus }) {
+  // Resolve which Cardano network to query. Prefer `adaNetwork` from the
+  // dialog payload; fall back to mapping the BTC `network` (mainnet→mainnet,
+  // anything else→preprod). Never rely on getNetwork()'s localStorage read —
+  // it returns 'preprod' if the active_blockchain key is missing (e.g.
+  // immediately after a schema wipe).
+  const cardanoNet = adaNetwork || (network === 'mainnet' ? 'mainnet' : 'preprod');
+
   // The placeholder MUST live at our own address so step6 can spend it to
   // complete the claim. `cardanoAddress` (destination) only matters for the
   // final claim output where beamed tokens land. Fall back to `cardanoAddress`
@@ -34,12 +43,12 @@ export async function createPlaceholder({ cardanoAddress, cardanoOwnAddress, see
 
   // Fetch UTXOs from OUR address (where we can actually spend)
   onStatus?.('Fetching Cardano UTXOs...');
-  const utxos = await fetchUtxos(ownAddr);
+  const utxos = await fetchUtxos(ownAddr, cardanoNet);
   if (!utxos.length) throw new Error('No Cardano UTXOs available. Fund your Cardano address with at least 4 ADA.');
 
   // Fetch protocol parameters
   onStatus?.('Fetching protocol parameters...');
-  const params = await getProtocolParams();
+  const params = await getProtocolParams(cardanoNet);
 
   // Select largest UTXO for funding
   const sorted = [...utxos].sort((a, b) =>
@@ -107,9 +116,9 @@ export async function createPlaceholder({ cardanoAddress, cardanoOwnAddress, see
   const paymentKey = await derivePaymentKey(rootKey, addressIndex);
   fixedTx.sign_and_add_vkey_signature(paymentKey.to_raw_key());
 
-  // Submit
+  // Submit (explicit network — see top-of-function comment)
   onStatus?.('Submitting placeholder transaction...');
-  const submittedHash = await submitCardanoTx(fixedTx.to_bytes());
+  const submittedHash = await submitCardanoTx(fixedTx.to_bytes(), cardanoNet);
   const finalHash = fixedTx.transaction_hash().to_hex();
 
   const placeholderTxHash = typeof submittedHash === 'string' ? submittedHash : finalHash;

@@ -90,8 +90,8 @@ export default function TransactionHistory() {
             const { syncTransactionHistory } = await import('@/services/wallet/sync/transactions-sync');
             await syncTransactionHistory({ blockchain: activeBlockchain, network: activeNetwork, mode: 'incremental' });
 
-            // 3) Reclassify with full vin/vout for charm txs lacking it
-            //    (gated by tx.charmChecked so we never re-query a known answer).
+            // 3) Reclassify with full vin/vout for charm txs lacking it.
+            //    Confirmed txs with full data are skipped (immutable).
             await reprocessCharmTransactions(activeBlockchain, activeNetwork, addresses);
             await loadTransactions(activeBlockchain, activeNetwork);
         } catch (error) {

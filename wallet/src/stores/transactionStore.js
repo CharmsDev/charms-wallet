@@ -153,83 +153,106 @@ const useTransactionStore = create((set, get) => ({
         }
     },
 
-    // Process UTXOs to detect received transactions (manual refresh only).
-    // The full per-address history scan was removed — `transactions/batch`
-    // covers all sent + received history with `since_block` watermark.
-    // Kept as a defensive backstop for the UTXO-only path until we're sure
-    // the indexer covers every edge case.
-    processUTXOsForReceivedTransactions: async (utxos, addresses, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) => {
-        try {
-            const transactionRecorder = new TransactionRecorder(blockchain, network);
-            await transactionRecorder.processUTXOsForReceivedTransactions(utxos, addresses);
-            await get().loadTransactions(blockchain, network);
-        } catch (error) {
-            set({ error: error.message });
-        }
-    },
 
-    // Re-extract charm data for all existing charm transactions
+    // Re-classify and enrich transactions in storage. Confirmed entries that
+    // already carry full vin/vout are skipped (immutable) so refreshes stay
+    // cheap. New entries (added by transactions-sync) get vin/vout fetched
+    // once via the decoded-tx helper, then re-classified with the proper
+    // address context.
     reprocessCharmTransactions: async (blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, addresses = []) => {
         try {
-            const { getTransactions, saveTransactions } = await import('@/services/storage');
+            const { getTransactions, saveTransactions, getAddresses } = await import('@/services/storage');
             const { extractCharmTokenData } = await import('@/services/transactions/charm-transaction-extractor');
             const { classifyTransaction, CHARM_TRANSACTION_TYPES } = await import('@/services/transactions/transaction-classifier');
             const { explorerWalletService } = await import('@/services/shared/explorer-wallet-service');
 
+            // Load addresses from storage if caller didn't supply them — the
+            // classifier needs an `ownSet` to detect charm/beam patterns. An
+            // empty ownSet would silently default everything to RECEIVED/SENT.
+            const effectiveAddresses = (addresses && addresses.length > 0)
+                ? addresses
+                : await getAddresses(blockchain, network);
+
             const transactions = await getTransactions(blockchain, network);
-            const ownAddrs = new Set((addresses || []).map(a => a.address || a).filter(Boolean));
-            // Seed placeholder txids — beam-in vs beam-out detection needs them.
+            const ownAddrs = new Set(effectiveAddresses.map(a => a.address || a).filter(Boolean));
+            console.log(`[reprocess] addrs=${ownAddrs.size} txs=${transactions.length}`);
+
+            // Tx is fully populated if it has both inputs and outputs with
+            // at least one resolved address — those are confirmed-on-chain
+            // and never change.
+            const hasFullData = (tx) => {
+                if (!tx.inputs?.length || !tx.outputs?.length) return false;
+                const anyInputAddr = tx.inputs.some(i => i.address);
+                const anyOutputAddr = tx.outputs.some(o => o.address || o.isOpReturn);
+                return anyInputAddr && anyOutputAddr;
+            };
+
+            // Diagnostics — quantify what's happening so we can see if
+            // classification is failing because of decoder 404s, empty
+            // ownSet, or the classifier itself.
+            let decodedOk = 0, decodedFail = 0, classified = 0, kept = 0;
+            const sampleFails = [];
+
+            // PASS 1 — decode missing vin/vout, classify only when we have
+            // data. Otherwise keep the indexer-provided type.
+            const decoded = await Promise.all(transactions.map(async (tx) => {
+                const beforeType = tx.type;
+                if (!hasFullData(tx)) {
+                    const d = await explorerWalletService.getDecodedTransaction(tx.txid, network).catch(() => null);
+                    if (d?.outputs?.length) {
+                        tx.inputs = d.inputs;
+                        tx.outputs = d.outputs;
+                        tx.fee = d.fee || tx.fee;
+                        const inFromUs = tx.inputs.reduce((s, i) =>
+                            s + (ownAddrs.has(i.address) ? (i.value || 0) : 0), 0);
+                        const outToUs = tx.outputs.reduce((s, o) =>
+                            s + (ownAddrs.has(o.address) ? (o.amount || 0) : 0), 0);
+                        const delta = outToUs - inFromUs;
+                        if (delta !== 0) tx.amount = Math.abs(delta);
+                        decodedOk++;
+                    } else {
+                        decodedFail++;
+                        if (sampleFails.length < 3) sampleFails.push(tx.txid.slice(0, 12));
+                    }
+                }
+                if (hasFullData(tx)) {
+                    tx.type = classifyTransaction(tx, effectiveAddresses, { placeholderTxids: new Set() });
+                    classified++;
+                } else {
+                    kept++;
+                }
+                return tx;
+            }));
+
+            console.log(`[reprocess:p1] decoded=${decodedOk} decodeFail=${decodedFail} classified=${classified} keptIndexerType=${kept}${sampleFails.length ? ` sampleFails=${sampleFails.join(',')}…` : ''}`);
+
+            // Build placeholder set from Pass 1 — these are the BTC_PLACEHOLDER
+            // outputs that beam-in claim txs reference as their input.
             const placeholderTxids = new Set(
-                transactions.filter(t => t.type === 'btc_placeholder').map(t => t.txid)
+                decoded.filter(t => t.type === 'btc_placeholder').map(t => t.txid)
             );
 
-            const updatedTransactions = await Promise.all(transactions.map(async (tx) => {
-                // Fill in missing inputs/outputs via the decoded-tx helper
-                // (which resolves prevout addresses by fetching parent txs).
-                // `detailsChecked: true` short-circuits retries.
-                if ((!tx.inputs?.length || !tx.outputs?.length) && !tx.detailsChecked) {
-                    try {
-                        const decoded = await explorerWalletService.getDecodedTransaction(tx.txid, network);
-                        if (decoded) {
-                            tx.inputs = decoded.inputs;
-                            tx.outputs = decoded.outputs;
-                            tx.fee = decoded.fee || tx.fee;
-                            // Re-derive net amount from vin/vout instead of trusting
-                            // the indexer's per-address number (which is 0 for txs
-                            // where the user's main receive address didn't change
-                            // balance, but the wallet still holds dust outputs).
-                            const inFromUs = tx.inputs.reduce((s, i) =>
-                                s + (ownAddrs.has(i.address) ? (i.value || 0) : 0), 0);
-                            const outToUs = tx.outputs.reduce((s, o) =>
-                                s + (ownAddrs.has(o.address) ? (o.amount || 0) : 0), 0);
-                            const delta = outToUs - inFromUs;
-                            if (delta !== 0) tx.amount = Math.abs(delta);
-                        }
-                    } catch { /* parent fetch failed — flag below stops retry */ }
-                    tx.detailsChecked = true;
+            // PASS 2 — reclassify with placeholderTxids known. Only needed
+            // for txs that came back as CHARM_RECEIVED/CHARM_SENT in Pass 1
+            // (those are the ones that can flip to BEAM_IN/BEAM_OUT).
+            const updatedTransactions = await Promise.all(decoded.map(async (tx) => {
+                if (placeholderTxids.size > 0 && hasFullData(tx)) {
+                    tx.type = classifyTransaction(tx, effectiveAddresses, { placeholderTxids });
                 }
 
-                tx.type = classifyTransaction(tx, addresses, { placeholderTxids });
-
-                // Skip the indexer round trip if we already have the answer.
-                // `charmChecked: true` is set by transactions-sync (from the
-                // batch endpoint's `charm.detected` field) and by the migration
-                // after its one-shot pass — so we never re-query.
-                if (!tx.charmChecked && CHARM_TRANSACTION_TYPES.has(tx.type)) {
-                    try {
-                        const charmData = await extractCharmTokenData(tx.txid, network, addresses);
-                        if (charmData) {
-                            delete tx.metadata; // legacy field — superseded by charmTokenData
-                            tx.charmTokenData = {
-                                appId: charmData.appId,
-                                tokenName: charmData.tokenName,
-                                tokenTicker: charmData.tokenTicker,
-                                tokenImage: charmData.tokenImage,
-                                tokenAmount: charmData.tokenAmount,
-                            };
-                        }
-                    } catch { /* tx not indexed — silenced; flag below stops retry */ }
-                    tx.charmChecked = true;
+                // Charm metadata: only fetch if we don't already have it
+                // (set null after one attempt; absence (undefined) means
+                // "never tried").
+                if (tx.charmTokenData === undefined && CHARM_TRANSACTION_TYPES.has(tx.type)) {
+                    const charmData = await extractCharmTokenData(tx.txid, network, effectiveAddresses).catch(() => null);
+                    tx.charmTokenData = charmData ? {
+                        appId: charmData.appId,
+                        tokenName: charmData.tokenName,
+                        tokenTicker: charmData.tokenTicker,
+                        tokenImage: charmData.tokenImage,
+                        tokenAmount: charmData.tokenAmount,
+                    } : null;
+                    delete tx.metadata; // legacy field — superseded by charmTokenData
                 }
                 return tx;
             }));
@@ -240,9 +263,20 @@ const useTransactionStore = create((set, get) => ({
             const deduplicatedTransactions = Array.from(txidMap.values());
             
             await saveTransactions(deduplicatedTransactions, blockchain, network);
-            console.log('[TransactionStore] Reprocessing complete');
+
+            // Type distribution after both passes — the answer to "why is
+            // everything 'Received Bitcoin'?" lives here.
+            const dist = {};
+            for (const tx of deduplicatedTransactions) {
+                dist[tx.type] = (dist[tx.type] || 0) + 1;
+            }
+            const distStr = Object.entries(dist)
+                .sort((a, b) => b[1] - a[1])
+                .map(([t, n]) => `${t}=${n}`)
+                .join(' ');
+            console.log(`[reprocess] total=${deduplicatedTransactions.length} types: ${distStr}`);
         } catch (error) {
-            console.error('[TransactionStore] Error reprocessing charm transactions:', error);
+            console.error(`[reprocess] error: ${error.message}`);
             set({ error: error.message });
         }
     },

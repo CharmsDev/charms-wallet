@@ -132,7 +132,22 @@ export class UTXOFetcher {
         });
     }
 
-    async fetchAndStoreAllUTXOsSequential(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, onProgress = null, addressLimit = null, startOffset = 0) {
+    /**
+     * Fetch ALL wallet UTXOs from the indexer and REPLACE local storage.
+     *
+     * Invariants:
+     *   - ALWAYS scans every stored wallet address. Partial scans are
+     *     refused at the storage layer — they would strand UTXOs at
+     *     un-scanned addresses (the bug that previously made balance
+     *     creep up on every refresh).
+     *   - Local storage = exact mirror of what balance/batch returned.
+     *   - Errored addresses (per-address `error: true`) are treated as
+     *     "unknown state" → empty for this refresh. Next refresh corrects.
+     *   - `addressLimit`/`startOffset` arguments are kept for backward
+     *     signature compat but IGNORED — they were a foot-gun that could
+     *     truncate the storage write.
+     */
+    async fetchAndStoreAllUTXOsSequential(blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, onProgress = null, _addressLimit = null, _startOffset = 0) {
         try {
             this.resetCancelFlag();
 
@@ -143,81 +158,64 @@ export class UTXOFetcher {
                 return {};
             }
 
-            const addressesToScan = addressLimit
-                ? addresses.slice(startOffset, startOffset + addressLimit)
-                : addresses.slice(startOffset);
-
-            const sortedEntries = addressesToScan
+            const filteredAddresses = addresses
                 .filter(entry => !entry.blockchain || entry.blockchain === blockchain)
-                .sort((a, b) => a.index - b.index);
-            const filteredAddresses = sortedEntries.map(entry => entry.address);
+                .sort((a, b) => a.index - b.index)
+                .map(e => e.address);
 
             if (filteredAddresses.length === 0) {
                 return {};
             }
 
-            const currentUTXOs = await getUTXOs(blockchain, network);
-            const utxoMap = {};
-            const _ts = () => new Date().toISOString().slice(11, 23);
             const syncT0 = performance.now();
 
             const { explorerWalletService } = await import('@/services/shared/explorer-wallet-service');
             const hasExplorer = explorerWalletService.isAvailable(network);
-            console.log(`[${_ts()}] [UTXOSync] ▶ ${filteredAddresses.length} addresses, network=${network}, Explorer=${hasExplorer}`);
 
-            if (hasExplorer) {
-                // Primary: unified balance/batch — UTXOs + charm flags in one POST.
-                try {
-                    const data = await explorerWalletService.getBatchBalance(filteredAddresses, network);
-                    let processedCount = 0;
-                    for (const [addr, result] of Object.entries(data.results || {})) {
-                        processedCount++;
-                        if (result?.error) continue;
-                        const rawUtxos = result?.btc?.utxos || [];
-                        const utxos = rawUtxos.map(u => ({
-                            txid: u.txid,
-                            vout: u.vout,
-                            value: u.value,
-                            address: addr,
-                            confirmations: u.confirmed ? 1 : 0,
-                            blockHeight: u.blockHeight ?? null,
-                            coinbase: false,
-                            hasCharms: u.hasCharms === true,
-                            status: {
-                                confirmed: u.confirmed === true,
-                                block_height: u.blockHeight ?? null,
-                                block_hash: null,
-                                block_time: null,
-                            },
-                        }));
-                        if (utxos.length > 0) {
-                            utxoMap[addr] = utxos;
-                            currentUTXOs[addr] = utxos;
-                        } else {
-                            delete currentUTXOs[addr];
-                        }
-                        if (onProgress) {
-                            onProgress({ address: addr, utxos, processed: processedCount, total: filteredAddresses.length, hasUtxos: utxos.length > 0 });
-                        }
-                    }
-                    const ms = (performance.now() - syncT0).toFixed(0);
-                    const totalUtxos = Object.values(utxoMap).reduce((s, list) => s + list.length, 0);
-                    console.log(`[${_ts()}] [UTXOSync] ⚡ Batch done: ${totalUtxos} UTXOs (${ms}ms)`);
-                } catch (err) {
-                    // Explorer-only: surface the error rather than silently
-                    // looping per-address against mempool.space.
-                    console.error(`[${_ts()}] [UTXOSync] balance/batch failed: ${err.message}`);
-                    throw err;
-                }
-            } else {
+            if (!hasExplorer) {
                 throw new Error('Explorer API unavailable — cannot sync UTXOs');
             }
 
-            await saveUTXOs(currentUTXOs, blockchain, network);
-
-            const syncMs = ((performance.now() - syncT0) / 1000).toFixed(1);
+            // REPLACE strategy: build a fresh map from the API response,
+            // never merge with existing storage.
+            const utxoMap = {};
+            const data = await explorerWalletService.getBatchBalance(filteredAddresses, network);
+            let processedCount = 0;
+            for (const [addr, result] of Object.entries(data.results || {})) {
+                processedCount++;
+                if (result?.error) continue;
+                const rawUtxos = result?.btc?.utxos || [];
+                if (rawUtxos.length === 0) continue;
+                utxoMap[addr] = rawUtxos.map(u => ({
+                    txid: u.txid,
+                    vout: u.vout,
+                    value: u.value,
+                    address: addr,
+                    confirmations: u.confirmed ? 1 : 0,
+                    blockHeight: u.blockHeight ?? null,
+                    coinbase: false,
+                    hasCharms: u.hasCharms === true,
+                    status: {
+                        confirmed: u.confirmed === true,
+                        block_height: u.blockHeight ?? null,
+                        block_hash: null,
+                        block_time: null,
+                    },
+                }));
+                if (onProgress) {
+                    onProgress({
+                        address: addr,
+                        utxos: utxoMap[addr],
+                        processed: processedCount,
+                        total: filteredAddresses.length,
+                        hasUtxos: true,
+                    });
+                }
+            }
+            const ms = (performance.now() - syncT0).toFixed(0);
             const totalUtxos = Object.values(utxoMap).reduce((s, list) => s + list.length, 0);
-            console.log(`[${_ts()}] [UTXOSync] ■ Complete: ${totalUtxos} UTXOs across ${Object.keys(utxoMap).length} addresses in ${syncMs}s`);
+            await saveUTXOs(utxoMap, blockchain, network);
+            console.log(`[utxo-sync] addrs=${filteredAddresses.length} utxos=${totalUtxos} ${ms}ms`);
             return utxoMap;
         } catch (error) {
             console.error('UTXO fetching failed:', error.message);

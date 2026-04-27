@@ -36,29 +36,23 @@ export class UTXOCalculations {
      */
     isUtxoSpendable(utxo, charms = [], lockedUtxos = null, transactionData = null) {
         const utxoId = `${utxo.txid}:${utxo.vout}`;
-        
-        // Reserved UTXOs: ≤ 1000 sats (charm dust, ordinals, runes)
-        if (isPotentialCharm(utxo)) {
-            return false;
-        }
 
-        if (transactionData && hasOrdinals(transactionData, utxo.vout)) {
-            return false;
-        }
+        // Authoritative flag from /v1/wallet/balance/batch — the indexer
+        // already cross-referenced this UTXO against the charms table.
+        // When present it overrides every heuristic below.
+        if (utxo.hasCharms === true) return false;
 
-        if (isRuneUtxo(utxo, transactionData)) {
-            return false;
-        }
+        // Heuristic fallbacks for entries without the flag (legacy or
+        // mempool-fed sources): ≤ 1000 sats dust, ordinals, runes,
+        // and the wallet's own charm list cross-reference.
+        if (isPotentialCharm(utxo)) return false;
+        if (transactionData && hasOrdinals(transactionData, utxo.vout)) return false;
+        if (isRuneUtxo(utxo, transactionData)) return false;
+        if (isCharmUtxo(utxo, charms)) return false;
 
-        if (isCharmUtxo(utxo, charms)) {
-            return false;
-        }
-        
-        // Check if UTXO is locked
-        if (lockedUtxos && lockedUtxos.has(utxoId)) {
-            return false;
-        }
-        
+        // Active reservations (in-flight ops via utxo-reservations).
+        if (lockedUtxos && lockedUtxos.has(utxoId)) return false;
+
         return true;
     }
     // Calculate fee for a transaction with standard inputs

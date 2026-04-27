@@ -31,8 +31,25 @@ class BitcoinScureSigner {
         return await this.keyDerivation.deriveTaprootKeys(mnemonic, derivationPath);
     }
 
+    async deriveP2WPKHKeys(mnemonic, derivationPath = "m/84'/0'/0'/0/0") {
+        return await this.keyDerivation.deriveP2WPKHKeys(mnemonic, derivationPath);
+    }
+
     createTaprootAddress(xOnlyPubkey) {
         return this.keyDerivation.createTaprootAddress(xOnlyPubkey);
+    }
+
+    /**
+     * Detect the script type of a wallet address by its bech32 prefix.
+     * `bc1p...` / `tb1p...` → P2TR (Taproot, BIP86)
+     * `bc1q...` / `tb1q...` → P2WPKH (Native SegWit, BIP84)
+     */
+    _scriptTypeOf(address) {
+        if (typeof address !== 'string') return null;
+        const a = address.toLowerCase();
+        if (a.startsWith('bc1p') || a.startsWith('tb1p')) return 'p2tr';
+        if (a.startsWith('bc1q') || a.startsWith('tb1q')) return 'p2wpkh';
+        return null;
     }
 
     async createAndSignTransaction(transactionData, logCallback = null) {
@@ -70,13 +87,14 @@ class BitcoinScureSigner {
                 allowUnknownInputs: true
             });
 
-            // Add inputs
+            // Add inputs — supports BOTH P2TR (bc1p, BIP86) and P2WPKH (bc1q,
+            // BIP84). The wallet derives one P2WPKH address at index 0 and a
+            // tree of P2TR addresses, so a single send may mix both types.
             for (let i = 0; i < transactionData.utxos.length; i++) {
                 const utxo = transactionData.utxos[i];
-                
+
                 log(`Processing input ${i}: ${utxo.txid}:${utxo.vout}`);
-                
-                // Get addresses for the correct network
+
                 const blockchain = 'bitcoin';
                 const network = this.isMainnetNetwork ? 'mainnet' : 'testnet4';
                 const addresses = await getAddresses(blockchain, network);
@@ -86,36 +104,50 @@ class BitcoinScureSigner {
                     throw new Error(`Could not find address info for UTXO: ${utxo.txid}:${utxo.vout} (address: ${utxo.address})`);
                 }
 
-                // Use correct coin type based on network (same logic as addressUtils.js)
-                const isMainnetNetwork = this.network.bech32 === 'bc';
-                const coinType = isMainnetNetwork ? 0 : 1;
-                const derivationPath = `m/86'/${coinType}'/0'/${addressInfo.isChange ? 1 : 0}/${addressInfo.index || 0}`;
-                const keyData = await this.deriveTaprootKeys(seedPhrase, derivationPath);
-                
-                if (keyData.address !== utxo.address) {
-                    throw new Error(`Address mismatch for UTXO ${utxo.txid}:${utxo.vout}. Expected: ${utxo.address}, Got: ${keyData.address}`);
+                const scriptType = this._scriptTypeOf(utxo.address);
+                const coinType = this.isMainnetNetwork ? 0 : 1;
+
+                if (scriptType === 'p2wpkh') {
+                    // BIP84 — single receive address at index 0, no change tree.
+                    const path = `m/84'/${coinType}'/0'/${addressInfo.isChange ? 1 : 0}/${addressInfo.index || 0}`;
+                    const keyData = await this.deriveP2WPKHKeys(seedPhrase, path);
+                    if (keyData.address !== utxo.address) {
+                        throw new Error(`P2WPKH key mismatch for UTXO ${utxo.txid}:${utxo.vout}. Expected ${utxo.address}, got ${keyData.address}`);
+                    }
+                    tx.addInput({
+                        txid: hex.decode(utxo.txid),
+                        index: utxo.vout,
+                        witnessUtxo: {
+                            script: keyData.p2wpkh.script,
+                            amount: BigInt(utxo.value),
+                        },
+                    });
+                } else {
+                    // BIP86 P2TR (default — also covers explicit p2tr).
+                    const path = `m/86'/${coinType}'/0'/${addressInfo.isChange ? 1 : 0}/${addressInfo.index || 0}`;
+                    const keyData = await this.deriveTaprootKeys(seedPhrase, path);
+                    if (keyData.address !== utxo.address) {
+                        throw new Error(`P2TR key mismatch for UTXO ${utxo.txid}:${utxo.vout}. Expected ${utxo.address}, got ${keyData.address}`);
+                    }
+
+                    let scriptPubKey;
+                    try {
+                        const decoded = btc.Address(this.network).decode(utxo.address);
+                        scriptPubKey = '5120' + hex.encode(decoded.pubkey);
+                    } catch (error) {
+                        scriptPubKey = hex.encode(keyData.p2tr.script);
+                    }
+
+                    tx.addInput({
+                        txid: hex.decode(utxo.txid),
+                        index: utxo.vout,
+                        witnessUtxo: {
+                            script: hex.decode(scriptPubKey),
+                            amount: BigInt(utxo.value),
+                        },
+                        tapInternalKey: keyData.xOnlyPubkey,
+                    });
                 }
-
-                const txidBuffer = hex.decode(utxo.txid);
-                
-                let scriptPubKey;
-                try {
-                    const decoded = btc.Address(this.network).decode(utxo.address);
-                    scriptPubKey = '5120' + hex.encode(decoded.pubkey);
-                } catch (error) {
-                    scriptPubKey = hex.encode(keyData.p2tr.script);
-                }
-
-                tx.addInput({
-                    txid: txidBuffer,
-                    index: utxo.vout,
-                    witnessUtxo: {
-                        script: hex.decode(scriptPubKey),
-                        amount: BigInt(utxo.value),
-                    },
-                    tapInternalKey: keyData.xOnlyPubkey,
-                });
-
             }
 
             const amountInSatoshis = transactionData.amountInSats || Math.floor(transactionData.amount * 100000000);
@@ -178,47 +210,53 @@ class BitcoinScureSigner {
                 });
             }
 
-            // Get addresses for the correct network
+            // Build the deduped key map across both BIP86 (P2TR) and BIP84
+            // (P2WPKH) inputs. `tx.sign(privateKey)` matches every input that
+            // can be signed with that key, so we just need each unique
+            // private key once.
             const blockchain = 'bitcoin';
             const network = this.isMainnetNetwork ? 'mainnet' : 'testnet4';
             const addressesAll = await getAddresses(blockchain, network);
-            const keyMap = new Map();
+            const keyMap = new Map(); // pubkeyHex → { privateKey, derivationPath }
+            const coinType = this.isMainnetNetwork ? 0 : 1;
 
-            for (let inputIndex = 0; inputIndex < transactionData.utxos.length; inputIndex++) {
-                const utxo = transactionData.utxos[inputIndex];
+            for (const utxo of transactionData.utxos) {
                 const addressInfo = addressesAll.find(addr => addr.address === utxo.address);
                 if (!addressInfo) {
                     throw new Error(`Could not find address info for UTXO: ${utxo.txid}:${utxo.vout}`);
                 }
-                // Use correct coin type based on network (same logic as addressUtils.js)
-                const isMainnetNetwork = this.network.bech32 === 'bc';
-                const coinType = isMainnetNetwork ? 0 : 1;
-                const derivationPath = `m/86'/${coinType}'/0'/${addressInfo.isChange ? 1 : 0}/${addressInfo.index || 0}`;
-                const keyData = await this.deriveTaprootKeys(seedPhrase, derivationPath);
-                const xOnlyHex = hex.encode(keyData.xOnlyPubkey);
-                if (!keyMap.has(xOnlyHex)) {
-                    keyMap.set(xOnlyHex, { privateKey: keyData.privateKey, derivationPath });
+                const scriptType = this._scriptTypeOf(utxo.address);
+                const idx = addressInfo.index || 0;
+                const branch = addressInfo.isChange ? 1 : 0;
+
+                let keyData;
+                if (scriptType === 'p2wpkh') {
+                    const path = `m/84'/${coinType}'/0'/${branch}/${idx}`;
+                    keyData = await this.deriveP2WPKHKeys(seedPhrase, path);
+                } else {
+                    const path = `m/86'/${coinType}'/0'/${branch}/${idx}`;
+                    keyData = await this.deriveTaprootKeys(seedPhrase, path);
+                }
+                const pubkeyHex = hex.encode(keyData.publicKey);
+                if (!keyMap.has(pubkeyHex)) {
+                    keyMap.set(pubkeyHex, { privateKey: keyData.privateKey, type: keyData.type });
                 }
             }
 
-            for (const [xOnlyHex, { privateKey, derivationPath }] of keyMap.entries()) {
-                const signedCount = tx.sign(privateKey);
-                if (signedCount === 0) {
-                    throw new Error(`No inputs signed for key ${xOnlyHex} (path ${derivationPath})`);
-                }
+            for (const [, { privateKey }] of keyMap.entries()) {
+                tx.sign(privateKey); // ignore "no inputs signed" — other key handles them
             }
 
-            // Verify all inputs have a signature before finalizing
-            for (let i = 0; i < tx.inputsLength; i++) {
-                const inp = tx.getInput(i);
-                if (!inp) {
-                    throw new Error(`Input ${i} is missing`);
-                }
-            }
-
+            // Verify every input has a signature (Taproot uses tapKeySig,
+            // SegWit uses partialSig). Accept either.
             for (let i = 0; i < tx.inputsLength; i++) {
                 const input = tx.getInput(i);
-                if (!input.tapKeySig) {
+                if (!input) {
+                    throw new Error(`Input ${i} is missing`);
+                }
+                const hasTaprootSig = !!input.tapKeySig;
+                const hasSegwitSig  = Array.isArray(input.partialSig) && input.partialSig.length > 0;
+                if (!hasTaprootSig && !hasSegwitSig) {
                     throw new Error(`Input ${i} is missing signature`);
                 }
             }

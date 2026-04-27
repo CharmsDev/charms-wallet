@@ -71,7 +71,8 @@ export async function executeBeamBack(params) {
     // from chain so Mithril can verify it.
     if (!ctx.cardanoTxCborHex && ctx.cardanoBeamOutTxHash) {
       const { getCardanoTxCbor } = await import('@/services/cardano/api');
-      ctx.cardanoTxCborHex = await getCardanoTxCbor(ctx.cardanoBeamOutTxHash);
+      const cardanoNet = ctx.network === 'mainnet' ? 'mainnet' : 'preprod';
+      ctx.cardanoTxCborHex = await getCardanoTxCbor(ctx.cardanoBeamOutTxHash, cardanoNet);
     }
     onPhase(BEAM_PHASE.WAITING_FINALITY, 'Waiting for Cardano finality (Mithril)...');
     const { finalitySignature } = await waitForCardanoFinality({
@@ -162,9 +163,10 @@ async function proveAndBroadcastCardanoBeamOut({
   // Fetch prev tx CBORs (1:1 with spell.ins, dedupe via cache).
   onStatus?.('Fetching previous transactions...');
   const { getCardanoTxCbor } = await import('@/services/cardano/api');
+  const cardanoNet = network === 'mainnet' ? 'mainnet' : 'preprod';
   const cborCache = new Map();
   const getCbor = async (txHash) => {
-    if (!cborCache.has(txHash)) cborCache.set(txHash, getCardanoTxCbor(txHash));
+    if (!cborCache.has(txHash)) cborCache.set(txHash, getCardanoTxCbor(txHash, cardanoNet));
     return cborCache.get(txHash);
   };
   const fundingTxHash = fundingUtxoId.split(':')[0];
@@ -244,10 +246,10 @@ async function proveAndBroadcastCardanoBeamOut({
   fixedTx.sign_and_add_vkey_signature(paymentKey.to_raw_key());
   const signedBytes = fixedTx.to_bytes();
 
-  // Submit to Cardano
+  // Submit to Cardano (explicit network).
   onStatus?.('Broadcasting Cardano beam-out...');
   const { submitCardanoTx } = await import('@/services/cardano/api');
-  const adaResult = await submitCardanoTx(signedBytes);
+  const adaResult = await submitCardanoTx(signedBytes, cardanoNet);
   const cardanoBeamOutTxHash = typeof adaResult === 'string'
     ? adaResult.replace(/"/g, '').trim()
     : fixedTx.transaction_hash().to_hex();

@@ -1,10 +1,22 @@
 'use client';
 
-import { getTransactionLabel, getTransactionIcon } from '@/services/transactions/transaction-classifier';
+import { getTransactionLabel, getTransactionIcon, CHARM_TRANSACTION_TYPES } from '@/services/transactions/transaction-classifier';
+import { classifyInput, classifyOutput } from '@/services/transactions/known-addresses';
+import { useAddresses } from '@/stores/addressesStore';
+import { useMemo } from 'react';
 import { formatBTC, formatDetailedDate } from '@/utils/formatters';
 import BitcoinTransaction from '../history/components/transaction-types/BitcoinTransaction';
 import CharmTransaction from '../history/components/transaction-types/CharmTransaction';
 import BroTransaction from '../history/components/transaction-types/BroTransaction';
+
+const KIND_BADGE = {
+    scrolls_fee: 'bg-purple-900/30 text-purple-300 border-purple-700/40',
+    vault_ebtc:  'bg-orange-900/30 text-orange-300 border-orange-700/40',
+    self:        'bg-green-900/30 text-green-300 border-green-700/40',
+    external:    'bg-blue-900/30 text-blue-300 border-blue-700/40',
+    op_return:   'bg-dark-700/50 text-dark-400 border-dark-600',
+    unknown:     'bg-dark-700/50 text-dark-400 border-dark-600',
+};
 
 /**
  * Reusable transaction detail component for displaying comprehensive transaction information
@@ -21,14 +33,25 @@ export default function TransactionDetailView({ transaction, network, compact = 
         );
     }
 
+    // Charm txs go to the charms-explorer (it knows how to render spells).
+    // Plain BTC txs go to mempool.space.
+    const isCharm = CHARM_TRANSACTION_TYPES.has(transaction.type);
     const getExplorerUrl = (txid) => {
-        if (network === 'mainnet') {
-            return `https://mempool.space/tx/${txid}`;
-        } else if (network === 'testnet4') {
-            return `https://mempool.space/testnet4/tx/${txid}`;
+        if (isCharm) {
+            const base = process.env.NEXT_PUBLIC_CHARMS_EXPLORER_URL || 'https://charms-explorer.pages.dev';
+            return `${base}/tx?txid=${txid}&network=${network || 'mainnet'}&from=wallet`;
         }
+        if (network === 'mainnet')   return `https://mempool.space/tx/${txid}`;
+        if (network === 'testnet4')  return `https://mempool.space/testnet4/tx/${txid}`;
         return `https://mempool.space/testnet/tx/${txid}`;
     };
+
+    // Resolve "own" addresses once for input/output labelling.
+    const { addresses: walletAddresses = [] } = useAddresses() || {};
+    const ownSet = useMemo(
+        () => new Set((walletAddresses || []).map(a => a.address || a).filter(Boolean)),
+        [walletAddresses]
+    );
 
     const getStatusColor = (status) => {
         switch (status) {
@@ -156,8 +179,8 @@ export default function TransactionDetailView({ transaction, network, compact = 
                     <span className="text-white">{formatDetailedDate(transaction.timestamp)}</span>
                 </DetailRow>
 
-                {/* Block Height */}
-                {transaction.blockHeight && (
+                {/* Block Height — use `> 0` to avoid React rendering a literal 0 */}
+                {transaction.blockHeight > 0 && (
                     <DetailRow label="Block Height">
                         <span className="text-white">{transaction.blockHeight.toLocaleString()}</span>
                     </DetailRow>
@@ -201,20 +224,28 @@ export default function TransactionDetailView({ transaction, network, compact = 
                         Inputs ({transaction.inputs.length})
                     </h3>
                     <div className="glass-effect p-3 rounded-lg space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
-                        {transaction.inputs.map((input, index) => (
-                            <div key={index} className="text-sm">
-                                <div className="flex items-center justify-between">
-                                    <code className="text-primary-400 text-xs break-all font-mono">
-                                        {input.address || 'Unknown'}
-                                    </code>
-                                    {input.value && (
-                                        <span className="text-dark-400 ml-2 flex-shrink-0">
-                                            {formatBTC(input.value)} BTC
-                                        </span>
-                                    )}
+                        {transaction.inputs.map((input, index) => {
+                            const tag = classifyInput(input, ownSet);
+                            return (
+                                <div key={index} className="text-sm">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${KIND_BADGE[tag.kind] || KIND_BADGE.unknown} flex-shrink-0`}>
+                                                {tag.label}
+                                            </span>
+                                            <code className={`${input.address ? 'text-primary-400' : 'text-dark-500'} text-xs break-all font-mono truncate`} title={input.address || ''}>
+                                                {input.address || 'Unknown'}
+                                            </code>
+                                        </div>
+                                        {input.value > 0 && (
+                                            <span className="text-dark-400 flex-shrink-0">
+                                                {formatBTC(input.value)} BTC
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             )}
@@ -227,27 +258,32 @@ export default function TransactionDetailView({ transaction, network, compact = 
                     </h3>
                     <div className="glass-effect p-3 rounded-lg space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
                         {transaction.outputs.map((output, index) => {
-                            // Three states: real address, real OP_RETURN, or unresolved.
-                            // Don't fall back to "OP_RETURN" when the address simply
-                            // failed to resolve — that's the bug the user caught.
-                            let label;
-                            let labelClass = 'text-primary-400';
+                            const tag = classifyOutput(output, ownSet);
+                            // What address text to render: real address, OP_RETURN
+                            // marker, or "Unknown" when neither resolved.
+                            let addressText;
+                            let addressClass = 'text-primary-400';
                             if (output.address) {
-                                label = output.address;
+                                addressText = output.address;
                             } else if (output.isOpReturn) {
-                                label = 'OP_RETURN';
-                                labelClass = 'text-dark-500';
+                                addressText = 'OP_RETURN';
+                                addressClass = 'text-dark-500';
                             } else {
-                                label = 'Unknown';
-                                labelClass = 'text-dark-500';
+                                addressText = 'Unknown';
+                                addressClass = 'text-dark-500';
                             }
                             return (
-                                <div key={index} className="text-sm">
-                                    <div className="flex items-center justify-between">
-                                        <code className={`${labelClass} text-xs break-all font-mono`}>
-                                            {label}
-                                        </code>
-                                        <span className="text-dark-400 ml-2 flex-shrink-0">
+                                <div key={index} className="text-sm" title={tag.description || ''}>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${KIND_BADGE[tag.kind] || KIND_BADGE.unknown} flex-shrink-0`}>
+                                                {tag.label}
+                                            </span>
+                                            <code className={`${addressClass} text-xs break-all font-mono truncate`} title={addressText}>
+                                                {addressText}
+                                            </code>
+                                        </div>
+                                        <span className="text-dark-400 flex-shrink-0">
                                             {formatBTC(output.amount)} BTC
                                         </span>
                                     </div>

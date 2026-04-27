@@ -6,6 +6,7 @@ import { NavigationProvider } from "@/contexts/NavigationContext";
 import { UTXOProvider } from "@/stores/utxoStore";
 import { CharmsProvider } from "@/stores/charmsStore";
 import { BeamOperationsProvider } from "@/contexts/BeamOperationsContext";
+import UpgradeGate from "@/components/system/UpgradeGate";
 import ExtensionTopBanner from "@/components/extension/ExtensionTopBanner";
 import Script from 'next/script';
 
@@ -19,21 +20,23 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body>
         <ExtensionTopBanner />
-        <WalletProvider>
-          <NetworkProvider>
-            <NavigationProvider>
-              <UTXOProvider>
-                <CharmsProvider>
-                  <BeamOperationsProvider>
-                    <MainLayout>
-                      {children}
-                    </MainLayout>
-                  </BeamOperationsProvider>
-                </CharmsProvider>
-              </UTXOProvider>
-            </NavigationProvider>
-          </NetworkProvider>
-        </WalletProvider>
+        <UpgradeGate>
+          <WalletProvider>
+            <NetworkProvider>
+              <NavigationProvider>
+                <UTXOProvider>
+                  <CharmsProvider>
+                    <BeamOperationsProvider>
+                      <MainLayout>
+                        {children}
+                      </MainLayout>
+                    </BeamOperationsProvider>
+                  </CharmsProvider>
+                </UTXOProvider>
+              </NavigationProvider>
+            </NetworkProvider>
+          </WalletProvider>
+        </UpgradeGate>
         <Script
           strategy="afterInteractive"
           src="https://www.googletagmanager.com/gtag/js?id=G-TPDZFQH9CV"

@@ -301,9 +301,10 @@ async function proveAndBroadcastAdaBeamOut({
 
   // 4) prev_txs aligned 1:1 with spell.ins (cache to dedupe fetches).
   const { fetchUtxos: fetchCardanoUtxos, getCardanoTxCbor, submitCardanoTx } = await import('@/services/cardano/api');
+  const cardanoNet = network === 'mainnet' ? 'mainnet' : 'preprod';
   const cborCache = new Map();
   const getCbor = async (txHash) => {
-    if (!cborCache.has(txHash)) cborCache.set(txHash, getCardanoTxCbor(txHash));
+    if (!cborCache.has(txHash)) cborCache.set(txHash, getCardanoTxCbor(txHash, cardanoNet));
     return cborCache.get(txHash);
   };
   const prevTxs = await Promise.all([
@@ -370,7 +371,7 @@ async function proveAndBroadcastAdaBeamOut({
   // Submit via proxy
   onStatus?.('Submitting to Cardano...');
   try {
-    await submitCardanoTx(signedBytes);
+    await submitCardanoTx(signedBytes, cardanoNet);
   } catch (err) {
     throw new Error(`Cardano submit failed: ${err.message}`);
   }

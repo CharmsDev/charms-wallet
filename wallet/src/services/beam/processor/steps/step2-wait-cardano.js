@@ -10,13 +10,14 @@ import { getCardanoTx } from '@/services/cardano/api';
 const POLL_INTERVAL_MS = 10_000;
 const TIMEOUT_MS = 5 * 60_000;
 
-export async function waitForCardanoConfirm({ txHash, onStatus, signal }) {
+export async function waitForCardanoConfirm({ txHash, network, adaNetwork, onStatus, signal }) {
+  const cardanoNet = adaNetwork || (network === 'mainnet' ? 'mainnet' : 'preprod');
   const deadline = Date.now() + TIMEOUT_MS;
 
   while (Date.now() < deadline) {
     if (signal?.aborted) throw new Error('Beam cancelled');
 
-    const tx = await getCardanoTx(txHash);
+    const tx = await getCardanoTx(txHash, cardanoNet);
     if (tx && (tx.block || tx.block_height)) {
       onStatus?.(`Cardano tx confirmed in block ${tx.block || tx.block_height}`);
       return { block: tx.block || tx.block_height, slot: tx.slot || tx.abs_slot };

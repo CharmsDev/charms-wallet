@@ -41,13 +41,6 @@ export async function syncTransactionHistory({
     const { explorerWalletService } = await import('@/services/shared/explorer-wallet-service');
     if (!explorerWalletService.isAvailable(network)) return { newTxCount: 0, lastBlock: null };
 
-    // One-shot: refresh charm metadata for txs saved by older versions
-    // (which used the deprecated /v1/charms/{txid}). No-op after first run.
-    try {
-        const { migrateCharmMetadataIfNeeded } = await import('@/services/migrations/charm-metadata-v1328');
-        await migrateCharmMetadataIfNeeded(blockchain, network);
-    } catch { /* migration is best-effort, never blocks sync */ }
-
     const stored = await getAddresses(blockchain, network);
     const addressList = stored
         .filter(a => !a.blockchain || a.blockchain === blockchain)
@@ -60,12 +53,21 @@ export async function syncTransactionHistory({
     const aggregated = new Map(); // txid → { tx, addresses:Set }
     let maxBlock = sinceBlock || 0;
 
+    let charmDetected = 0, withAssets = 0, totalSeen = 0;
+    let loggedShape = false;
     for (let i = 0; i < addressList.length; i += BATCH_LIMIT) {
         const chunk = addressList.slice(i, i + BATCH_LIMIT);
         const data = await explorerWalletService.getBatchTransactions(chunk, network, { sinceBlock });
         for (const [addr, result] of Object.entries(data?.results || {})) {
             if (result?.error) continue;
             for (const tx of (result.transactions || [])) {
+                totalSeen++;
+                if (tx.charm_detected) charmDetected++;
+                if (Array.isArray(tx.assets) && tx.assets.length) withAssets++;
+                if (!loggedShape) {
+                    loggedShape = true;
+                    console.log(`[tx-sync] /transactions/batch tx shape: ${Object.keys(tx).join(',')}`);
+                }
                 if (!aggregated.has(tx.txid)) aggregated.set(tx.txid, { tx, addresses: new Set() });
                 aggregated.get(tx.txid).addresses.add(addr);
                 if (tx.block_height && tx.block_height > maxBlock) maxBlock = tx.block_height;
@@ -73,22 +75,57 @@ export async function syncTransactionHistory({
             if (result.last_block && result.last_block > maxBlock) maxBlock = result.last_block;
         }
     }
+    console.log(`[tx-sync] indexer hints: total=${totalSeen} charm.detected=${charmDetected} withAssets=${withAssets}`);
 
     const localTxs = await getTransactions(blockchain, network);
     const localByTxid = new Map(localTxs.map(t => [t.txid, t]));
 
+    // Known charm app IDs for richer initial type assignment.
+    const EBTC_APP_ID = '0796f63ed48144b4ec69fb794fbc2290ae63acf945fb035d5474648b50ee43b6';
+    const BRO_APP_ID  = '3d7fe7e4cea6121947af73d70e5119bebd8aa5b7edfe74bfaf6e779a1847bd9b';
+    const matchesApp = (appIds, needle) => (appIds || []).some(id => typeof id === 'string' && id.includes(needle));
+
+    /**
+     * Map indexer hints (charm.detected + asset_app_ids + direction) to a
+     * best-effort tx type. The classifier in `reprocess` will refine this
+     * when it has full vin/vout (e.g. distinguishing BEAM_IN from
+     * CHARM_RECEIVED via placeholder consumption). But when the decoder
+     * 404s on a parent, this initial type still gives the UI a meaningful
+     * label instead of "Received Bitcoin".
+     */
+    const initialTypeFor = (tx) => {
+        const dir = tx.direction === 'in' ? 'in' : 'out';
+        if (!tx.charm_detected) return dir === 'in' ? 'received' : 'sent';
+        const appIds = (tx.assets || []).map(a => a.app_id);
+        if (matchesApp(appIds, EBTC_APP_ID)) return dir === 'in' ? 'ebtc_redeem' : 'ebtc_lock';
+        if (matchesApp(appIds, BRO_APP_ID))  return dir === 'in' ? 'charm_received' : 'charm_sent';
+        return dir === 'in' ? 'charm_received' : 'charm_sent';
+    };
+
     let added = 0;
     let updated = 0;
+    let typeUpgraded = 0;
+    const GENERIC_TYPES = new Set(['received', 'sent']);
+
     for (const [txid, { tx, addresses }] of aggregated) {
-        const initialType = tx.direction === 'in' ? 'received' : 'sent';
+        const initialType = initialTypeFor(tx);
 
         if (localByTxid.has(txid)) {
-            // Refresh confirmation/block — keep classifier-derived type as-is
-            // (reprocessCharmTransactions handles type updates with full vin/vout).
+            // Refresh confirmation/block AND upgrade type if the indexer
+            // now reports a charm hint that the existing entry doesn't yet
+            // reflect (e.g. wallet was wiped + resynced before this code
+            // shipped, leaving everything as plain `received`/`sent`).
             const existing = localByTxid.get(txid);
             const newConfs = tx.confirmations ?? existing.confirmations;
             const newHeight = tx.block_height ?? existing.blockHeight;
             const newStatus = (tx.confirmations || 0) >= 1 ? 'confirmed' : 'pending';
+
+            const shouldUpgradeType = !GENERIC_TYPES.has(initialType) && GENERIC_TYPES.has(existing.type);
+            if (shouldUpgradeType) {
+                existing.type = initialType;
+                typeUpgraded++;
+            }
+
             if (newConfs !== existing.confirmations || newHeight !== existing.blockHeight || newStatus !== existing.status) {
                 existing.confirmations = newConfs;
                 existing.blockHeight = newHeight;
@@ -111,13 +148,11 @@ export async function syncTransactionHistory({
                 : { from: Array.from(addresses) },
             blockHeight: tx.block_height ?? null,
             confirmations: tx.confirmations || 0,
-            // Indexer is authoritative for charm detection — no second fetch needed.
-            // `charmChecked: true` short-circuits the reprocess loop so we never
-            // re-query /v1/transactions/{txid} on subsequent refreshes.
-            charmChecked: true,
         };
 
-        if (tx.charm?.detected && Array.isArray(tx.assets) && tx.assets.length) {
+        // Indexer is authoritative for charm detection — populate charmTokenData
+        // inline (or set to null so reprocess knows it has been checked).
+        if (tx.charm_detected && Array.isArray(tx.assets) && tx.assets.length) {
             const asset = tx.assets[0];
             entry.charmTokenData = {
                 appId: asset.app_id,
@@ -126,18 +161,21 @@ export async function syncTransactionHistory({
                 tokenAmount: asset.amount || 0,
                 tokenImage: null,
             };
+        } else {
+            entry.charmTokenData = null;
         }
 
         localTxs.push(entry);
         added++;
     }
 
-    if (added > 0 || updated > 0) {
+    if (added > 0 || updated > 0 || typeUpgraded > 0) {
         await saveTransactions(localTxs, blockchain, network);
     }
     if (maxBlock > 0) {
         await saveSyncMeta({ lastSyncBlock: maxBlock, lastSyncTs: Date.now() }, blockchain, network);
     }
 
-    return { newTxCount: added, lastBlock: maxBlock || null };
+    console.log(`[tx-sync] new=${added} updated=${updated} typeUpgraded=${typeUpgraded} total=${localTxs.length}`);
+    return { newTxCount: added, lastBlock: maxBlock || null, typeUpgraded };
 }

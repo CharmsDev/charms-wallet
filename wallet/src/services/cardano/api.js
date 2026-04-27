@@ -101,16 +101,16 @@ export async function fetchAddressTxs(address, count = 20) {
 }
 
 /** Fetch raw CBOR hex of a Cardano transaction. */
-export async function getCardanoTxCbor(txHash) {
-  const res = await koiosProxy('/tx_cbor', { _tx_hashes: [txHash] });
+export async function getCardanoTxCbor(txHash, network) {
+  const res = await koiosProxy('/tx_cbor', { _tx_hashes: [txHash] }, { network });
   if (!res.ok) throw new Error(`Failed to fetch tx CBOR: ${res.status}`);
   if (!res.data?.[0]?.cbor) throw new Error(`No CBOR for tx ${txHash}`);
   return res.data[0].cbor;
 }
 
 /** Fetch a single tx_info; returns null if not found. */
-export async function getCardanoTx(txHash) {
-  const res = await koiosProxy('/tx_info', { _tx_hashes: [txHash] });
+export async function getCardanoTx(txHash, network) {
+  const res = await koiosProxy('/tx_info', { _tx_hashes: [txHash] }, { network });
   if (!res.ok) return null;
   return res.data?.[0] || null;
 }
@@ -119,11 +119,11 @@ export async function getCardanoTx(txHash) {
  * Batch-fetch tx_info details for many hashes in a single Koios call. Koios
  * accepts up to ~50 hashes per request. Returns a map {hash: detail}.
  */
-export async function getCardanoTxsBatch(txHashes) {
+export async function getCardanoTxsBatch(txHashes, network) {
   if (!txHashes?.length) return {};
   const res = await koiosProxy('/tx_info', {
     _tx_hashes: txHashes, _inputs: true, _assets: true,
-  });
+  }, { network });
   if (!res.ok) return {};
   const out = {};
   for (const tx of Array.isArray(res.data) ? res.data : []) {

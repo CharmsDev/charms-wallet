@@ -17,14 +17,18 @@ import { buildClaimPayload, submitClaimToProver } from '../../spells/claim-paylo
 
 export async function claimOnCardano({
   tokenAppId, placeholderTxid, placeholderVout,
-  btcTxid, beamAmount, cardanoAddress, cardanoOwnAddress, seedPhrase, addressIndex = 0, network, onStatus,
+  btcTxid, beamAmount, cardanoAddress, cardanoOwnAddress, seedPhrase, addressIndex = 0,
+  network, adaNetwork, onStatus,
   claimTxCborHex,  // optional: pre-proven tx cbor (skip prover if provided)
   onProved,        // optional: called with proverResponseHex after prover returns (for persistence)
 }) {
   // cardanoAddress = destination for beamed tokens (may be own or other)
   // cardanoOwnAddress = our address that pays fees, collateral, funding, receives change
-  // If not provided, default to cardanoAddress (backward compat for "My Wallet" flows)
   const ownAddr = cardanoOwnAddress || cardanoAddress;
+  // Resolve Cardano network explicitly — never fall back to getNetwork()'s
+  // localStorage read, which can return 'preprod' if the active_blockchain
+  // key is missing right after a schema wipe.
+  const cardanoNet = adaNetwork || (network === 'mainnet' ? 'mainnet' : 'preprod');
 
   // Fast path: if we already have a proven tx cbor from a previous attempt, skip prover
   let proverResponseHex = claimTxCborHex;
@@ -64,12 +68,12 @@ export async function claimOnCardano({
   // Fetch prev tx CBORs
   onStatus?.('Fetching previous transactions...');
   const { getCardanoTxCbor } = await import('@/services/cardano/api');
-  const placeholderCbor = await getCardanoTxCbor(placeholderTxid);
+  const placeholderCbor = await getCardanoTxCbor(placeholderTxid, cardanoNet);
 
   const fundingTxHash = fundingUtxoId.split(':')[0];
   const fundingCbor = fundingTxHash === placeholderTxid
     ? placeholderCbor
-    : await getCardanoTxCbor(fundingTxHash);
+    : await getCardanoTxCbor(fundingTxHash, cardanoNet);
 
   const claimPrevTxs = [{ cardano: placeholderCbor }];
   if (fundingTxHash !== placeholderTxid) {
@@ -122,7 +126,7 @@ export async function claimOnCardano({
   // Submit signed tx to Cardano
   onStatus?.('Broadcasting Cardano claim...');
   const { submitCardanoTx } = await import('@/services/cardano/api');
-  const adaClaimTxid = await submitCardanoTx(signedBytes);
+  const adaClaimTxid = await submitCardanoTx(signedBytes, cardanoNet);
 
   // Reserve placeholder + funding + collateral so concurrent ops skip them
   try {

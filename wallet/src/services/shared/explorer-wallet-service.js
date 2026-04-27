@@ -17,15 +17,11 @@ const _isExtensionPopup = typeof chrome !== 'undefined'
     && typeof chrome.runtime?.sendMessage === 'function'
     && typeof window !== 'undefined';
 
-if (typeof window !== 'undefined') {
-    // One-time diagnostic so we can see on customer consoles exactly how the
-    // extension-context detection resolved. If `_isExtensionPopup` is `true`
-    // on wallet.charms.dev, we have another leak to investigate.
-    console.log('[ExplorerAPI] build=v1.3.12 extensionPopup=', _isExtensionPopup,
-        'chromeDefined=', typeof chrome !== 'undefined',
-        'runtimeId=', typeof chrome !== 'undefined' ? typeof chrome.runtime?.id : 'n/a',
-        'sendMessageDefined=', typeof chrome !== 'undefined' ? typeof chrome.runtime?.sendMessage : 'n/a');
-}
+// Build banner intentionally silent — uncomment if extension context detection
+// is suspected to misfire again on prod customer consoles.
+// if (typeof window !== 'undefined') {
+//     console.log(`[ExplorerAPI] build=v1.3.30 ext=${_isExtensionPopup}`);
+// }
 
 async function _extensionFetch(url, options = {}) {
     return new Promise((resolve, reject) => {
@@ -71,15 +67,45 @@ export class ExplorerWalletService {
         this.tipCache = { value: null, expiry: 0 };
         this.tipCacheTTL = 30 * 1000; // 30s TTL for chain tip
 
-        // Circuit breaker: disable after consecutive failures. Threshold is
-        // intentionally generous — a cold start or transient edge hiccup can
-        // easily burn through 2 requests, and tripping the breaker sends the
-        // user down the mempool.space fallback path (often rate-limited /
-        // CORS-blocked). Prefer retrying the primary API.
+        // Persistent 404 cache. Stores `${endpoint}:${txid}` keys for tx
+        // lookups that returned 404 (not indexed). Prevents the migration
+        // from re-issuing the same failed fetch on future refreshes — the
+        // browser DevTools shows every failed network call, so silencing
+        // means not making the call at all.
+        this._not404Loaded = false;
+        this._notIndexed = new Set();
+
+        // Circuit breaker — same as before
         this._consecutiveFailures = 0;
         this._disabledUntil = 0;
-        this._failureThreshold = 5;     // trips after 5 consecutive failures
-        this._cooldownMs = 30 * 1000;   // 30s cooldown before retrying
+        this._failureThreshold = 5;
+        this._cooldownMs = 30 * 1000;
+    }
+
+    _loadNotIndexed() {
+        if (this._not404Loaded) return;
+        this._not404Loaded = true;
+        try {
+            if (typeof localStorage === 'undefined') return;
+            const raw = localStorage.getItem('wallet:api:not-indexed');
+            const arr = raw ? JSON.parse(raw) : [];
+            this._notIndexed = new Set(arr);
+        } catch { /* private mode / quota */ }
+    }
+
+    _markNotIndexed(key) {
+        this._loadNotIndexed();
+        if (this._notIndexed.has(key)) return;
+        this._notIndexed.add(key);
+        try {
+            if (typeof localStorage === 'undefined') return;
+            localStorage.setItem('wallet:api:not-indexed', JSON.stringify([...this._notIndexed]));
+        } catch { /* best-effort */ }
+    }
+
+    _isNotIndexed(key) {
+        this._loadNotIndexed();
+        return this._notIndexed.has(key);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
@@ -109,18 +135,14 @@ export class ExplorerWalletService {
     }
 
     _onSuccess() {
-        if (this._consecutiveFailures > 0) {
-            console.log(`[${this._ts()}] [ExplorerAPI] recovered — resetting failure counter (was ${this._consecutiveFailures})`);
-        }
         this._consecutiveFailures = 0;
     }
 
     _onFailure(context = {}) {
         this._consecutiveFailures++;
-        console.warn(`[${this._ts()}] [ExplorerAPI] failure ${this._consecutiveFailures}/${this._failureThreshold}`, context);
         if (this._consecutiveFailures >= this._failureThreshold) {
             this._disabledUntil = Date.now() + this._cooldownMs;
-            console.error(`[${this._ts()}] [ExplorerAPI] ⚠ CIRCUIT BREAKER TRIPPED after ${this._consecutiveFailures} consecutive failures. Falling back to mempool.space for ${this._cooldownMs / 1000}s. Last failure:`, context);
+            console.error(`[api] circuit breaker tripped (${this._consecutiveFailures} fails)`);
         }
     }
 
@@ -143,25 +165,18 @@ export class ExplorerWalletService {
         const baseUrl = this._getBaseUrl();
         if (!baseUrl) throw new Error('Explorer Wallet API not configured');
 
-        // One-time log so the customer can confirm which API host is in use
-        if (!this._loggedBaseUrl) {
-            this._loggedBaseUrl = true;
-            console.log(`[${this._ts()}] [ExplorerAPI] base URL in use: ${baseUrl}`);
-        }
-
         const fullPath = this._withNetwork(path, network);
         const url = `${baseUrl}${fullPath}`;
         const method = (options.method || 'GET').toUpperCase();
         const { timeout: customTimeout, network: _n, ...fetchOptions } = options;
         const t0 = performance.now();
-        console.log(`[${this._ts()}] [ExplorerAPI] → ${method} ${fullPath}`);
 
         try {
             // In extension popup, route through background service worker (popup can't resolve DNS)
             if (_isExtensionPopup) {
                 const data = await _extensionFetch(url, fetchOptions);
                 const ms = (performance.now() - t0).toFixed(0);
-                console.log(`[${this._ts()}] [ExplorerAPI] ✓ ${fullPath} — via background (${ms}ms)`);
+                console.log(`[api] ✓ ${method} ${path.split('?')[0]} ${ms}ms`);
                 this._onSuccess();
                 return data;
             }
@@ -175,14 +190,11 @@ export class ExplorerWalletService {
             const ms = (performance.now() - t0).toFixed(0);
             if (!response.ok) {
                 const body = await response.text().catch(() => '');
-                const bodySnippet = body ? body.slice(0, 300) : '';
-                // 404 is a semantic "not indexed" response (e.g., /v1/charms/{txid}
-                // for a tx that isn't a charm) — it does NOT indicate the API is
-                // unhealthy. Only 5xx / network errors should trip the breaker.
+                // 404 is a semantic "not indexed" response — don't trip the breaker.
                 const isNotFound = response.status === 404;
                 if (!isNotFound) {
-                    console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${method} ${url} — HTTP ${response.status} (${ms}ms)${bodySnippet ? ` body: ${bodySnippet}` : ''}`);
-                    this._onFailure({ url, method, status: response.status, ms: Number(ms), body: bodySnippet });
+                    console.warn(`[api] ✗ ${method} ${path.split('?')[0]} HTTP ${response.status} ${ms}ms`);
+                    this._onFailure({ url, method, status: response.status, ms: Number(ms) });
                 } else {
                     this._onSuccess();
                 }
@@ -191,16 +203,15 @@ export class ExplorerWalletService {
                 throw err;
             }
 
-            console.log(`[${this._ts()}] [ExplorerAPI] ✓ ${fullPath} — ${response.status} (${ms}ms)`);
+            console.log(`[api] ✓ ${method} ${path.split('?')[0]} ${ms}ms`);
             this._onSuccess();
             return response.json();
         } catch (err) {
-            if (err.status === 404) throw err; // already handled above
+            if (err.status === 404) throw err;
             const ms = (performance.now() - t0).toFixed(0);
-            // Distinguish abort/timeout from network failure for the operator
             const isAbort = err.name === 'AbortError' || /abort/i.test(err.message || '');
-            const reason = isAbort ? `timeout (>${customTimeout || this.timeout}ms)` : err.message || String(err);
-            console.warn(`[${this._ts()}] [ExplorerAPI] ✗ ${method} ${url} — ${reason} (${ms}ms)`);
+            const reason = isAbort ? `timeout` : (err.message || 'error').slice(0, 80);
+            console.warn(`[api] ✗ ${method} ${path.split('?')[0]} ${reason} ${ms}ms`);
             this._onFailure({ url, method, reason, ms: Number(ms), errorName: err.name });
             throw err;
         }
@@ -457,56 +468,73 @@ export class ExplorerWalletService {
         if (this._txCache.has(cacheKey)) return this._txCache.get(cacheKey);
 
         const data = await this._makeRequest(`/v1/wallet/tx/${txid}`, {}, network);
-        const toSats = (v) => typeof v === 'string' ? Math.round(parseFloat(v) * 1e8) : (v || 0);
 
-        const outputs = (data.outputs || []).map(o => {
-            const sp = o.script_pubkey || {};
-            const type = sp.type || '';
-            const isOpReturn = type === 'nulldata' || type === 'op_return';
+        // Explorer wraps tx data in mempool.space (Esplora) shape:
+        //   top:    fee, status, txid, version, vin, vout, weight, size, ...
+        //   vin[i]: txid, vout, prevout {scriptpubkey_*, value}, scriptsig, witness, ...
+        //   vout[i]: scriptpubkey_address, scriptpubkey_type, value (sats), ...
+        // Crucially, vin[i].prevout is already populated — no parent fetches.
+        // Falls back gracefully to RPC verbose / legacy shapes if the field
+        // names differ (defensive).
+        const vin  = data?.vin  || data?.inputs  || [];
+        const vout = data?.vout || data?.outputs || [];
+
+        const toSats = (v) => {
+            if (v == null) return 0;
+            const n = typeof v === 'string' ? parseFloat(v) : v;
+            if (typeof n !== 'number' || !isFinite(n)) return 0;
+            // Esplora returns sats as integer ≥ ~10²; RPC returns BTC as
+            // small decimal. Heuristic: large integer = already sats.
+            return n >= 1_000_000 && Number.isInteger(n)
+                ? n
+                : (Number.isInteger(n) && n < 1e6 && n >= 100 ? n : Math.round(n * 1e8));
+        };
+
+        const outAddr = (o) => {
+            const sp = o?.script_pubkey || o?.scriptPubKey || {};
+            return o?.scriptpubkey_address
+                || sp.address
+                || (Array.isArray(sp.addresses) ? sp.addresses[0] : null)
+                || null;
+        };
+        const outType = (o) => {
+            const sp = o?.script_pubkey || o?.scriptPubKey || {};
+            return o?.scriptpubkey_type || sp.type || '';
+        };
+
+        const outputs = vout.map((o, idx) => {
+            const type = outType(o);
+            const isOpReturn = type === 'op_return' || type === 'nulldata';
             return {
-                vout: o.n,
-                address: isOpReturn ? null : (sp.address || null),
+                vout: o.n ?? idx,
+                address: isOpReturn ? null : outAddr(o),
                 amount: toSats(o.value),
                 isOpReturn,
                 scriptType: type,
             };
         });
 
-        // Resolve input prevouts via parent-tx fetches (parallel, deduped).
-        const parentTxids = [...new Set((data.inputs || [])
-            .filter(i => i.txid && !i.coinbase)
-            .map(i => i.txid))];
-        const parents = await Promise.all(parentTxids.map(async (parentTxid) => {
-            const pkey = `${network || 'mainnet'}:${parentTxid}`;
-            if (this._txCache.has(pkey)) return [parentTxid, this._txCache.get(pkey)];
-            try {
-                const p = await this._makeRequest(`/v1/wallet/tx/${parentTxid}`, {}, network);
-                return [parentTxid, p];
-            } catch {
-                return [parentTxid, null];
-            }
-        }));
-        const parentMap = new Map(parents);
-
-        const inputs = (data.inputs || []).map(inp => {
-            if (inp.coinbase || !inp.txid) {
+        // Inputs: use prevout inline (Esplora). If absent (RPC-style), the
+        // address will be null and the classifier just won't see it on this
+        // input — fine for charm/beam detection which mostly cares about
+        // outputs anyway. We DO NOT fetch parent txs (was N+1).
+        const inputs = vin.map(inp => {
+            if (inp.is_coinbase || inp.coinbase || !inp.txid) {
                 return { txid: null, vout: null, address: null, value: 0, coinbase: true };
             }
-            const parent = parentMap.get(inp.txid);
-            const pout = parent?.outputs?.[inp.vout];
-            const psp = pout?.script_pubkey || {};
+            const prev = inp.prevout || null;
             return {
                 txid: inp.txid,
                 vout: inp.vout,
-                address: psp.address || null,
-                value: toSats(pout?.value),
+                address: prev ? outAddr(prev) : null,
+                value: prev ? toSats(prev.value) : 0,
             };
         });
 
         const result = {
             txid: data.txid,
-            block_height: data.block_height ?? null,
-            block_time: data.time ?? null,
+            block_height: data?.status?.block_height ?? data.block_height ?? null,
+            block_time:   data?.status?.block_time   ?? data.time         ?? null,
             confirmations: data.confirmations ?? 0,
             fee: data.fee ?? 0,
             inputs,

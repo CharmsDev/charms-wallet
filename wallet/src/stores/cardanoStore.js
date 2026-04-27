@@ -23,14 +23,14 @@ async function deriveCardanoAddr(seedPhrase, index, network) {
   return generateCardanoAddress(seedPhrase, index, network);
 }
 import { StorageAdapter } from '@/services/storage-adapter';
-import { chainKey, DATA_TYPES } from '@/services/storage-keys';
+import { netKey, DATA_TYPES } from '@/services/storage-keys';
 
 const BLOCKCHAIN = 'cardano';
 
 // ── Storage helpers ─────────────────────────────────────────────────────────
 
 function storageKey(network, dataType) {
-  return chainKey(BLOCKCHAIN, network, dataType);
+  return netKey(BLOCKCHAIN, network, dataType);
 }
 
 async function loadFromStorage(network, dataType) {

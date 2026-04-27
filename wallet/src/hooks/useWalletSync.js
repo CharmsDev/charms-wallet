@@ -47,7 +47,12 @@ export function useWalletSync() {
                 network: activeNetwork,
                 fullScan: true,
                 skipCharms: false,
-                addressLimit: 12,
+                // No limit: scan ALL stored addresses every refresh.
+                // Partial scans leave stale UTXOs on un-scanned addresses
+                // and that was the bug behind balance creeping up on each
+                // refresh. balance/batch caps at 50 addresses per request,
+                // which is plenty for any normal wallet size.
+                addressLimit: null,
                 onUTXOProgress: (progress) => {
                     setSyncProgress({
                         phase: 'utxos',
@@ -102,7 +107,12 @@ export function useWalletSync() {
                 network: activeNetwork,
                 fullScan: true,
                 skipCharms: false,
-                addressLimit: 12,
+                // No limit: scan ALL stored addresses every refresh.
+                // Partial scans leave stale UTXOs on un-scanned addresses
+                // and that was the bug behind balance creeping up on each
+                // refresh. balance/batch caps at 50 addresses per request,
+                // which is plenty for any normal wallet size.
+                addressLimit: null,
                 onUTXOProgress: (progress) => {
                     setSyncProgress({
                         phase: 'utxos',

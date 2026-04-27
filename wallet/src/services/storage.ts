@@ -2,10 +2,9 @@ import { UTXOMap, UTXO } from '@/types';
 import { BLOCKCHAINS, NETWORKS } from '@/stores/blockchainStore';
 import { StorageAdapter } from './storage-adapter';
 import {
-    GLOBAL_KEYS,
+    SYSTEM_KEYS,
     DATA_TYPES,
-    chainKey,
-    charmsKey,
+    netKey,
     isWalletKey,
 } from './storage-keys';
 
@@ -51,13 +50,13 @@ export interface TransactionEntry {
 
 // Helper function to get the active blockchain and network
 const getActiveBlockchainAndNetwork = async (): Promise<{ blockchain: string, network: string }> => {
-    const blockchain = await StorageAdapter.get(GLOBAL_KEYS.ACTIVE_BLOCKCHAIN) || BLOCKCHAINS.BITCOIN;
+    const blockchain = await StorageAdapter.get(SYSTEM_KEYS.ACTIVE_BLOCKCHAIN) || BLOCKCHAINS.BITCOIN;
     let network;
 
     if (blockchain === BLOCKCHAINS.BITCOIN) {
-        network = await StorageAdapter.get(GLOBAL_KEYS.ACTIVE_NETWORK) || NETWORKS.BITCOIN.MAINNET;
+        network = await StorageAdapter.get(SYSTEM_KEYS.ACTIVE_NETWORK) || NETWORKS.BITCOIN.MAINNET;
     } else if (blockchain === BLOCKCHAINS.CARDANO) {
-        network = await StorageAdapter.get(GLOBAL_KEYS.ACTIVE_NETWORK) || NETWORKS.CARDANO.MAINNET;
+        network = await StorageAdapter.get(SYSTEM_KEYS.ACTIVE_NETWORK) || NETWORKS.CARDANO.MAINNET;
     } else {
         network = NETWORKS.BITCOIN.MAINNET;
     }
@@ -72,20 +71,20 @@ const resolveChainKey = async (dataType: string, blockchain?: string, network?: 
         blockchain = blockchain || active.blockchain;
         network = network || active.network;
     }
-    return chainKey(blockchain, network, dataType);
+    return netKey(blockchain, network, dataType);
 };
 
 // Seed phrase storage - seed phrase is shared across blockchains
 export const saveSeedPhrase = async (seedPhrase: string): Promise<void> => {
-    await StorageAdapter.set(GLOBAL_KEYS.SEED_PHRASE, seedPhrase);
+    await StorageAdapter.set(SYSTEM_KEYS.SEED_PHRASE, seedPhrase);
 };
 
 export const getSeedPhrase = async (): Promise<string | null> => {
-    return await StorageAdapter.get(GLOBAL_KEYS.SEED_PHRASE);
+    return await StorageAdapter.get(SYSTEM_KEYS.SEED_PHRASE);
 };
 
 export const clearSeedPhrase = async (): Promise<void> => {
-    await StorageAdapter.remove(GLOBAL_KEYS.SEED_PHRASE);
+    await StorageAdapter.remove(SYSTEM_KEYS.SEED_PHRASE);
 };
 
 // Wallet info storage
@@ -271,7 +270,7 @@ export const clearAllWalletData = async (): Promise<void> => {
 
 // Charms storage functions
 export const saveCharms = async (charms: any[], blockchain: string = BLOCKCHAINS.BITCOIN, network: string = NETWORKS.BITCOIN.MAINNET): Promise<void> => {
-    const key = charmsKey(blockchain, network);
+    const key = netKey(blockchain, network, DATA_TYPES.CHARMS);
     await StorageAdapter.set(key, JSON.stringify({
         charms,
         timestamp: Date.now(),
@@ -281,7 +280,7 @@ export const saveCharms = async (charms: any[], blockchain: string = BLOCKCHAINS
 
 export const getCharms = async (blockchain: string = BLOCKCHAINS.BITCOIN, network: string = NETWORKS.BITCOIN.MAINNET): Promise<any[]> => {
     try {
-        const key = charmsKey(blockchain, network);
+        const key = netKey(blockchain, network, DATA_TYPES.CHARMS);
         const stored = await StorageAdapter.get(key);
         if (!stored) return [];
         const charmsData = JSON.parse(stored);
@@ -322,8 +321,8 @@ export interface BalanceData {
 }
 
 export const saveBalance = async (
-    blockchain: string, 
-    network: string, 
+    blockchain: string,
+    network: string,
     data: {
         spendable: number;
         pending: number;
@@ -336,41 +335,33 @@ export const saveBalance = async (
     }
 ): Promise<void> => {
     try {
-        const stored = await StorageAdapter.get(GLOBAL_KEYS.BALANCE);
-        const balances = stored ? JSON.parse(stored) : {};
-        
-        if (!balances[blockchain]) {
-            balances[blockchain] = {};
-        }
-        
-        // Unified structure
-        balances[blockchain][network] = {
+        const key = netKey(blockchain, network, DATA_TYPES.BALANCE);
+        const payload: BalanceData = {
             bitcoin: {
                 spendable: data.spendable,
                 pending: data.pending,
                 nonSpendable: data.nonSpendable,
-                total: data.spendable + data.pending + data.nonSpendable
+                total: data.spendable + data.pending + data.nonSpendable,
             },
             counts: {
                 utxos: data.utxoCount,
                 charms: data.charmCount,
                 ordinals: data.ordinalCount,
-                runes: data.runeCount
+                runes: data.runeCount,
             },
             tokens: data.tokens || [],
-            timestamp: Date.now()
+            timestamp: Date.now(),
         };
-        
-        await StorageAdapter.set(GLOBAL_KEYS.BALANCE, JSON.stringify(balances));
+        await StorageAdapter.set(key, JSON.stringify(payload));
     } catch { /* non-critical */ }
 };
 
 export const getBalance = async (blockchain: string, network: string): Promise<BalanceData | null> => {
     try {
-        const stored = await StorageAdapter.get(GLOBAL_KEYS.BALANCE);
+        const key = netKey(blockchain, network, DATA_TYPES.BALANCE);
+        const stored = await StorageAdapter.get(key);
         if (!stored) return null;
-        const balances = JSON.parse(stored);
-        return balances[blockchain]?.[network] || null;
+        return JSON.parse(stored);
     } catch {
         return null;
     }

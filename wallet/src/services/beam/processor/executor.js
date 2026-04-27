@@ -36,7 +36,7 @@ export async function executeBeamOut(params) {
 
   // Step 2: Wait for Cardano confirmation (idempotent — polls chain)
   onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, 'Waiting for Cardano confirmation...');
-  await waitForCardanoConfirm({ txHash: ctx.placeholderTxid, onStatus: m => onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, m), signal });
+  await waitForCardanoConfirm({ txHash: ctx.placeholderTxid, network: ctx.network, adaNetwork: ctx.adaNetwork, onStatus: m => onPhase(BEAM_PHASE.WAITING_DEST_CONFIRM, m), signal });
   save(BEAM_PHASE.BUILDING_SPELL);
 
   // Step 3: Build + prove BTC beam spell (skip if already proven)
