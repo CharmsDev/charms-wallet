@@ -129,10 +129,15 @@ export async function executeEbtcBeam(params) {
 
 // ── Combined Mint+Beam Prover ───────────────────────────────────────────────
 
-async function proveMintAndBeam({ btcInputUtxo, btcExtraInputs, lockSats, btcAddress, beamToHash, seedPhrase, network, charms, onStatus }) {
+async function proveMintAndBeam({ beamId, btcInputUtxo, fundingUtxo, btcExtraInputs, lockSats, btcAddress, beamToHash, seedPhrase, network, charms, onStatus }) {
   const mintAmount = lockSats - DUST_PER_VAULT;
   if (mintAmount <= 0) throw new Error(`Lock amount must be > ${DUST_PER_VAULT} sats`);
   console.log('[eBTC:proveMint] lockSats:', lockSats, 'mintAmount:', mintAmount);
+
+  // Honor a pre-selected funding UTXO from the dialog. The dialog also
+  // registers it under the beam's reservation entry, so concurrent ops
+  // can't re-pick it during the long step-2 wait.
+  if (!btcInputUtxo && fundingUtxo?.utxoId) btcInputUtxo = fundingUtxo.utxoId;
 
   let extraInputUtxoIds = btcExtraInputs || [];
 
@@ -164,6 +169,21 @@ async function proveMintAndBeam({ btcInputUtxo, btcExtraInputs, lockSats, btcAdd
     extraInputUtxoIds = result.extras.map(e => e.utxoId);
     console.log('[eBTC:proveMint] funding:', result.funding.utxoId, result.funding.value, 'sats',
       result.extras.length ? `(+ ${result.extras.length} extras, total ${result.totalSats} sats)` : '');
+
+    // Register the freshly-picked UTXOs under the beam's operation. If
+    // dialog-side selection is missing or insufficient and the executor
+    // re-selects from mempool, those UTXOs must still be reserved for the
+    // long signing/proving wait. `appendToOperation` is a no-op if the
+    // beam isn't tracked yet (defensive).
+    if (beamId) {
+      try {
+        const { appendToOperation } = await import('@/services/utxo-reservations');
+        const items = [btcInputUtxo, ...extraInputUtxoIds].map(utxoId => ({ utxoId }));
+        appendToOperation(beamId, items);
+      } catch (e) {
+        console.warn('[eBTC:proveMint] could not append to operation:', e?.message);
+      }
+    }
     onStatus?.(
       result.extras.length
         ? `Funding: ${result.totalSats} sats across ${result.extras.length + 1} UTXOs`
@@ -331,14 +351,11 @@ async function signAndBroadcastMintBeam({ spellTxHex, btcInputUtxo, btcAddress, 
   console.log('[eBTC:sign] signed:', signedHex?.length, 'chars');
 
   onStatus?.('Broadcasting...');
-  const mempoolBase = getMempoolBase(network);
-  const resp = await fetch(`${mempoolBase}/tx`, { method: 'POST', body: signedHex });
-  if (!resp.ok) {
-    const err = await resp.text();
-    console.error('[eBTC:sign] broadcast error:', err);
-    throw new Error(`Broadcast failed: ${err}`);
-  }
-  const btcTxid = (await resp.text()).trim();
+  // Route through the central broadcaster so the funding inputs get marked
+  // as reserved post-broadcast. Direct mempool.space POST bypassed the
+  // reservation layer and let concurrent ops re-pick the same UTXO.
+  const { broadcastTx } = await import('@/services/charm-transfer/broadcaster');
+  const btcTxid = await broadcastTx(signedHex, network);
   console.log('[eBTC:sign] txid:', btcTxid);
   return { btcTxid };
 }

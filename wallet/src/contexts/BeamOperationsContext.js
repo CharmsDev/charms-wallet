@@ -117,9 +117,12 @@ export function BeamOperationsProvider({ children }) {
   const closePanel = useCallback(() => dispatch({ type: 'SET_PANEL', open: false }), []);
   const togglePanel = useCallback(() => dispatch({ type: 'TOGGLE_PANEL' }), []);
 
-  // Lock BTC UTXOs used by a beam so concurrent ops don't reuse them
-  const lockBeamUtxos = useCallback(async (payload) => {
-    const { markBatch } = await import('@/services/utxo-reservations');
+  // Lock BTC UTXOs used by a beam so concurrent ops don't reuse them.
+  // Uses the per-operation API so the beam's reservation can be released
+  // exactly (and so the send dialog can name "<beam label>" when shortage
+  // is caused by this op).
+  const lockBeamUtxos = useCallback(async (id, label, payload) => {
+    const { reserveForOperation } = await import('@/services/utxo-reservations');
     const toLock = [];
     if (payload.fundingUtxo?.utxoId) toLock.push({ utxoId: payload.fundingUtxo.utxoId });
     if (payload.charmInputs?.length) {
@@ -128,19 +131,13 @@ export function BeamOperationsProvider({ children }) {
       }
     }
     if (payload.btcInputUtxo) toLock.push({ utxoId: payload.btcInputUtxo });
-    if (toLock.length) markBatch('bitcoin', toLock);
+    reserveForOperation(id, 'bitcoin', toLock, label || 'Beam operation');
     return toLock;
   }, []);
 
-  const unlockBeamUtxos = useCallback(async (locked) => {
-    if (locked?.length) {
-      const { release } = await import('@/services/utxo-reservations');
-      for (const u of locked) {
-        const id = u.utxoId || `${u.txid}:${u.vout}`;
-        const [txid, vout] = id.split(':');
-        release('bitcoin', txid, parseInt(vout));
-      }
-    }
+  const unlockBeamUtxos = useCallback(async (id) => {
+    const { releaseOperation } = await import('@/services/utxo-reservations');
+    releaseOperation(id);
   }, []);
 
   // Refresh both chains' state so UI reflects new balances/assets immediately after beam
@@ -158,26 +155,26 @@ export function BeamOperationsProvider({ children }) {
   }, []);
 
   // Shared executor for BTC→ADA
-  const runBeam = useCallback((id, payload) => {
+  const runBeam = useCallback((id, label, payload) => {
     const onPhase = (phase, message) => {
       dispatch({ type: 'UPDATE_PHASE', id, phase, statusMessage: message });
     };
     (async () => {
-      const locked = await lockBeamUtxos(payload);
+      await lockBeamUtxos(id, label, payload);
       try {
         const result = await executeBeamOut({ beamId: id, ...payload, onPhase });
-        await unlockBeamUtxos(locked);
         dispatch({ type: 'COMPLETE', id, btcTxid: result.btcTxid, adaClaimTxid: result.adaClaimTxid });
         refreshAllBalances().catch(() => {});
       } catch (err) {
-        await unlockBeamUtxos(locked);
         dispatch({ type: 'ERROR', id, error: err?.message || 'Beam failed' });
+      } finally {
+        await unlockBeamUtxos(id);
       }
     })();
   }, [lockBeamUtxos, unlockBeamUtxos, refreshAllBalances]);
 
   // Shared executor for ADA→BTC
-  const runBeamBack = useCallback((id, payload) => {
+  const runBeamBack = useCallback((id, label, payload) => {
     const onPhase = (phase, message) => {
       dispatch({ type: 'UPDATE_PHASE', id, phase, statusMessage: message });
     };
@@ -185,6 +182,10 @@ export function BeamOperationsProvider({ children }) {
       dispatch({ type: 'UPDATE_PAYLOAD', id, patch });
     };
     (async () => {
+      // Beam-back: the BTC placeholder UTXO must stay reserved for the entire
+      // ADA→BTC flow (until the BTC claim consumes it). placeholder.js calls
+      // markBatch already; here we register the operation so any UTXOs the
+      // executor itself selects/reserves stay scoped to this beam id.
       try {
         const result = await executeBeamBack({ beamId: id, ...payload, onPhase, onCheckpoint });
         dispatch({ type: 'COMPLETE', id, btcTxid: result.btcClaimTxid, adaClaimTxid: result.cardanoBeamOutTxHash });
@@ -193,6 +194,9 @@ export function BeamOperationsProvider({ children }) {
         console.error('[BeamBack] failed:', err);
         const msg = err?.message || (typeof err === 'string' ? err : JSON.stringify(err)) || 'Beam back failed';
         dispatch({ type: 'ERROR', id, error: msg });
+      } finally {
+        const { releaseOperation } = await import('@/services/utxo-reservations');
+        releaseOperation(id);
       }
     })();
   }, [refreshAllBalances]);
@@ -209,31 +213,31 @@ export function BeamOperationsProvider({ children }) {
         error: null, payload, steps: [],
       },
     });
-    runBeam(id, payload);
+    runBeam(id, label, payload);
     return id;
   }, [runBeam]);
 
   // Shared executor for eBTC (lock BTC + beam to Cardano)
-  const runEbtcBeam = useCallback((id, payload) => {
+  const runEbtcBeam = useCallback((id, label, payload) => {
     const onPhase = (phase, message) => {
       dispatch({ type: 'UPDATE_PHASE', id, phase, statusMessage: message });
     };
     (async () => {
-      const locked = await lockBeamUtxos(payload);
+      await lockBeamUtxos(id, label, payload);
       try {
         const result = await executeEbtcBeam({ beamId: id, ...payload, onPhase });
-        await unlockBeamUtxos(locked);
         dispatch({ type: 'COMPLETE', id, btcTxid: result.btcTxid, adaClaimTxid: result.adaClaimTxid });
         refreshAllBalances().catch(() => {});
       } catch (err) {
-        await unlockBeamUtxos(locked);
         dispatch({ type: 'ERROR', id, error: err?.message || 'eBTC beam failed' });
+      } finally {
+        await unlockBeamUtxos(id);
       }
     })();
   }, [lockBeamUtxos, unlockBeamUtxos, refreshAllBalances]);
 
   // Shared executor for eBTC redeem (ADA → BTC, burn + vault release)
-  const runEbtcRedeem = useCallback((id, payload) => {
+  const runEbtcRedeem = useCallback((id, label, payload) => {
     const onPhase = (phase, message) => {
       dispatch({ type: 'UPDATE_PHASE', id, phase, statusMessage: message });
     };
@@ -244,6 +248,9 @@ export function BeamOperationsProvider({ children }) {
         refreshAllBalances().catch(() => {});
       } catch (err) {
         dispatch({ type: 'ERROR', id, error: err?.message || 'eBTC redeem failed', errorCode: err?.code });
+      } finally {
+        const { releaseOperation } = await import('@/services/utxo-reservations');
+        releaseOperation(id);
       }
     })();
   }, [refreshAllBalances]);
@@ -291,10 +298,11 @@ export function BeamOperationsProvider({ children }) {
     dispatch({ type: 'RETRY', id, phase: saved.phase || BEAM_PHASE.CREATING_PLACEHOLDER });
     const resumePayload = { ...saved, seedPhrase, network: saved.btcNetwork || 'mainnet' };
     const direction = saved.direction || op.payload?.direction;
-    if (direction === 'ebtc-ada-to-btc') runEbtcRedeem(id, resumePayload);
-    else if (direction === 'ebtc-btc-to-ada') runEbtcBeam(id, resumePayload);
-    else if (direction === 'ada-to-btc') runBeamBack(id, resumePayload);
-    else runBeam(id, resumePayload);
+    const opLabel = op.label || '';
+    if (direction === 'ebtc-ada-to-btc') runEbtcRedeem(id, opLabel, resumePayload);
+    else if (direction === 'ebtc-btc-to-ada') runEbtcBeam(id, opLabel, resumePayload);
+    else if (direction === 'ada-to-btc') runBeamBack(id, opLabel, resumePayload);
+    else runBeam(id, opLabel, resumePayload);
   }, [state.operations, runEbtcRedeem, runEbtcBeam, runBeamBack, runBeam]);
 
   const startEbtcRedeem = useCallback((label, payload) => {
@@ -308,7 +316,7 @@ export function BeamOperationsProvider({ children }) {
         error: null, payload, steps: [],
       },
     });
-    runEbtcRedeem(id, payload);
+    runEbtcRedeem(id, label, payload);
     return id;
   }, [runEbtcRedeem]);
 
@@ -324,7 +332,7 @@ export function BeamOperationsProvider({ children }) {
         error: null, payload, steps: [],
       },
     });
-    runEbtcBeam(id, payload);
+    runEbtcBeam(id, label, payload);
     return id;
   }, [runEbtcBeam]);
 
@@ -340,7 +348,7 @@ export function BeamOperationsProvider({ children }) {
         error: null, payload, steps: [],
       },
     });
-    runBeamBack(id, payload);
+    runBeamBack(id, label, payload);
     return id;
   }, [runBeamBack]);
 
@@ -423,14 +431,15 @@ export function BeamOperationsProvider({ children }) {
           });
         }
 
+        const resumeLabel = saved.label || '';
         if (direction === 'ada-to-btc') {
-          runBeamBack(id, resumePayload);
+          runBeamBack(id, resumeLabel, resumePayload);
         } else if (direction === 'ebtc-btc-to-ada') {
-          runEbtcBeam(id, resumePayload);
+          runEbtcBeam(id, resumeLabel, resumePayload);
         } else if (direction === 'ebtc-ada-to-btc') {
-          runEbtcRedeem(id, resumePayload);
+          runEbtcRedeem(id, resumeLabel, resumePayload);
         } else {
-          runBeam(id, resumePayload);
+          runBeam(id, resumeLabel, resumePayload);
         }
       }
     })();

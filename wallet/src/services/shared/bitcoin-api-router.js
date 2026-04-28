@@ -87,8 +87,11 @@ export class BitcoinApiRouter {
     }
 
     async isUtxoSpent(txid, vout, network = null) {
+        // Skip the explorer for outspend — it only indexes charm txs, so 404s
+        // every plain BTC funding UTXO. mempool.space has full coverage and
+        // is what `_callMempoolWithNormalization` resolves to.
         try {
-            return await this._tryWithFallback('isUtxoSpent', txid, vout, network);
+            return await this._callMempoolWithNormalization('isUtxoSpent', txid, vout, this._getCurrentNetwork(network));
         } catch (error) {
             return false;
         }

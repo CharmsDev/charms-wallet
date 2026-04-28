@@ -179,17 +179,13 @@ export class MempoolService {
     }
 
     /**
-     * Check if a specific UTXO is spent — tries Explorer API first
+     * Check if a specific UTXO is spent. Goes directly to mempool.space —
+     * the explorer's `outspend` endpoint only indexes charm txs and 404s
+     * every plain BTC UTXO, so routing through it just doubles latency and
+     * pollutes the console. The router (`bitcoinApiRouter.isUtxoSpent`)
+     * always lands here.
      */
     async isUtxoSpent(txid, vout, network = null) {
-        try {
-            const { explorerWalletService } = await import('./explorer-wallet-service');
-            const targetNetwork = network || config.bitcoin.network;
-            if (explorerWalletService.isAvailable(targetNetwork)) {
-                return await explorerWalletService.isUtxoSpent(txid, vout, targetNetwork);
-            }
-        } catch (_) { /* fall through to mempool */ }
-
         const baseUrl = this._getMempoolUrl(network);
         const url = `${baseUrl}/tx/${txid}/outspend/${vout}`;
         const result = await this._makeHttpRequest(url);

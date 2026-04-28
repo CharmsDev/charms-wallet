@@ -57,21 +57,14 @@ export default function UpgradeGate({ children }) {
                         } else {
                             const { syncWalletExplorer } = await import('@/services/wallet/sync/explorer-wallet-sync');
                             const { syncTransactionHistory } = await import('@/services/wallet/sync/transactions-sync');
-                            const { getAddresses } = await import('@/services/storage');
-                            const { useTransactionStore } = await import('@/stores/transactionStore');
 
                             // 1) Balance + UTXOs + charms
                             await syncWalletExplorer({ blockchain, network, fullScan: true, skipCharms: false });
-                            // 2) Tx history (full scan since this is the first
-                            //    sync after wipe — no watermark exists yet)
+                            // 2) Tx history — full scan since this is the
+                            //    first sync after wipe. syncTransactionHistory
+                            //    decodes vin/vout and classifies inline before
+                            //    saving, so storage holds final types.
                             await syncTransactionHistory({ blockchain, network, mode: 'full' });
-                            // 3) Reclassify so charm txs / beams / eBTC redeem
-                            //    get their proper labels instead of generic
-                            //    "received". Without this step the History tab
-                            //    shows everything as plain BTC until the user
-                            //    presses Refresh.
-                            const addresses = await getAddresses(blockchain, network);
-                            await useTransactionStore.getState().reprocessCharmTransactions(blockchain, network, addresses);
                         }
                     } catch (e) {
                         console.warn('[upgrade] initial sync failed (non-fatal):', e?.message || e);

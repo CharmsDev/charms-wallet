@@ -12,7 +12,6 @@ export default function TransactionHistory() {
         transactions,
         isLoading,
         loadTransactions,
-        reprocessCharmTransactions
     } = useTransactions();
 
     const { activeBlockchain, activeNetwork } = useBlockchain();
@@ -86,13 +85,10 @@ export default function TransactionHistory() {
             await syncWalletExplorer({ blockchain: activeBlockchain, network: activeNetwork, fullScan: true, skipCharms: false });
 
             // 2) Tx history via transactions/batch — incremental via watermark.
-            //    Inline charm.detected + assets[] eliminates per-tx fetches.
+            //    syncTransactionHistory decodes vin/vout and classifies inline
+            //    so storage holds final types (no UI-side reprocess needed).
             const { syncTransactionHistory } = await import('@/services/wallet/sync/transactions-sync');
             await syncTransactionHistory({ blockchain: activeBlockchain, network: activeNetwork, mode: 'incremental' });
-
-            // 3) Reclassify with full vin/vout for charm txs lacking it.
-            //    Confirmed txs with full data are skipped (immutable).
-            await reprocessCharmTransactions(activeBlockchain, activeNetwork, addresses);
             await loadTransactions(activeBlockchain, activeNetwork);
         } catch (error) {
             // Silently handle refresh errors to avoid disrupting user experience

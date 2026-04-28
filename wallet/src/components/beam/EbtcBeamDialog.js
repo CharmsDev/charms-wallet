@@ -289,6 +289,13 @@ export default function EbtcBeamDialog({ onClose }) {
       seedPhrase,
       network: btcNetwork,
       adaNetwork,
+      // Pre-selected funding UTXO so it gets reserved at beam start (closes
+      // the selection-to-broadcast window — the executor used to re-select
+      // from mempool during step 2 with no reservation, letting parallel
+      // ops re-pick the same UTXO).
+      fundingUtxo: payload.fundingUtxo
+        ? { utxoId: payload.fundingUtxo.utxoId, value: payload.fundingUtxo.value }
+        : undefined,
     });
     onClose();
   };

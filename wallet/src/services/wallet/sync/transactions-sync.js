@@ -177,5 +177,17 @@ export async function syncTransactionHistory({
     }
 
     console.log(`[tx-sync] new=${added} updated=${updated} typeUpgraded=${typeUpgraded} total=${localTxs.length}`);
+
+    // Reclassify INLINE so storage holds final types (BEAM_IN/BEAM_OUT/etc.)
+    // before the UI ever reads it. Previously this ran on the History page
+    // mount, which is why users briefly saw generic "received/sent" labels
+    // that flipped to the proper ones a moment later.
+    try {
+        const { useTransactionStore } = await import('@/stores/transactionStore');
+        await useTransactionStore.getState().reprocessCharmTransactions(blockchain, network, stored);
+    } catch (e) {
+        console.warn('[tx-sync] inline classify failed (non-fatal):', e?.message || e);
+    }
+
     return { newTxCount: added, lastBlock: maxBlock || null, typeUpgraded };
 }

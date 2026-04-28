@@ -1,28 +1,48 @@
 /**
  * UTXO Reservations — chain-agnostic public API.
  *
- * One in-memory singleton tracks "spent but not yet confirmed" UTXOs
- * per chain. Used to prevent double-selection across concurrent operations
- * (regular sends, charm transfers, beams, redeems) within a single session.
+ * Two views over the same underlying store (see ./reservation-store.js):
  *
- * Pattern: mirror of charms-cast/webapp WalletContext.spentUtxoIds.
- *   - Mark only AFTER successful broadcast
- *   - Auto-cleanup when chain refresh confirms the UTXO is gone
- *   - No persistence (cleared on page reload)
+ *   - Flat per-chain Set<"txid:vout">: the hot-path lookup used by
+ *     selectors. Use `markSpent`/`markBatch`/`isSpent`/`getSpentSet` for
+ *     ad-hoc protection (e.g. broadcast-time safety net).
  *
- * Chain prefix is required; never cross-contaminate Bitcoin and Cardano sets.
+ *   - Per-operation tracking: `reserveForOperation(opId, chain, items,
+ *     label)` registers a list of UTXOs *under* an operation so the
+ *     caller can later `releaseOperation(opId)` to free exactly what it
+ *     took on cancel/failure. The UI can call `findOperationByKey` to
+ *     surface "this UTXO is held by `<label>`" instead of an opaque
+ *     "no funds" error.
+ *
+ * Both views are persisted to localStorage (`charms_utxo_reservations`)
+ * so reservations survive page reloads — beam ops can run for tens of
+ * minutes and a reload mid-flight must not free UTXOs the in-flight tx
+ * still depends on.
+ *
+ * Auto-cleanup: `syncWithChain(chain, onChainKeys)` (called from chain
+ * refresh) drops every flat-set entry whose UTXO is no longer on-chain.
+ * Any operations that still reference those keys keep their entry but
+ * their items list naturally shortens; releaseOperation is the canonical
+ * way to clear them.
+ *
+ * Chain prefix is required; never cross-contaminate Bitcoin and Cardano.
+ * Supported chains: 'bitcoin', 'cardano'. Add more as needed.
  *
  * Public API:
  *   markSpent(chain, txid, vout)
  *   release(chain, txid, vout)
- *   isSpent(chain, txid, vout)        → boolean
- *   getSpentSet(chain)                → new Set (snapshot)
- *   markBatch(chain, items)           → items can be {utxoId} or {txid|txHash, vout|outputIndex}
- *   syncWithChain(chain, onChainKeys) → drop reservations no longer on-chain
+ *   isSpent(chain, txid, vout)            → boolean
+ *   getSpentSet(chain)                    → new Set (snapshot)
+ *   markBatch(chain, items)               → items: {utxoId}|{txid,vout}|{txHash,outputIndex}|"txid:vout"
+ *   syncWithChain(chain, onChainKeys)     → drop reservations no longer on-chain
  *   clearChain(chain)
  *   stats()
  *
- * Supported chains: 'bitcoin', 'cardano'. Add more as needed.
+ *   reserveForOperation(opId, chain, items, label?)  → add to op + flat set
+ *   appendToOperation(opId, items)                   → add more items to an existing op
+ *   releaseOperation(opId)                           → remove every item the op holds
+ *   findOperationByKey(chain, key)                   → { opId, label, items, ... } | null
+ *   getActiveOperations(chain?)                      → list of active ops
  */
 
 import { reservationStore } from './reservation-store';
@@ -114,6 +134,31 @@ export function stats() {
   return reservationStore.stats();
 }
 
+// ─── Per-operation tracking ─────────────────────────────────────────────
+
+export function reserveForOperation(opId, chain, items, label = '') {
+  check(chain);
+  return reservationStore.reserveForOperation(opId, chain, items, label);
+}
+
+export function appendToOperation(opId, items) {
+  return reservationStore.appendToOperation(opId, items);
+}
+
+export function releaseOperation(opId) {
+  return reservationStore.releaseOperation(opId);
+}
+
+export function findOperationByKey(chain, key) {
+  check(chain);
+  return reservationStore.findOperationByKey(chain, key);
+}
+
+export function getActiveOperations(chain) {
+  if (chain) check(chain);
+  return reservationStore.getActiveOperations(chain);
+}
+
 // Convenience namespace export
 export const reservations = {
   markSpent,
@@ -124,4 +169,9 @@ export const reservations = {
   syncWithChain,
   clearChain,
   stats,
+  reserveForOperation,
+  appendToOperation,
+  releaseOperation,
+  findOperationByKey,
+  getActiveOperations,
 };

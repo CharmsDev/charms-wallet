@@ -13,6 +13,24 @@ export class BitcoinBroadcastService {
     async broadcastTransaction(txHex, network) {
         try {
             const txid = await this.apiRouter.broadcastTransaction(txHex, network);
+            // Reserve every input the broadcast tx consumed. Defence-in-depth
+            // against concurrent ops in the same session re-picking the same
+            // UTXO before the tx confirms. Cleared by `syncWithChain` on next
+            // refresh.
+            try {
+                const bitcoin = await import('bitcoinjs-lib');
+                const tx = bitcoin.Transaction.fromHex(txHex);
+                const items = tx.ins.map(inp => ({
+                    txid: Buffer.from(inp.hash).reverse().toString('hex'),
+                    vout: inp.index,
+                }));
+                if (items.length) {
+                    const { markBatch } = await import('@/services/utxo-reservations');
+                    markBatch('bitcoin', items);
+                }
+            } catch (e) {
+                console.warn('[BTC broadcast] reservation skip:', e?.message || e);
+            }
             return {
                 success: true,
                 txid: txid.trim()

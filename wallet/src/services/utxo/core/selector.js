@@ -4,7 +4,7 @@ import { utxoService } from '@/services/utxo/utxo-service';
 import { getCharms } from '@/services/storage';
 import { utxoCalculations } from '../utils/calculations';
 import { calculateMixedFee } from '@/services/wallet/utils/fee';
-import { markSpent, release, isSpent, getSpentSet, clearChain } from '@/services/utxo-reservations';
+import { markSpent, release, isSpent, getSpentSet, clearChain, getActiveOperations } from '@/services/utxo-reservations';
 
 export class UTXOSelector {
     constructor() {
@@ -64,14 +64,28 @@ export class UTXOSelector {
         // Get current charms to exclude their UTXOs
         const networkKey = network === 'mainnet' ? 'mainnet' : 'testnet4';
         const charms = await getCharms(blockchain, networkKey) || [];
-        
+
         // CRITICAL: isUtxoSpendable filters out charms, ordinals, runes, and locked UTXOs - NEVER select reserved UTXOs
+        const reservedSet = this.lockedUtxos;
         const candidateUtxos = availableUtxos.filter(utxo => {
             const transactionData = transactionDataMap ? transactionDataMap[utxo.txid] : null;
-            return utxoCalculations.isUtxoSpendable(utxo, charms, this.lockedUtxos, transactionData);
+            return utxoCalculations.isUtxoSpendable(utxo, charms, reservedSet, transactionData);
         });
 
         if (candidateUtxos.length === 0) {
+            // Distinguish "no UTXOs" from "all UTXOs reserved by an active op".
+            // The latter is a much more useful message — names the holding
+            // beam so the user knows to wait for it instead of refreshing.
+            const reservedFromAvailable = availableUtxos.filter(u => reservedSet.has(`${u.txid}:${u.vout}`));
+            if (reservedFromAvailable.length > 0) {
+                const ops = getActiveOperations('bitcoin');
+                const labels = ops.map(o => o.label).filter(Boolean);
+                const opStr = labels.length ? `: ${[...new Set(labels)].join(', ')}` : '';
+                throw new Error(
+                    `${reservedFromAvailable.length} UTXO(s) are reserved by active operation${labels.length > 1 ? 's' : ''}${opStr}. ` +
+                    `Wait for it to finish or fund a new UTXO before sending.`
+                );
+            }
             throw new Error('No valid UTXOs available. Wallet refresh required.');
         }
 
@@ -119,6 +133,19 @@ export class UTXOSelector {
         }
 
         if (totalSelected < targetAmount) {
+            // If reservations are taking enough sats to make the difference,
+            // surface that to the user instead of an opaque shortfall.
+            const reservedFromAvailable = availableUtxos.filter(u => reservedSet.has(`${u.txid}:${u.vout}`));
+            const reservedSats = reservedFromAvailable.reduce((s, u) => s + (u.value || 0), 0);
+            if (reservedSats > 0 && totalSelected + reservedSats >= targetAmount) {
+                const ops = getActiveOperations('bitcoin');
+                const labels = ops.map(o => o.label).filter(Boolean);
+                const opStr = labels.length ? `: ${[...new Set(labels)].join(', ')}` : '';
+                throw new Error(
+                    `Insufficient spendable UTXOs. ${reservedSats.toLocaleString()} sats are reserved by active operation${labels.length > 1 ? 's' : ''}${opStr}. ` +
+                    `Wait for it to finish or fund a new UTXO before sending.`
+                );
+            }
             throw new Error(`Insufficient verified UTXOs. Need ${targetAmount} sats, only found ${totalSelected} sats in valid UTXOs.`);
         }
 

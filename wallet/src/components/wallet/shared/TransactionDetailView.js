@@ -1,7 +1,7 @@
 'use client';
 
 import { getTransactionLabel, getTransactionIcon, CHARM_TRANSACTION_TYPES } from '@/services/transactions/transaction-classifier';
-import { classifyInput, classifyOutput } from '@/services/transactions/known-addresses';
+import { classifyInput, classifyOutput, KNOWN_ADDRESSES } from '@/services/transactions/known-addresses';
 import { useAddresses } from '@/stores/addressesStore';
 import { useMemo } from 'react';
 import { formatBTC, formatDetailedDate } from '@/utils/formatters';
@@ -86,8 +86,21 @@ export default function TransactionDetailView({ transaction, network, compact = 
     };
 
     const isCharmTransaction = (tx) => {
-        return ['charm_received', 'charm_sent', 'charm_transfer', 'charm_consolidation', 'charm_self_transfer', 'bro_mint', 'bro_mining'].includes(tx.type);
+        return ['charm_received', 'charm_sent', 'charm_transfer', 'charm_consolidation', 'charm_self_transfer', 'bro_mint', 'bro_mining', 'beam_in', 'beam_out', 'ebtc_lock', 'ebtc_redeem'].includes(tx.type);
     };
+
+    const BEAM_OUTGOING = new Set(['charm_sent', 'beam_out', 'ebtc_lock']);
+    const BEAM_INCOMING = new Set(['charm_received', 'beam_in', 'ebtc_redeem']);
+
+    const sumOutputsByKind = (kind) => (transaction.outputs || [])
+        .reduce((s, o) => (o.address && KNOWN_ADDRESSES[o.address]?.kind === kind ? s + (o.amount || 0) : s), 0);
+    const sumInputsByKind = (kind) => (transaction.inputs || [])
+        .reduce((s, i) => (i.address && KNOWN_ADDRESSES[i.address]?.kind === kind ? s + (i.value || 0) : s), 0);
+
+    const scrollsFee  = sumOutputsByKind('scrolls_fee');
+    const vaultLocked = sumOutputsByKind('vault_ebtc');
+    const vaultIn     = sumInputsByKind('vault_ebtc');
+    const networkFee  = transaction.fee || 0;
 
     const copyToClipboard = (text) => {
         navigator.clipboard.writeText(text);
@@ -118,37 +131,66 @@ export default function TransactionDetailView({ transaction, network, compact = 
                     </div>
                 </div>
                 
-                {/* Amount - Top Right */}
+                {/* Amount - Top Right.
+                    Show the operation's *subject* (token amount, vault BTC) — NOT
+                    the wallet's BTC delta, which mixes dust + fees and confuses the
+                    user. eBTC ops show the BTC moved into/out of the vault, with
+                    eBTC ticker. Plain BTC ops still show the BTC delta. */}
                 <div className="text-right">
-                    {isCharmTransaction(transaction) && transaction.charmTokenData ? (
-                        <>
-                            <p className={`text-2xl font-bold ${
-                                transaction.type === 'charm_received' ? 'text-green-400' : 
-                                transaction.type === 'charm_sent' ? 'text-red-400' : 
-                                'text-purple-400'
-                            }`}>
-                                {transaction.type === 'charm_received' ? '+' : transaction.type === 'charm_sent' ? '-' : ''}
-                                {transaction.charmTokenData.tokenAmount.toLocaleString(undefined, {
-                                    minimumFractionDigits: 0,
-                                    maximumFractionDigits: 8
-                                })}
-                            </p>
-                            <p className="text-sm text-dark-400 mt-1">
-                                {transaction.charmTokenData.tokenTicker}
-                            </p>
-                        </>
-                    ) : !isCharmTransaction(transaction) ? (
-                        <>
-                            <p className={`text-2xl font-bold ${
-                                transaction.type === 'received' ? 'text-green-400' : 'text-red-400'
-                            }`}>
-                                {transaction.type === 'received' ? '+' : '-'}{formatBTC(transaction.amount)}
-                            </p>
-                            <p className="text-sm text-dark-400 mt-1">BTC</p>
-                        </>
-                    ) : (
-                        <p className="text-xl font-bold text-dark-400">-</p>
-                    )}
+                    {(() => {
+                        const t = transaction.type;
+                        const td = transaction.charmTokenData;
+                        const incoming = BEAM_INCOMING.has(t);
+                        const outgoing = BEAM_OUTGOING.has(t);
+                        const sign = incoming ? '+' : outgoing ? '-' : '';
+                        const colour = incoming ? 'text-green-400' : outgoing ? 'text-red-400' : 'text-purple-400';
+
+                        if ((t === 'ebtc_lock' || t === 'ebtc_redeem')) {
+                            const sats = t === 'ebtc_lock' ? vaultLocked : vaultIn;
+                            if (sats > 0) {
+                                return (
+                                    <>
+                                        <p className={`text-2xl font-bold ${colour}`}>{sign}{formatBTC(sats)}</p>
+                                        <p className="text-sm text-dark-400 mt-1">{td?.tokenTicker || 'eBTC'}</p>
+                                    </>
+                                );
+                            }
+                        }
+
+                        if (isCharmTransaction(transaction) && td) {
+                            // tokenAmount may be 0 / undefined for beam-outs
+                            // (the BTC side has no token-bearing output). Hide
+                            // the number rather than render "-0" — the ticker
+                            // chip + label still tells the user it's BRO.
+                            const amt = Number(td.tokenAmount);
+                            const hasAmt = Number.isFinite(amt) && amt > 0;
+                            return (
+                                <>
+                                    {hasAmt ? (
+                                        <p className={`text-2xl font-bold ${colour}`}>
+                                            {sign}{amt.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 8 })}
+                                        </p>
+                                    ) : (
+                                        <p className="text-2xl font-bold text-dark-400">{sign || ''}—</p>
+                                    )}
+                                    <p className="text-sm text-dark-400 mt-1">{td.tokenTicker || ''}</p>
+                                </>
+                            );
+                        }
+
+                        if (!isCharmTransaction(transaction)) {
+                            return (
+                                <>
+                                    <p className={`text-2xl font-bold ${t === 'received' ? 'text-green-400' : 'text-red-400'}`}>
+                                        {t === 'received' ? '+' : '-'}{formatBTC(transaction.amount)}
+                                    </p>
+                                    <p className="text-sm text-dark-400 mt-1">BTC</p>
+                                </>
+                            );
+                        }
+
+                        return <p className="text-xl font-bold text-dark-400">-</p>;
+                    })()}
                 </div>
             </div>
 
@@ -188,12 +230,66 @@ export default function TransactionDetailView({ transaction, network, compact = 
 
                 {/* Type-specific transaction details - only for Bitcoin */}
                 {(transaction.type === 'sent' || transaction.type === 'received') && (
-                    <BitcoinTransaction 
+                    <BitcoinTransaction
                         transaction={transaction}
                         formatBTC={formatBTC}
                         DetailRow={DetailRow}
                         copyToClipboard={copyToClipboard}
                     />
+                )}
+
+                {/* Token amount moved — primary subject of beam/charm ops.
+                    Only render when we actually have a positive amount; for
+                    BEAM_OUT the indexer's BTC-side `assets[0].amount` is often
+                    0 (tokens left for Cardano), so showing "-0 BRO" would be
+                    worse than no row at all. */}
+                {(() => {
+                    const td = transaction.charmTokenData;
+                    const amt = Number(td?.tokenAmount);
+                    if (!isCharmTransaction(transaction) || !td || !Number.isFinite(amt) || amt <= 0) return null;
+                    return (
+                        <DetailRow label="Token Amount">
+                            <span className="text-white font-semibold">
+                                {BEAM_INCOMING.has(transaction.type) ? '+' : BEAM_OUTGOING.has(transaction.type) ? '-' : ''}
+                                {amt.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 8 })}
+                                {' '}{td.tokenTicker || ''}
+                            </span>
+                        </DetailRow>
+                    );
+                })()}
+
+                {/* eBTC vault leg (BTC locked/released — the underlying collateral). */}
+                {(transaction.type === 'ebtc_lock' && vaultLocked > 0) && (
+                    <DetailRow label="Locked in Vault">
+                        <span className="text-orange-300 font-semibold">{formatBTC(vaultLocked)} BTC</span>
+                    </DetailRow>
+                )}
+                {(transaction.type === 'ebtc_redeem' && vaultIn > 0) && (
+                    <DetailRow label="Released from Vault">
+                        <span className="text-orange-300 font-semibold">{formatBTC(vaultIn)} BTC</span>
+                    </DetailRow>
+                )}
+
+                {/* Fee breakdown — split miner fee from Scrolls/prover fee. The
+                    Scrolls fee output funds the Succinct prover + signers; the
+                    miner fee is what Bitcoin nodes claim. Showing both lets the
+                    user see exactly what each leg of a beam costs. */}
+                {networkFee > 0 && (
+                    <DetailRow label="Network Fee">
+                        <span className="text-white">{formatBTC(networkFee)} BTC</span>
+                    </DetailRow>
+                )}
+                {scrollsFee > 0 && (
+                    <DetailRow label={(transaction.type === 'ebtc_lock' || transaction.type === 'ebtc_redeem') ? 'Scrolls + Prover Fee' : 'Prover Fee'}>
+                        <span className="text-purple-300" title="Single output to the Scrolls fee address — pays Succinct prover and Scrolls signers in one payment.">
+                            {formatBTC(scrollsFee)} BTC
+                        </span>
+                    </DetailRow>
+                )}
+                {(networkFee > 0 && scrollsFee > 0) && (
+                    <DetailRow label="Total Cost">
+                        <span className="text-white font-semibold">{formatBTC(networkFee + scrollsFee)} BTC</span>
+                    </DetailRow>
                 )}
 
             </div>

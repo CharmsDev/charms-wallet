@@ -240,19 +240,49 @@ const useTransactionStore = create((set, get) => ({
                     tx.type = classifyTransaction(tx, effectiveAddresses, { placeholderTxids });
                 }
 
-                // Charm metadata: only fetch if we don't already have it
-                // (set null after one attempt; absence (undefined) means
-                // "never tried").
-                if (tx.charmTokenData === undefined && CHARM_TRANSACTION_TYPES.has(tx.type)) {
-                    const charmData = await extractCharmTokenData(tx.txid, network, effectiveAddresses).catch(() => null);
-                    tx.charmTokenData = charmData ? {
-                        appId: charmData.appId,
-                        tokenName: charmData.tokenName,
-                        tokenTicker: charmData.tokenTicker,
-                        tokenImage: charmData.tokenImage,
-                        tokenAmount: charmData.tokenAmount,
-                    } : null;
-                    delete tx.metadata; // legacy field — superseded by charmTokenData
+                // Charm metadata: refresh from the indexed single-tx endpoint
+                // when amount is missing/zero. For outgoing types (beam_out,
+                // charm_sent, ebtc_lock) the tx has no token-bearing output
+                // — the tokens leave the BTC side — so the indexed endpoint
+                // also returns 0. Fall back to the parent of the spent charm
+                // input: that parent's `assets[]` entry at the matching vout
+                // holds the original token amount (the amount that's now
+                // leaving). Same logic works for charm_sent.
+                const needCharmRefresh = CHARM_TRANSACTION_TYPES.has(tx.type) && (
+                    tx.charmTokenData === undefined ||
+                    !(Number(tx.charmTokenData?.tokenAmount) > 0)
+                );
+                if (needCharmRefresh) {
+                    let charmData = await extractCharmTokenData(tx.txid, network, effectiveAddresses).catch(() => null);
+
+                    if (!(charmData && Number(charmData.tokenAmount) > 0)) {
+                        const charmInput = (tx.inputs || []).find(i =>
+                            i.value === 546 || i.value === 1000 || i.value === 330
+                        );
+                        if (charmInput?.txid) {
+                            const parent = await extractCharmTokenData(charmInput.txid, network, effectiveAddresses).catch(() => null);
+                            if (parent && Number(parent.tokenAmount) > 0) charmData = parent;
+                        }
+                    }
+
+                    if (charmData && Number(charmData.tokenAmount) > 0) {
+                        tx.charmTokenData = {
+                            appId: charmData.appId,
+                            tokenName: charmData.tokenName,
+                            tokenTicker: charmData.tokenTicker,
+                            tokenImage: charmData.tokenImage,
+                            tokenAmount: charmData.tokenAmount,
+                        };
+                    } else if (tx.charmTokenData === undefined) {
+                        tx.charmTokenData = charmData ? {
+                            appId: charmData.appId,
+                            tokenName: charmData.tokenName,
+                            tokenTicker: charmData.tokenTicker,
+                            tokenImage: charmData.tokenImage,
+                            tokenAmount: charmData.tokenAmount,
+                        } : null;
+                    }
+                    delete tx.metadata;
                 }
                 return tx;
             }));

@@ -11,6 +11,13 @@ import { useBlockchain } from '@/stores/blockchainStore';
 import { fetchAddressTxs, getCardanoTx, getCardanoTxsBatch } from '@/services/cardano/api';
 import { classifyCardanoTx, CARDANO_TX_TYPE, CARDANO_TX_ICON } from '@/services/cardano/tx-classifier';
 import { cardanoTxUrl } from '@/utils/cardanoExplorer';
+import { StorageAdapter } from '@/services/storage-adapter';
+import { netKey, DATA_TYPES } from '@/services/storage-keys';
+
+// Cache the parsed tx list + per-tx detail map keyed by network so revisits
+// to the History tab render instantly with proper classification, instead of
+// flashing generic labels while a fresh batch fetch resolves.
+const cardanoTxCacheKey = (network) => netKey('cardano', network, DATA_TYPES.TRANSACTIONS);
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
@@ -61,20 +68,46 @@ export default function CardanoTransactionHistory() {
       setTxs(list);
       // Batch-fetch details for classification
       const hashes = list.map(t => t.tx_hash || t.hash).filter(Boolean);
+      let mergedDetails = {};
       if (hashes.length) {
         const detailMap = await getCardanoTxsBatch(hashes);
-        setTxDetails(prev => ({ ...prev, ...detailMap }));
+        mergedDetails = detailMap || {};
+        setTxDetails(prev => ({ ...prev, ...mergedDetails }));
       }
+      // Persist the parsed list + details so the next mount renders instantly
+      // with full classification (no "generic label → final label" flicker).
+      try {
+        await StorageAdapter.set(
+          cardanoTxCacheKey(network),
+          JSON.stringify({ txs: list, txDetails: mergedDetails, savedAt: Date.now() })
+        );
+      } catch {}
     } catch (err) {
       console.error('[CardanoTxHistory] Error:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [addresses]);
+  }, [addresses, network]);
 
+  // Hydrate from storage BEFORE hitting the network — gives the user a fully
+  // classified list on every mount. The background refresh updates state once
+  // fresh data arrives, but only adds new txs (never wipes the cached view).
   useEffect(() => {
-    if (isCardano()) loadTxs();
-  }, [isCardano, loadTxs]);
+    if (!isCardano()) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await StorageAdapter.get(cardanoTxCacheKey(network));
+        if (raw && !cancelled) {
+          const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          if (parsed?.txs?.length) setTxs(parsed.txs);
+          if (parsed?.txDetails) setTxDetails(parsed.txDetails);
+        }
+      } catch {}
+      if (!cancelled) loadTxs();
+    })();
+    return () => { cancelled = true; };
+  }, [isCardano, loadTxs, network]);
 
   if (!isCardano()) return null;
 
