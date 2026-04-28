@@ -357,6 +357,11 @@ async function proveAndBroadcastBtcClaim({
   // change_address: any leftover sats from funding UTXO (minus fees) go here.
   // Default to our own address so external destination only receives the
   // 546-sat charm output, not the user's change.
+  // Dynamic fee rate (current-block target + 10% margin). Hardcoded 2 sat/vB
+  // was unsafe under any mempool pressure.
+  const { fetchFeeRate } = await import('../chains/bitcoin/fee');
+  const feeRate = await fetchFeeRate(network);
+
   const payload = {
     spell: normalizedSpellHex,
     app_private_inputs: appPrivateInputs,
@@ -364,7 +369,7 @@ async function proveAndBroadcastBtcClaim({
     binaries: {},
     prev_txs: prevTxs,
     change_address: btcOwnAddress || btcDestAddress,
-    fee_rate: 2,
+    fee_rate: feeRate,
     chain: 'bitcoin',
     collateral_utxo: null,
   };

@@ -36,7 +36,8 @@ const VAULT_NONCE = 1129595493;
 const SCROLLS_BTC_API = 'https://scrolls-v14.charms.dev';
 const DUST_PER_VAULT = 300;
 const DUST_PLACEHOLDER = 546;
-const FEE_RATE = 2;
+// FEE_RATE removed — every BTC tx now uses the dynamic rate from
+// `services/shared/fee-rate.js` (current-block target + 10% margin).
 
 const destToBytes = hexToBytes;
 
@@ -166,7 +167,9 @@ async function createBtcPlaceholder({ btcAddress, seedPhrase, network, onStatus 
   const fundingTxHex = await fetch(`${mempoolBase}/tx/${funding.txid}/hex`).then(r => r.text());
 
   const estVBytes = 140;
-  const fee = estVBytes * FEE_RATE;
+  const { fetchFeeRate } = await import('../chains/bitcoin/fee');
+  const placeholderFeeRate = await fetchFeeRate(network);
+  const fee = estVBytes * placeholderFeeRate;
   const change = funding.value - DUST_PLACEHOLDER - fee;
   if (change < 546) throw new Error(`Change too small: ${change}`);
 
@@ -624,6 +627,9 @@ async function proveCombinedRedeem({
   // Required because the spell declares vault + token contracts in
   // app_public_inputs — the prover must execute their logic to generate
   // the ZK proof. Server SP1 runtime must be compatible with our binary.
+  const { fetchFeeRate } = await import('../chains/bitcoin/fee');
+  const redeemFeeRate = await fetchFeeRate(network);
+
   const payload = {
     spell: spellHex,
     app_private_inputs: { [EBTC_VAULT_APP]: 'f6', [EBTC_TOKEN_APP]: 'f6' },
@@ -631,7 +637,7 @@ async function proveCombinedRedeem({
     binaries: { [EBTC_APP_VK]: wasmBase64 },
     prev_txs: prevTxs,
     change_address: btcAddress,
-    fee_rate: FEE_RATE,
+    fee_rate: redeemFeeRate,
     chain: 'bitcoin',
     collateral_utxo: null,
   };

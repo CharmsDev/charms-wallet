@@ -5,7 +5,6 @@ import { classifyInput, classifyOutput, KNOWN_ADDRESSES } from '@/services/trans
 import { useAddresses } from '@/stores/addressesStore';
 import { useMemo } from 'react';
 import { formatBTC, formatDetailedDate } from '@/utils/formatters';
-import BitcoinTransaction from '../history/components/transaction-types/BitcoinTransaction';
 import CharmTransaction from '../history/components/transaction-types/CharmTransaction';
 import BroTransaction from '../history/components/transaction-types/BroTransaction';
 
@@ -98,9 +97,51 @@ export default function TransactionDetailView({ transaction, network, compact = 
         .reduce((s, i) => (i.address && KNOWN_ADDRESSES[i.address]?.kind === kind ? s + (i.value || 0) : s), 0);
 
     const scrollsFee  = sumOutputsByKind('scrolls_fee');
-    const vaultLocked = sumOutputsByKind('vault_ebtc');
-    const vaultIn     = sumInputsByKind('vault_ebtc');
-    const networkFee  = transaction.fee || 0;
+    const vaultInputSats  = sumInputsByKind('vault_ebtc');
+    const vaultOutputSats = sumOutputsByKind('vault_ebtc');
+    // Net flow at the vault. For a lock there's no vault input → vaultLocked
+    // = vault output. For a redeem we spend a vault UTXO and re-create a
+    // vault change output; the *actually released* amount is the diff. The
+    // previous code rendered the full vault input as "Released from Vault"
+    // which over-stated the redeem (e.g. 9301 sats shown for a 5000-sat
+    // redeem because the vault UTXO carried extra collateral).
+    const vaultLocked   = Math.max(0, vaultOutputSats - vaultInputSats);
+    const vaultReleased = Math.max(0, vaultInputSats  - vaultOutputSats);
+
+    // Source-of-truth math derived directly from inputs/outputs. Never trust
+    // the precomputed `transaction.amount` for display — it's a wallet-delta
+    // (out - in across own addresses) which equals the *fee* for a self-
+    // transfer and confuses every "Total Sent / Received" line.
+    const sumInputs  = (transaction.inputs  || []).reduce((s, i) => s + (i.value  || 0), 0);
+    const sumOutputs = (transaction.outputs || []).reduce((s, o) => s + (o.amount || 0), 0);
+    const computedFee = sumInputs > 0 && sumOutputs > 0 ? Math.max(0, sumInputs - sumOutputs) : 0;
+    const networkFee = (transaction.fee && transaction.fee > 0) ? transaction.fee : computedFee;
+
+    // External outflow: sats leaving the wallet (excludes own outputs and OP_RETURN).
+    const externalOutSats = (transaction.outputs || []).reduce((s, o) => {
+        if (!o.address) return s;                  // OP_RETURN
+        if (ownSet.has(o.address)) return s;       // change / self
+        return s + (o.amount || 0);
+    }, 0);
+    // Inflow into the wallet (sats arriving at our addresses).
+    const ownInSats = (transaction.outputs || []).reduce((s, o) =>
+        (o.address && ownSet.has(o.address)) ? s + (o.amount || 0) : s, 0);
+    // External input total: how many sats came from non-own addresses (used
+    // to detect "received from external" amount).
+    const externalInSats = (transaction.inputs || []).reduce((s, i) => {
+        if (!i.address) return s;
+        if (ownSet.has(i.address)) return s;
+        return s + (i.value || 0);
+    }, 0);
+    // What the user contributed from their own UTXOs (vs. came from vault /
+    // external). Lets us compute the *net* BTC change in the user's wallet:
+    //   net = ownInSats (received at own outs) − ownInputSats (sent from
+    //   own inputs).
+    // For an eBTC redeem this surfaces "did the redeem actually pay you, or
+    // did fees eat the released amount?" — a small redeem can be net-negative.
+    const ownInputSats = (transaction.inputs || []).reduce((s, i) =>
+        (i.address && ownSet.has(i.address)) ? s + (i.value || 0) : s, 0);
+    const netToWallet = ownInSats - ownInputSats;
 
     const copyToClipboard = (text) => {
         navigator.clipboard.writeText(text);
@@ -146,7 +187,7 @@ export default function TransactionDetailView({ transaction, network, compact = 
                         const colour = incoming ? 'text-green-400' : outgoing ? 'text-red-400' : 'text-purple-400';
 
                         if ((t === 'ebtc_lock' || t === 'ebtc_redeem')) {
-                            const sats = t === 'ebtc_lock' ? vaultLocked : vaultIn;
+                            const sats = t === 'ebtc_lock' ? vaultLocked : vaultReleased;
                             if (sats > 0) {
                                 return (
                                     <>
@@ -179,11 +220,49 @@ export default function TransactionDetailView({ transaction, network, compact = 
                         }
 
                         if (!isCharmTransaction(transaction)) {
+                            // Plain BTC tx: show what *actually* moved in/out
+                            // of the wallet, NOT `transaction.amount` (that
+                            // field equals the fee for a self-transfer and
+                            // shows misleading "-0.00000338" on a redeem
+                            // placeholder + payout tx).
+                            //   - received: sats arriving at our addresses
+                            //     from external inputs
+                            //   - sent: sats leaving to external addresses
+                            //   - all-own (placeholder, self-transfer): no
+                            //     external movement → show — and "Internal"
+                            if (t === 'received') {
+                                const sats = ownInSats > 0 ? ownInSats : 0;
+                                if (sats > 0) {
+                                    return (
+                                        <>
+                                            <p className="text-2xl font-bold text-green-400">+{formatBTC(sats)}</p>
+                                            <p className="text-sm text-dark-400 mt-1">BTC</p>
+                                        </>
+                                    );
+                                }
+                            }
+                            if (t === 'sent') {
+                                if (externalOutSats > 0) {
+                                    return (
+                                        <>
+                                            <p className="text-2xl font-bold text-red-400">-{formatBTC(externalOutSats)}</p>
+                                            <p className="text-sm text-dark-400 mt-1">BTC</p>
+                                        </>
+                                    );
+                                }
+                                // Self-transfer / placeholder: nothing left
+                                // the wallet — only the fee.
+                                return (
+                                    <>
+                                        <p className="text-2xl font-bold text-dark-400">—</p>
+                                        <p className="text-sm text-dark-400 mt-1">Internal transfer</p>
+                                    </>
+                                );
+                            }
+                            // btc_placeholder + any other plain-BTC type
                             return (
                                 <>
-                                    <p className={`text-2xl font-bold ${t === 'received' ? 'text-green-400' : 'text-red-400'}`}>
-                                        {t === 'received' ? '+' : '-'}{formatBTC(transaction.amount)}
-                                    </p>
+                                    <p className="text-2xl font-bold text-dark-400">—</p>
                                     <p className="text-sm text-dark-400 mt-1">BTC</p>
                                 </>
                             );
@@ -228,14 +307,31 @@ export default function TransactionDetailView({ transaction, network, compact = 
                     </DetailRow>
                 )}
 
-                {/* Type-specific transaction details - only for Bitcoin */}
-                {(transaction.type === 'sent' || transaction.type === 'received') && (
-                    <BitcoinTransaction
-                        transaction={transaction}
-                        formatBTC={formatBTC}
-                        DetailRow={DetailRow}
-                        copyToClipboard={copyToClipboard}
-                    />
+                {/* Plain-BTC summary rows. Computed straight from
+                    inputs/outputs so the numbers always match the on-chain
+                    truth — never derived from `transaction.amount`, which
+                    is a wallet delta and lies on self-transfers.
+                    Network Fee is rendered ONCE in the fee-breakdown
+                    block below; we don't repeat it here. */}
+                {transaction.type === 'sent' && externalOutSats > 0 && (
+                    <DetailRow label="Sent to recipient">
+                        <span className="text-white font-semibold">{formatBTC(externalOutSats)} BTC</span>
+                    </DetailRow>
+                )}
+                {transaction.type === 'sent' && externalOutSats === 0 && (transaction.outputs?.length > 0) && (
+                    <DetailRow label="Internal transfer">
+                        <span className="text-dark-400">All outputs returned to your wallet</span>
+                    </DetailRow>
+                )}
+                {transaction.type === 'received' && ownInSats > 0 && (
+                    <DetailRow label="Received">
+                        <span className="text-white font-semibold">{formatBTC(ownInSats)} BTC</span>
+                    </DetailRow>
+                )}
+                {transaction.type === 'received' && externalInSats > 0 && (
+                    <DetailRow label="Sender total">
+                        <span className="text-dark-300">{formatBTC(externalInSats)} BTC from external</span>
+                    </DetailRow>
                 )}
 
                 {/* Token amount moved — primary subject of beam/charm ops.
@@ -264,9 +360,19 @@ export default function TransactionDetailView({ transaction, network, compact = 
                         <span className="text-orange-300 font-semibold">{formatBTC(vaultLocked)} BTC</span>
                     </DetailRow>
                 )}
-                {(transaction.type === 'ebtc_redeem' && vaultIn > 0) && (
+                {(transaction.type === 'ebtc_redeem' && vaultReleased > 0) && (
                     <DetailRow label="Released from Vault">
-                        <span className="text-orange-300 font-semibold">{formatBTC(vaultIn)} BTC</span>
+                        <span className="text-orange-300 font-semibold">{formatBTC(vaultReleased)} BTC</span>
+                    </DetailRow>
+                )}
+                {/* Net BTC change in the user's wallet — useful for redeems
+                    where the released amount may not cover the fees. Positive
+                    = your wallet grew. Negative = you paid more than you got. */}
+                {(transaction.type === 'ebtc_redeem' || transaction.type === 'ebtc_lock') && netToWallet !== 0 && (
+                    <DetailRow label="Net to your wallet">
+                        <span className={`font-semibold ${netToWallet > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {netToWallet > 0 ? '+' : '−'}{formatBTC(Math.abs(netToWallet))} BTC
+                        </span>
                     </DetailRow>
                 )}
 

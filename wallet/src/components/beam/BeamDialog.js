@@ -347,6 +347,24 @@ function BeamConfirmStep({ charm, beamData, onConfirm, onBack, onClose }) {
   rows.push({ label: 'ADA balance', value: `${adaDisplay} ADA`, warn: !hasEnoughAda });
   if (changeAddress) rows.push({ label: 'BTC change to', value: truncAddr(changeAddress) });
 
+  // Live network fee — same source as the executor's payload, refreshed
+  // every 30s so the user sees what they'll actually pay if they confirm.
+  const [feeRate, setFeeRate] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const { getNetworkFeeRate } = await import('@/services/shared/fee-rate');
+        const r = await getNetworkFeeRate(activeNetwork);
+        if (!cancelled) setFeeRate(r);
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [activeNetwork]);
+  if (feeRate != null) rows.push({ label: 'Network fee rate', value: `${feeRate} sat/vB` });
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
       <div className="bg-dark-800 border border-dark-700 rounded-xl w-full max-w-md p-6">

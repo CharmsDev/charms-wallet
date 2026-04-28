@@ -24,7 +24,12 @@ const MIN_LOCK_SATS = 1000;
 // ── Step 1: Form ────────────────────────────────────────────────────────────
 
 function EbtcFormStep({ seedPhrase, network, onNext, onClose }) {
-  const [lockSats, setLockSats] = useState('');
+  // The form now asks the user how much eBTC they want to RECEIVE on
+  // Cardano. The wallet silently funds the protocol's per-vault dust
+  // (`DUST_PER_VAULT = 300 sats`) on top so the lock amount is
+  // `mintAmount + 300`. Net effect: user types 5 000 → gets exactly
+  // 5 000 eBTC, wallet pays 300 extra sats from funding.
+  const [mintInput, setMintInput] = useState('');
   const [cardanoAddress, setCardanoAddress] = useState('');
   const [useOwnAddress, setUseOwnAddress] = useState(true);
   const [ownAddress, setOwnAddress] = useState('');
@@ -60,13 +65,18 @@ function EbtcFormStep({ seedPhrase, network, onNext, onClose }) {
     return () => { cancelled = true; };
   }, [seedPhrase, network]);
 
-  const satsNum = parseInt(lockSats) || 0;
-  const mintAmount = satsNum > DUST_PER_VAULT ? satsNum - DUST_PER_VAULT : 0;
+  // What the user types is what they want to receive on Cardano.
+  // The wallet adds DUST_PER_VAULT internally so the eBTC amount comes out exact.
+  const mintAmount = parseInt(mintInput) || 0;
+  const lockSats = mintAmount > 0 ? mintAmount + DUST_PER_VAULT : 0;
   const effectiveAddress = useOwnAddress ? ownAddress : cardanoAddress;
   const isAddressValid = effectiveAddress && (
     effectiveAddress.startsWith('addr1') || effectiveAddress.startsWith('addr_test1')
   );
-  const isAmountValid = satsNum >= MIN_LOCK_SATS;
+  // The minimum stays as MIN_LOCK_SATS expressed against the lockSats —
+  // i.e. user must mint at least `MIN_LOCK_SATS - DUST_PER_VAULT` eBTC.
+  const MIN_MINT = Math.max(1, MIN_LOCK_SATS - DUST_PER_VAULT);
+  const isAmountValid = mintAmount >= MIN_MINT;
   const isFormValid = isAddressValid && isAmountValid;
 
   return (
@@ -81,20 +91,23 @@ function EbtcFormStep({ seedPhrase, network, onNext, onClose }) {
           Beam your Bitcoin to Cardano as eBTC tokens. The process runs in the background.
         </div>
 
-        {/* Amount */}
+        {/* Amount — input is what the user RECEIVES on Cardano. The lock
+            amount (mintAmount + 300 sats vault dust) is shown below as
+            transparency. */}
         <div className="mb-4">
-          <label className="text-sm text-dark-300 mb-1 block">Amount (sats)</label>
+          <label className="text-sm text-dark-300 mb-1 block">Amount to receive (eBTC)</label>
           <input
             type="number"
-            value={lockSats}
-            onChange={e => setLockSats(e.target.value)}
-            placeholder={`Min ${MIN_LOCK_SATS} sats`}
-            min={MIN_LOCK_SATS}
+            value={mintInput}
+            onChange={e => setMintInput(e.target.value)}
+            placeholder={`Min ${MIN_MINT} eBTC`}
+            min={MIN_MINT}
             className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white text-sm focus:border-purple-500 focus:outline-none"
           />
-          {satsNum >= MIN_LOCK_SATS && (
+          {mintAmount >= MIN_MINT && (
             <div className="text-xs text-purple-400 mt-1">
-              You will receive {mintAmount.toLocaleString()} eBTC on Cardano
+              BTC locked: {lockSats.toLocaleString()} sats
+              <span className="text-dark-500"> &nbsp;(+{DUST_PER_VAULT} sats protocol vault dust)</span>
             </div>
           )}
         </div>
@@ -127,7 +140,7 @@ function EbtcFormStep({ seedPhrase, network, onNext, onClose }) {
 
         <div className="flex gap-3">
           <button
-            onClick={() => onNext({ lockSats: satsNum, mintAmount, cardanoAddress: effectiveAddress })}
+            onClick={() => onNext({ lockSats, mintAmount, cardanoAddress: effectiveAddress })}
             disabled={!isFormValid}
             className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-all ${
               isFormValid ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-dark-700 text-dark-500 cursor-not-allowed'
@@ -195,12 +208,31 @@ function EbtcConfirmStep({ formData, seedPhrase, network, onConfirm, onBack, onC
 
   const rows = [
     { label: 'Direction', value: 'Bitcoin → Cardano' },
-    { label: 'Amount', value: `${formData.lockSats.toLocaleString()} sats` },
     { label: 'You receive', value: `${formData.mintAmount.toLocaleString()} eBTC` },
+    { label: 'BTC locked', value: `${formData.lockSats.toLocaleString()} sats` },
     { label: 'Destination', value: truncAddr(formData.cardanoAddress) },
     { label: 'ADA balance', value: `${adaDisplay} ADA`, warn: !hasEnoughAda },
   ];
   if (fundingUtxo) rows.push({ label: 'BTC funding', value: `${fundingUtxo.value.toLocaleString()} sats` });
+
+  // Live network fee — pulled from the same helper the executor uses so the
+  // user sees exactly what they'll pay. Fetched on mount + every 30s while
+  // the dialog is open in case mempool conditions shift.
+  const [feeRate, setFeeRate] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const { getNetworkFeeRate } = await import('@/services/shared/fee-rate');
+        const r = await getNetworkFeeRate(network);
+        if (!cancelled) setFeeRate(r);
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [network]);
+  if (feeRate != null) rows.push({ label: 'Network fee rate', value: `${feeRate} sat/vB` });
 
   const handleCopyAddr = async () => {
     if (cardanoAddr) {
@@ -228,7 +260,7 @@ function EbtcConfirmStep({ formData, seedPhrase, network, onConfirm, onBack, onC
         </div>
 
         <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-3 mb-4 text-xs text-blue-300">
-          Beaming {formData.lockSats.toLocaleString()} sats to Cardano as {formData.mintAmount.toLocaleString()} eBTC.
+          Locking {formData.lockSats.toLocaleString()} sats in the eBTC vault to receive {formData.mintAmount.toLocaleString()} eBTC on Cardano.
           The process takes ~90 min and runs in the background. You can close this page.
         </div>
 
@@ -251,7 +283,7 @@ function EbtcConfirmStep({ formData, seedPhrase, network, onConfirm, onBack, onC
 
         <div className="flex gap-3">
           <button
-            onClick={() => onConfirm({ lockSats: formData.lockSats, btcAddress, cardanoAddress: formData.cardanoAddress, fundingUtxo })}
+            onClick={() => onConfirm({ lockSats: formData.lockSats, mintAmount: formData.mintAmount, btcAddress, cardanoAddress: formData.cardanoAddress, fundingUtxo })}
             disabled={!canStart}
             className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-all ${
               canStart ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-dark-700 text-dark-500 cursor-not-allowed'
@@ -278,7 +310,7 @@ export default function EbtcBeamDialog({ onClose }) {
   const adaNetwork = activeBlockchain === 'cardano' ? activeNetwork : 'mainnet';
 
   const handleConfirm = (payload) => {
-    const label = `${payload.lockSats.toLocaleString()} sats → eBTC → Cardano`;
+    const label = `${payload.mintAmount.toLocaleString()} eBTC → Cardano`;
     // Always pass our own Cardano address so we pay fees/collateral from our wallet
     const ownCardanoAddress = useCardano.getState().addresses[0]?.address;
     startEbtcBeam(label, {

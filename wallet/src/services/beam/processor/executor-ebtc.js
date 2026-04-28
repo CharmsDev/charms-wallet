@@ -261,6 +261,11 @@ async function proveMintAndBeam({ beamId, btcInputUtxo, fundingUtxo, btcExtraInp
   console.log('[eBTC:prove] wasm:', wasmBase64.length, 'chars');
 
   // Build prover payload
+  // Dynamic fee rate (current-block target + 10% margin). Was hardcoded at
+  // 2 sat/vB which left mainnet beams stuck for hours during fee bumps.
+  const { fetchFeeRate } = await import('../chains/bitcoin/fee');
+  const feeRate = await fetchFeeRate(network);
+
   const payload = {
     spell: spellHex,
     app_private_inputs: {
@@ -271,7 +276,7 @@ async function proveMintAndBeam({ beamId, btcInputUtxo, fundingUtxo, btcExtraInp
     binaries: { [EBTC_APP_VK]: wasmBase64 },
     prev_txs: prevTxList,
     change_address: btcAddress,
-    fee_rate: 2,
+    fee_rate: feeRate,
     chain: 'bitcoin',
     collateral_utxo: null,
   };
