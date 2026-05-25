@@ -74,8 +74,18 @@ yarn-error.log*
 # Misc
 *.pem
 /_bkp
-/_rjj
 .DS_Store
+
+# ====== MeshKore Standard contract ======
+# Only public/ (cluster identity + join README) is committed. Everything
+# else (tasks, docs, logs, credentials, runtime, archive) stays local.
+# See https://meshkore.com/standard §2.2
+.meshkore/*
+!.meshkore/public/
+
+# Editor boot block (loaded by Claude Code from the repo root; kept local
+# so the rules don't reach the public repo).
+/CLAUDE.md
 
 # ====== Security: credentials, secrets, keys ======
 **/credentials/
