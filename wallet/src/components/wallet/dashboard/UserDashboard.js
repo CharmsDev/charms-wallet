@@ -11,11 +11,8 @@ import BalanceDisplay from './components/BalanceDisplay';
 import QuickActionsPanel from './components/QuickActionsPanel';
 import PortfolioSummary from './components/PortfolioSummary';
 import RecentTransactions from './components/RecentTransactions';
-import SecurityStatus from './components/SecurityStatus';
-import WalletSeed from './components/WalletSeed';
 import SendBitcoinDialog from '../utxos/SendBitcoinDialog';
 import ReceiveBitcoinDialog from './components/ReceiveBitcoinDialog';
-import SettingsDialog from './components/SettingsDialog';
 import BroMintingBanner from './components/BroMintingBanner';
 import TransferCharmWizard from '../charms/transfer/TransferCharmWizard';
 import BeamDialog from '@/components/beam/BeamDialog';
@@ -29,7 +26,6 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     const [showSendDialog, setShowSendDialog] = useState(false);
     const [showReceiveDialog, setShowReceiveDialog] = useState(false);
     const [receiveAsset, setReceiveAsset] = useState('Bitcoin');
-    const [showSettingsDialog, setShowSettingsDialog] = useState(false);
     const [showBroTransferDialog, setShowBroTransferDialog] = useState(false);
     const [showBroBeamDialog, setShowBroBeamDialog] = useState(false);
     const [showEbtcBeamDialog, setShowEbtcBeamDialog] = useState(false);
@@ -99,10 +95,6 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
 
     const handleViewHistory = () => {
         setActiveSection('history');
-    };
-
-    const handleSettings = () => {
-        setShowSettingsDialog(true);
     };
 
     const handleSendBro = () => {
@@ -220,7 +212,7 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
     }
 
     return (
-        <div className="min-h-screen bg-dark-950 p-4 md:p-6">
+        <div className="p-2 md:p-4">
             <div className="max-w-7xl mx-auto space-y-6">
                 {/* Header */}
                 <div className="flex justify-between items-center">
@@ -285,18 +277,6 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                             isLoading={utxosLoading || charmsLoading || addressesLoading}
                         />
 
-                        {/* Wallet Seed */}
-                        <WalletSeed
-                            hasWallet={hasWallet}
-                            seedPhrase={seedPhrase}
-                            walletInfo={walletInfo}
-                        />
-
-                        {/* Security Status */}
-                        <SecurityStatus
-                            hasWallet={hasWallet}
-                            seedPhrase={seedPhrase}
-                        />
                     </div>
                 </div>
             </div>
@@ -315,12 +295,6 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                 isOpen={showReceiveDialog}
                 onClose={() => setShowReceiveDialog(false)}
                 assetName={receiveAsset}
-            />
-
-            {/* Settings Dialog */}
-            <SettingsDialog
-                isOpen={showSettingsDialog}
-                onClose={() => setShowSettingsDialog(false)}
             />
 
             {/* BRO Transfer Dialog */}

@@ -6,7 +6,10 @@ import { NavigationProvider } from "@/contexts/NavigationContext";
 import { UTXOProvider } from "@/stores/utxoStore";
 import { CharmsProvider } from "@/stores/charmsStore";
 import { BeamOperationsProvider } from "@/contexts/BeamOperationsContext";
+import { AuthProvider } from "@/contexts/AuthContext";
 import UpgradeGate from "@/components/system/UpgradeGate";
+import UnlockGate from "@/components/system/UnlockGate";
+import MigrationGate from "@/components/system/MigrationGate";
 import ExtensionTopBanner from "@/components/extension/ExtensionTopBanner";
 import Script from 'next/script';
 
@@ -22,19 +25,30 @@ export default function RootLayout({ children }) {
         <ExtensionTopBanner />
         <UpgradeGate>
           <WalletProvider>
-            <NetworkProvider>
-              <NavigationProvider>
-                <UTXOProvider>
-                  <CharmsProvider>
-                    <BeamOperationsProvider>
-                      <MainLayout>
-                        {children}
-                      </MainLayout>
-                    </BeamOperationsProvider>
-                  </CharmsProvider>
-                </UTXOProvider>
-              </NavigationProvider>
-            </NetworkProvider>
+            {/* AuthProvider mounts inside WalletProvider so it can hydrate
+                seedPhrase after a successful passkey unlock. UnlockGate
+                blocks everything below it (network, UTXOs, dashboard…)
+                while status='locked'. Non-enrolled / unsupported users
+                see no overlay. */}
+            <AuthProvider>
+              <UnlockGate>
+                <MigrationGate>
+                <NetworkProvider>
+                  <NavigationProvider>
+                    <UTXOProvider>
+                      <CharmsProvider>
+                        <BeamOperationsProvider>
+                          <MainLayout>
+                            {children}
+                          </MainLayout>
+                        </BeamOperationsProvider>
+                      </CharmsProvider>
+                    </UTXOProvider>
+                  </NavigationProvider>
+                </NetworkProvider>
+                </MigrationGate>
+              </UnlockGate>
+            </AuthProvider>
           </WalletProvider>
         </UpgradeGate>
         <Script

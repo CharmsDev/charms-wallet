@@ -53,7 +53,7 @@ export default function WalletInformation() {
     const networkName = activeNetwork === 'mainnet' ? 'mainnet' : 'testnet4';
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-dark-900 via-dark-800 to-dark-900 p-6">
+        <div className="p-4 md:p-6">
             <div className="max-w-4xl mx-auto">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-8">

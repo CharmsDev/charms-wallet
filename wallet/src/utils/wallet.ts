@@ -1,25 +1,17 @@
 import * as bip39 from 'bip39';
-import { saveSeedPhrase } from '@/services/storage';
 
-// Generate BIP39 mnemonic seed phrase
+// Generate BIP39 mnemonic in memory. Persistence is the caller's
+// responsibility — encrypt with the passkey blob (services/auth) or
+// fall back to plaintext storage (services/storage.saveSeedPhrase).
 export async function generateSeedPhrase(): Promise<string> {
-    const mnemonic = bip39.generateMnemonic();
-    // Store seed phrase in local storage
-    await saveSeedPhrase(mnemonic);
-    return mnemonic;
+    return bip39.generateMnemonic();
 }
 
-// Validate and import BIP39 mnemonic seed phrase
+// Validate and normalize a BIP39 mnemonic. Does not persist.
 export async function importSeedPhrase(seedPhrase: string): Promise<string> {
-    // Trim and normalize the seed phrase
-    const normalizedSeedPhrase = seedPhrase.trim().toLowerCase();
-
-    // Validate the seed phrase
-    if (!bip39.validateMnemonic(normalizedSeedPhrase)) {
+    const normalized = seedPhrase.trim().toLowerCase();
+    if (!bip39.validateMnemonic(normalized)) {
         throw new Error('Invalid seed phrase. Please check and try again.');
     }
-
-    // Store seed phrase in local storage
-    await saveSeedPhrase(normalizedSeedPhrase);
-    return normalizedSeedPhrase;
+    return normalized;
 }

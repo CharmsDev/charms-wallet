@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { BLOCKCHAINS } from '@/stores/blockchainStore';
 import { useNetworkDropdown } from '@/hooks/useNetworkDropdown';
 import { useBeamOperations } from '@/contexts/BeamOperationsContext';
+import HeaderAccountMenu from './HeaderAccountMenu';
 
 export default function Header({ activeSection, setActiveSection }) {
     const {
@@ -49,10 +50,12 @@ export default function Header({ activeSection, setActiveSection }) {
                             
                         </div>
 
-                        {/* Blockchain and Network selection */}
-                        <div className="flex items-center space-x-3">
-                            {/* Blockchain selection buttons */}
-                            <div className="flex space-x-2 mr-2">
+                        {/* Right-side controls — two visual groups separated by gap-6:
+                            (a) chain context: [Bitcoin | Cardano] + [Network ▾]
+                            (b) account/system: [Ops] + [Account ▾] */}
+                        <div className="flex items-center gap-6">
+                            {/* (a) Chain context */}
+                            <div className="flex items-center gap-2">
                                 <button
                                     className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getBlockchainClass(BLOCKCHAINS.BITCOIN)}`}
                                     onClick={() => handleBlockchainSelect(BLOCKCHAINS.BITCOIN)}
@@ -65,35 +68,36 @@ export default function Header({ activeSection, setActiveSection }) {
                                 >
                                     Cardano
                                 </button>
+
+                                <div className="relative z-[99999] ml-1">
+                                    <button
+                                        className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${isBitcoin() ? "bg-bitcoin-500/20 text-bitcoin-400" : "bg-cardano-500/20 text-cardano-400"
+                                            }`}
+                                        onClick={handleDropdownToggle}
+                                    >
+                                        {getNetworkDisplayName()}
+                                        <svg className="ml-1 h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
 
-                            {/* Network dropdown */}
-                            <div className="relative z-[99999]">
+                            {/* (b) Account / system */}
+                            <div className="flex items-center gap-3">
                                 <button
-                                    className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${isBitcoin() ? "bg-bitcoin-500/20 text-bitcoin-400" : "bg-cardano-500/20 text-cardano-400"
-                                        }`}
-                                    onClick={handleDropdownToggle}
+                                    className={`beam-ops-btn${hasActiveOperations ? ' beam-ops-btn--active' : ''}`}
+                                    onClick={togglePanel}
+                                    title="Beam Operations"
                                 >
-                                    {getNetworkDisplayName()}
-                                    <svg className="ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                                    {hasActiveOperations && <span className="beam-ops-spinner-ring" />}
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
                                     </svg>
                                 </button>
 
-
+                                <HeaderAccountMenu />
                             </div>
-
-                            {/* Beam operations button */}
-                            <button
-                                className={`beam-ops-btn${hasActiveOperations ? ' beam-ops-btn--active' : ''}`}
-                                onClick={togglePanel}
-                                title="Beam Operations"
-                            >
-                                {hasActiveOperations && <span className="beam-ops-spinner-ring" />}
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                                </svg>
-                            </button>
                         </div>
                     </div>
 
@@ -115,34 +119,35 @@ export default function Header({ activeSection, setActiveSection }) {
                                 </span>
                             </div>
                             
-                            {/* Blockchain and Network selection */}
-                            <div className="flex items-center space-x-2">
-                                {/* Blockchain selection buttons */}
-                                <div className="flex space-x-1">
+                            {/* Right-side controls (mobile) — same two-group hierarchy */}
+                            <div className="flex items-center gap-3">
+                                {/* (a) Chain context */}
+                                <div className="flex items-center gap-1">
                                     <button
                                         className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getBlockchainClass(BLOCKCHAINS.BITCOIN)}`}
                                         onClick={() => handleBlockchainSelect(BLOCKCHAINS.BITCOIN)}
                                     >
                                         Bitcoin
                                     </button>
+                                    <div className="relative z-[99999]">
+                                        <button
+                                            className={`inline-flex items-center px-2 py-1 rounded-full text-[10px] font-medium ${isBitcoin() ? "bg-bitcoin-500/20 text-bitcoin-400" : "bg-cardano-500/20 text-cardano-400"
+                                                }`}
+                                            onClick={handleDropdownToggle}
+                                        >
+                                            {getNetworkDisplayName()}
+                                            <svg className="ml-1 h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </div>
 
-                                {/* Network dropdown */}
-                                <div className="relative z-[99999]">
-                                    <button
-                                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${isBitcoin() ? "bg-bitcoin-500/20 text-bitcoin-400" : "bg-cardano-500/20 text-cardano-400"
-                                            }`}
-                                        onClick={handleDropdownToggle}
-                                    >
-                                        {getNetworkDisplayName()}
-                                        <svg className="ml-1 h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
-                                        </svg>
-                                    </button>
-                                </div>
+                                {/* (b) Account / system */}
+                                <HeaderAccountMenu />
                             </div>
                         </div>
-                        
+
                     </div>
                 </div>
             </header>

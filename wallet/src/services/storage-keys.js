@@ -64,6 +64,11 @@ export const SYSTEM_KEYS = {
 
     // UI preferences (toggles, theme, list filters).
     UI_PREFS:          `${NS.WALLET}${SEP}prefs${SEP}ui`,
+
+    // G002: passkey-encrypted seed blob (WebAuthn PRF). When present,
+    // SEED_PHRASE is wiped and the seed lives only inside this blob
+    // (decrypted to RAM on demand via services/auth/passkey-prf.js).
+    AUTH:              `${NS.WALLET}${SEP}auth`,
 };
 
 // ─── Per-blockchain keys (one row per blockchain regardless of network) ──

@@ -7,7 +7,7 @@ import { useBlockchain } from '@/stores/blockchainStore';
 import { useSearchParams } from 'next/navigation';
 import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
-import WalletCreation from '@/components/wallet/setup/WalletCreation';
+import WalletSetupWizard from '@/components/wallet/setup/WalletSetupWizard';
 import UserDashboard from '@/components/wallet/dashboard/UserDashboard';
 import CardanoDashboard from '@/components/wallet/cardano/CardanoDashboard';
 import WalletInitialization from '@/components/wallet/setup/WalletInitialization';
@@ -39,18 +39,16 @@ export default function Home() {
   const {
     hasWallet,
     seedPhrase,
-    isLoading,
-    error,
     isCheckingWallet,
     isInitializing,
     initializationStep,
     initializationProgress,
-    initializeWalletComplete
   } = useWallet();
   const { walletInfo, derivationLoading, loadWalletInfo } = useWalletInfo();
   const { activeBlockchain, activeNetwork } = useBlockchain();
   const [initializationComplete, setInitializationComplete] = useState(false);
   const [showWalletExistsModal, setShowWalletExistsModal] = useState(false);
+  const [pendingImportSeed, setPendingImportSeed] = useState(null);
 
   const handleSeedParam = (seedParam, hasWallet) => {
     const normalizeSeed = (s) => (s ? s.trim().toLowerCase().replace(/\s+/g, ' ') : '');
@@ -69,9 +67,9 @@ export default function Home() {
         // Different wallet seed provided: show the existing modal
         setShowWalletExistsModal(true);
       } else {
-        // No wallet yet: proceed with import
-        handleImportWallet(decodedSeed);
-        // Clear the seed from the URL to prevent re-import on refresh
+        // No wallet yet: hand the seed to the setup wizard so the user
+        // still goes through passkey setup before the seed is persisted.
+        setPendingImportSeed(decodedSeed);
         const newUrl = new URL(window.location.href);
         newUrl.searchParams.delete('seed');
         window.history.replaceState({}, '', newUrl.toString());
@@ -102,20 +100,6 @@ export default function Home() {
       loadWalletInfo(seedPhrase, activeBlockchain, activeNetwork);
     }
   }, [hasWallet, seedPhrase, isInitializing, derivationLoading, loadWalletInfo, activeBlockchain, activeNetwork]);
-
-  const handleCreateWallet = async () => {
-    try {
-      await initializeWalletComplete(null, false, activeBlockchain, activeNetwork);
-    } catch (err) {
-    }
-  };
-
-  const handleImportWallet = async (inputSeedPhrase) => {
-    try {
-      await initializeWalletComplete(inputSeedPhrase, true, activeBlockchain, activeNetwork);
-    } catch (err) {
-    }
-  };
 
   const handleInitializationComplete = () => {
     setInitializationComplete(true);
@@ -160,11 +144,7 @@ export default function Home() {
           />
         )
       ) : (
-        <WalletCreation
-          isLoading={isLoading}
-          onCreateWallet={handleCreateWallet}
-          onImportWallet={handleImportWallet}
-        />
+        <WalletSetupWizard presetSeed={pendingImportSeed} />
       )}
     </>
   );
