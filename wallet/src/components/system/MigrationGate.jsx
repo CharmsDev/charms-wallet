@@ -25,7 +25,12 @@ import {
 import { clearSeedPhrase } from '@/services/storage';
 import DeleteWalletDialog from '@/components/system/DeleteWalletDialog';
 
-const MODE = { CHOOSE: 'choose', PASSKEY: 'passkey', PASSWORD: 'password' };
+const MODE = {
+  BACKUP: 'backup',     // forced seed-phrase backup acknowledgement first
+  CHOOSE: 'choose',
+  PASSKEY: 'passkey',
+  PASSWORD: 'password',
+};
 
 export default function MigrationGate({ children }) {
   const { seedPhrase, hasWallet } = useWallet();
@@ -52,7 +57,11 @@ export default function MigrationGate({ children }) {
 
 function Gate({ seedPhrase, onDone }) {
   const { markUnlocked } = useAuth();
-  const [mode, setMode] = useState(MODE.CHOOSE);
+  // Always start with the forced backup step. Legacy users may never
+  // have looked at the seed phrase — we cannot assume they have a
+  // copy, and once they pick an encryption method there is no recovery
+  // from a lost passkey/password without the written seed.
+  const [mode, setMode] = useState(MODE.BACKUP);
   const [showDelete, setShowDelete] = useState(false);
   const prfSupported = isPrfSupported();
 
@@ -69,16 +78,23 @@ function Gate({ seedPhrase, onDone }) {
           <h2 className="text-xl font-bold gradient-text">Secure your wallet</h2>
           <p className="text-sm text-dark-300 mt-2">
             Your seed phrase is currently stored unencrypted on this device.
-            We're rolling out an encryption layer for everyone — pick a
-            method to continue.
+            We're rolling out an encryption layer for everyone.
           </p>
         </div>
+
+        {mode === MODE.BACKUP && (
+          <BackupStep
+            seedPhrase={seedPhrase}
+            onContinue={() => setMode(MODE.CHOOSE)}
+          />
+        )}
 
         {mode === MODE.CHOOSE && (
           <ChooseStep
             prfSupported={prfSupported}
             onPasskey={() => setMode(MODE.PASSKEY)}
             onPassword={() => setMode(MODE.PASSWORD)}
+            onBack={() => setMode(MODE.BACKUP)}
           />
         )}
 
@@ -114,7 +130,90 @@ function Gate({ seedPhrase, onDone }) {
   );
 }
 
-function ChooseStep({ prfSupported, onPasskey, onPassword }) {
+function BackupStep({ seedPhrase, onContinue }) {
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [ack, setAck] = useState(false);
+  const words = (seedPhrase || '').split(' ');
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(seedPhrase);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (_) {}
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3">
+        <p className="text-sm text-red-300 font-medium">
+          ⚠️ Read this carefully — there is no recovery from a lost
+          passkey/password without your seed phrase.
+        </p>
+        <p className="text-xs text-red-200/80 mt-2 leading-relaxed">
+          After you encrypt, the plaintext seed on this device is wiped.
+          If you lose the passkey (broken device, OS reset) or forget the
+          password, the <span className="font-semibold">only</span> way to
+          recover this wallet is the {words.length}-word seed phrase
+          below. Write it on paper and store it offline before continuing.
+        </p>
+      </div>
+
+      <div className="relative">
+        <div className="grid grid-cols-2 gap-2">
+          {words.map((w, i) => (
+            <div key={i} className="bg-dark-800 p-2 rounded-lg border border-dark-700 text-xs">
+              <span className="text-primary-400 mr-1">{i + 1}.</span>
+              <span className="text-white font-mono">{revealed ? w : '••••••••'}</span>
+            </div>
+          ))}
+        </div>
+        {!revealed && (
+          <button
+            onClick={() => setRevealed(true)}
+            className="absolute inset-0 flex items-center justify-center bg-dark-900/90 rounded-lg"
+          >
+            <span className="text-white font-medium text-sm">Tap to reveal seed phrase</span>
+          </button>
+        )}
+      </div>
+
+      {revealed && (
+        <button
+          onClick={copy}
+          className="w-full py-2 rounded bg-dark-700 hover:bg-dark-600 text-white text-sm"
+        >
+          {copied ? '✓ Copied to clipboard' : 'Copy seed phrase'}
+        </button>
+      )}
+
+      <label className="flex items-start gap-2 text-sm text-dark-200">
+        <input
+          type="checkbox"
+          checked={ack}
+          onChange={e => setAck(e.target.checked)}
+          className="mt-1"
+        />
+        <span>
+          I have saved my seed phrase offline. I understand that losing
+          both this device's passkey/password <span className="font-semibold">and</span>{' '}
+          this written backup means losing my wallet permanently.
+        </span>
+      </label>
+
+      <button
+        onClick={onContinue}
+        disabled={!ack || !revealed}
+        className="w-full py-3 rounded-xl bg-gradient-to-r from-primary-500 to-blue-500 text-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        I've backed up my seed — continue
+      </button>
+    </div>
+  );
+}
+
+function ChooseStep({ prfSupported, onPasskey, onPassword, onBack }) {
   return (
     <div className="space-y-3">
       <button
@@ -137,7 +236,13 @@ function ChooseStep({ prfSupported, onPasskey, onPassword }) {
       >
         Use a password
       </button>
-      <SeedRecoveryNote />
+      <button
+        type="button"
+        onClick={onBack}
+        className="text-xs text-dark-400 hover:text-dark-200 underline"
+      >
+        ← Show seed phrase again
+      </button>
     </div>
   );
 }
