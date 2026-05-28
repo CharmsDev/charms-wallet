@@ -4,15 +4,25 @@
  * DeleteWalletDialog — irreversible delete confirmation, extracted
  * from SettingsDialog so the header account menu can trigger it
  * directly without nested modals.
+ *
+ * Rendered via createPortal to document.body so the modal escapes
+ * parent stacking contexts. The Header uses `.glass-effect` which
+ * applies `backdrop-filter: blur` — that property creates a containing
+ * block for descendant `position: fixed` nodes, which would otherwise
+ * trap this dialog inside the header strip. Portaling sidesteps the
+ * issue.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { clearAllWalletData } from '@/services/storage';
 
 export default function DeleteWalletDialog({ isOpen, onClose }) {
   const [busy, setBusy] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
   const onDelete = async () => {
     setBusy(true);
@@ -26,7 +36,7 @@ export default function DeleteWalletDialog({ isOpen, onClose }) {
     }
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 bg-black bg-opacity-80 flex items-start sm:items-center justify-center z-[10001] overflow-y-auto py-20 sm:py-12">
       <div className="bg-dark-900 rounded-lg p-6 w-full max-w-lg mx-4 my-auto border border-red-500/30">
         <div className="flex justify-between items-center mb-6">
@@ -69,6 +79,7 @@ export default function DeleteWalletDialog({ isOpen, onClose }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

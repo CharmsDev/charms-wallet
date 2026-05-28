@@ -1,11 +1,19 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import AuthMethodSettings from '@/components/wallet/setup/AuthMethodSettings';
 
+// Portaled to document.body so the dialog escapes the header's
+// backdrop-filter stacking context (see DeleteWalletDialog for the
+// full explanation of the trap).
 export default function SettingsDialog({ isOpen, onClose }) {
-    if (!isOpen) return null;
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => { setMounted(true); }, []);
 
-    return (
+    if (!isOpen || !mounted) return null;
+
+    return createPortal(
         <div className="fixed inset-0 bg-black bg-opacity-80 flex items-start sm:items-center justify-center z-[10001] overflow-y-auto py-20 sm:py-12">
             <div className="bg-dark-900 rounded-lg p-6 w-full max-w-lg mx-4 my-auto border border-white/20">
                 <div className="flex justify-between items-center mb-6">
@@ -24,6 +32,7 @@ export default function SettingsDialog({ isOpen, onClose }) {
                     <AuthMethodSettings />
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
