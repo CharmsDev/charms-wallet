@@ -1,25 +1,33 @@
 /**
- * Auth service — passkey- or password-based unlock for the wallet's
- * local seed phrase. See ./passkey-prf.js (WebAuthn PRF) and
- * ./password-auth.js (PBKDF2) for the cryptographic flow.
+ * Auth service (G003) — passkey-derived or password-encrypted wallet.
  *
- * Initiative: G002 (see .meshkore/modules/general/tasks/).
+ * Two wallet types, picked once at setup and never switched:
+ *
+ *   Type 1 (PRF)      passkey is the wallet — mnemonic derived on
+ *                     demand from WebAuthn PRF. Nothing secret on disk.
+ *
+ *   Type 2 (Password) mnemonic encrypted with PBKDF2-derived key.
+ *                     Used for non-PRF browsers, imports, and legacy
+ *                     plaintext migrations (preserves addresses).
+ *
+ * Every wallet — both types — uses a standard BIP39 mnemonic with
+ * standard derivation paths (BIP86 BTC Taproot, CIP-1852 Cardano).
+ * Cross-wallet portability guaranteed.
+ *
+ * See `.meshkore/docs/security/passkey-unlock.md` for the threat
+ * model and detailed flows.
  */
 
-// Method-agnostic helpers
-export { isEnrolled, getAuthMethod } from './blob';
+// Capability + storage helpers
+export { isPrfSupported } from './prf-derive';
+export { isEnrolled, getWalletType, readBlob, removeBlob } from './blob';
 
-// Passkey (WebAuthn PRF) path
-export {
-  isPrfSupported,
-  enroll,
-  beginEnrollment,
-  commitEnrollment,
-  abortEnrollment,
-  unlock,
-  disable,
-} from './passkey-prf';
+// Type 1 (Pure PRF)
+export { createPrfWallet, unlockPrfWallet } from './wallet-prf';
 
-// Password path
-export { enrollPassword, unlockPassword } from './password-auth';
-export { validatePassword } from './password-kdf';
+// Type 2 (Password)
+export { createPasswordWallet, unlockPasswordWallet } from './wallet-password';
+export { validatePassword } from './password-crypt';
+
+// Mnemonic helpers (shared by the wizard's import + create flows)
+export { generateRandomMnemonic, validateMnemonic } from './seed-derive';

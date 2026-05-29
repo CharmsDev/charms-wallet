@@ -4,8 +4,7 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import { generateSeedPhrase, importSeedPhrase } from '@/utils/wallet';
 import { getSeedPhrase, clearSeedPhrase, saveSeedPhrase } from '@/services/storage';
 import { WalletInitializationService } from '@/services/wallet/services/wallet-initialization-service';
-import { StorageAdapter } from '@/services/storage-adapter';
-import { SYSTEM_KEYS } from '@/services/storage-keys';
+import { isEnrolled as authIsEnrolled } from '@/services/auth';
 
 // Create context
 const WalletContext = createContext();
@@ -31,15 +30,16 @@ export function WalletProvider({ children }) {
     const [initializationProgress, setInitializationProgress] = useState({ current: 0, total: 0 });
 
     // Check/load wallet on mount. Three states once we settle:
-    //   - plaintext seed found     → seedPhrase set + hasWallet=true (today's path)
-    //   - passkey auth blob found  → hasWallet=true, seedPhrase stays null
-    //                                until AuthContext.triggerUnlock() hydrates it
+    //   - v3 auth blob present     → hasWallet=true, seedPhrase stays null
+    //                                until AuthContext hydrates it post-unlock
+    //   - legacy plaintext seed    → seedPhrase set + hasWallet=true (will be
+    //                                upgraded by MigrationGate on next render)
     //   - nothing found            → hasWallet=false (onboarding)
     useEffect(() => {
         const checkWalletExists = async () => {
-            const authBlob = await StorageAdapter.get(SYSTEM_KEYS.AUTH);
-            if (authBlob) {
-                // Locked wallet — AuthContext owns the unlock flow.
+            // Auth blob detection goes through the auth service so the
+            // storage shape stays encapsulated there.
+            if (await authIsEnrolled()) {
                 setHasWallet(true);
                 setIsCheckingWallet(false);
                 return;
@@ -51,11 +51,10 @@ export function WalletProvider({ children }) {
             } else {
                 setHasWallet(false);
             }
-            setIsCheckingWallet(false); // Finished checking
+            setIsCheckingWallet(false);
         };
 
         checkWalletExists();
-        // Add event listener for storage changes
         window.addEventListener('storage', checkWalletExists);
         return () => window.removeEventListener('storage', checkWalletExists);
     }, []);

@@ -1,33 +1,40 @@
 /**
- * Shared auth-blob storage helpers.
+ * Auth blob persistence — v3 format only.
  *
- * Blob format v2 (current):
- *   {
- *     version: 2,
- *     method:  'prf' | 'password',
- *     iv:           <base64>,
- *     ciphertext:   <base64>,
- *     enrolledAt:   <ISO>,
+ * The blob shape depends on the wallet type chosen at setup:
  *
- *     // method='prf' specifics
- *     credentialId: <base64url>,
- *     prfSalt:      <base64>,
- *     rpId:         <host>,
+ *   Type 1 (Pure PRF — passkey IS the wallet, mnemonic derived on demand):
+ *     {
+ *       version: 3,
+ *       type: 'prf',
+ *       credentialId: <base64url>,
+ *       prfSalt:      <base64>,
+ *       rpId:         <host>,
+ *       enrolledAt:   <ISO>,
+ *     }
  *
- *     // method='password' specifics
- *     kdfSalt:      <base64>,
- *     kdfIter:      <int>,
- *   }
+ *   Type 2 (Password — random/imported mnemonic, encrypted at rest):
+ *     {
+ *       version: 3,
+ *       type: 'password',
+ *       kdfSalt:    <base64>,
+ *       kdfIter:    <int>,        // PBKDF2 iterations
+ *       iv:         <base64>,     // AES-GCM nonce
+ *       ciphertext: <base64>,     // mnemonic encrypted
+ *       enrolledAt: <ISO>,
+ *     }
  *
- * Blob format v1 (legacy, read-only): implicit method=prf, no `method`
- * field, AAD = 'charms-wallet/seed/v1'. Written by early G002 builds;
- * unlock() still accepts it so users mid-migration aren't bricked.
+ * No retro-compat with v1/v2 — prod has never seen an encrypted blob,
+ * so we ship clean. Anyone running a v1/v2 dev build will get a "blob
+ * version unsupported" error and is expected to delete + recreate.
  */
 
 import { StorageAdapter } from '../storage-adapter';
 import { SYSTEM_KEYS } from '../storage-keys';
 
-export async function readAuthBlob() {
+export const BLOB_VERSION = 3;
+
+export async function readBlob() {
   const raw = await StorageAdapter.get(SYSTEM_KEYS.AUTH);
   if (!raw) return null;
   try {
@@ -37,24 +44,27 @@ export async function readAuthBlob() {
   }
 }
 
-export async function writeAuthBlob(blob) {
+export async function writeBlob(blob) {
+  if (!blob || blob.version !== BLOB_VERSION) {
+    throw new Error(`writeBlob: refusing to write non-v${BLOB_VERSION} blob`);
+  }
   await StorageAdapter.set(SYSTEM_KEYS.AUTH, JSON.stringify(blob));
 }
 
-export async function removeAuthBlob() {
+export async function removeBlob() {
   await StorageAdapter.remove(SYSTEM_KEYS.AUTH);
 }
 
 /** @returns 'prf' | 'password' | null */
-export async function getAuthMethod() {
-  const blob = await readAuthBlob();
+export async function getWalletType() {
+  const blob = await readBlob();
   if (!blob) return null;
-  if (blob.version === 1) return 'prf';            // legacy
-  if (blob.version === 2) return blob.method || null;
-  return null;                                      // unknown future version
+  if (blob.version !== BLOB_VERSION) return null;
+  if (blob.type === 'prf' || blob.type === 'password') return blob.type;
+  return null;
 }
 
-/** Whether the current device has any stored auth blob (any method). */
+/** True if any v3 blob is present. */
 export async function isEnrolled() {
-  return !!(await readAuthBlob());
+  return (await getWalletType()) !== null;
 }

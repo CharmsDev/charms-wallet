@@ -16,6 +16,7 @@ import { executeBeamBack } from '@/services/beam/processor/executor-beam-back';
 import { executeEbtcBeam } from '@/services/beam/processor/executor-ebtc';
 import { executeEbtcRedeem } from '@/services/beam/processor/executor-ebtc-redeem';
 import { findIncompleteBeams, removeBeamState } from '@/services/beam/core/persistence';
+import { useWallet } from '@/stores/walletStore';
 
 const BeamOperationsContext = createContext(null);
 
@@ -112,6 +113,14 @@ function reducer(state, action) {
 
 export function BeamOperationsProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+
+  // G003: seed lives in RAM (walletStore) only after unlock — we
+  // never read it from storage anymore. retryBeam / auto-resume use
+  // a ref so the latest seedPhrase is always available to async
+  // closures without forcing memo invalidation.
+  const { seedPhrase } = useWallet();
+  const seedRef = useRef(seedPhrase);
+  useEffect(() => { seedRef.current = seedPhrase; }, [seedPhrase]);
 
   const openPanel = useCallback(() => dispatch({ type: 'SET_PANEL', open: true }), []);
   const closePanel = useCallback(() => dispatch({ type: 'SET_PANEL', open: false }), []);
@@ -273,10 +282,9 @@ export function BeamOperationsProvider({ children }) {
       console.warn('[retryBeam] No saved state for', id);
       return;
     }
-    const { getSeedPhrase } = await import('@/services/storage');
-    const seedPhrase = await getSeedPhrase();
+    const seedPhrase = seedRef.current;
     if (!seedPhrase) {
-      console.warn('[retryBeam] No seed phrase available');
+      console.warn('[retryBeam] No seed phrase in RAM — wallet locked');
       return;
     }
     // If the error occurred after the spell tx was built, invalidate it so
@@ -352,20 +360,19 @@ export function BeamOperationsProvider({ children }) {
     return id;
   }, [runBeamBack]);
 
-  // Auto-resume incomplete beams from localStorage on mount.
+  // Auto-resume incomplete beams from localStorage. Fires the first
+  // time the wallet is unlocked (seedPhrase becomes non-null in RAM).
   // Guard with a ref to prevent double-resume if useEffect re-fires
   // due to dependency identity changes (React strict mode, HMR, etc.)
   const resumedRef = useRef(false);
   useEffect(() => {
     if (resumedRef.current) return;
+    if (!seedPhrase) return;        // wallet still locked
     const incomplete = findIncompleteBeams();
     if (!incomplete.length) return;
     resumedRef.current = true;
 
     (async () => {
-      const { getSeedPhrase } = await import('@/services/storage');
-      const seedPhrase = await getSeedPhrase();
-      if (!seedPhrase) return;
 
       for (const { id, state: saved } of incomplete) {
         const direction = saved.direction || 'btc-to-ada';
@@ -443,7 +450,7 @@ export function BeamOperationsProvider({ children }) {
         }
       }
     })();
-  }, [runBeam, runBeamBack, runEbtcBeam, runEbtcRedeem]);
+  }, [seedPhrase, runBeam, runBeamBack, runEbtcBeam, runEbtcRedeem]);
 
   // Dismiss + clean localStorage
   const dismissBeam = useCallback((id) => {

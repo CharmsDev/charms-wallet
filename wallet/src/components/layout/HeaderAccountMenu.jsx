@@ -37,14 +37,10 @@ export default function HeaderAccountMenu() {
 
   useEffect(() => { setMounted(true); }, []);
 
-  const enrolled = status === 'unlocked' || status === 'locked'; // 'unsupported'/'checking' → no lock
-  // Only show "Lock" as actionable when a passkey is actually configured.
-  // status === 'unlocked' alone doesn't tell us; the migration banner /
-  // settings dialog distinguish further. For a minimal correct signal,
-  // check session storage of the auth blob existence via context.
-  // (AuthContext already gates UnlockGate so if status is unsupported we
-  // know there's no blob; otherwise treat lock as available.)
-  const canLock = status !== 'unsupported';
+  // Post-G003: every wallet is encrypted (Type 1 or Type 2). The only
+  // reasons Lock would be unavailable are 'checking' (still detecting
+  // type) or already 'locked'.
+  const canLock = status === 'unlocked';
 
   const toggle = () => {
     if (!btnRef.current) return setOpen(v => !v);
@@ -110,10 +106,8 @@ export default function HeaderAccountMenu() {
             <p className="text-sm text-white mt-0.5 flex items-center gap-2">
               {status === 'unlocked' && <span className="w-2 h-2 rounded-full bg-green-500"></span>}
               {status === 'locked'   && <span className="w-2 h-2 rounded-full bg-red-500"></span>}
-              {status === 'unsupported' && <span className="w-2 h-2 rounded-full bg-yellow-500"></span>}
               {status === 'unlocked' && 'Unlocked'}
               {status === 'locked'   && 'Locked'}
-              {status === 'unsupported' && 'No passkey (plaintext)'}
               {status === 'checking' && 'Loading…'}
             </p>
           </div>
@@ -126,9 +120,9 @@ export default function HeaderAccountMenu() {
           <div className="border-t border-dark-700 my-1" />
 
           <MenuButton
-            label={canLock ? 'Lock wallet' : 'Lock (enable passkey first)'}
+            label="Lock wallet"
             onClick={onLock}
-            disabled={!canLock || status === 'locked'}
+            disabled={!canLock}
             icon="lock"
           />
           <MenuButton

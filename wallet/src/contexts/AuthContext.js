@@ -1,40 +1,32 @@
 'use client';
 
 /**
- * AuthContext — locks the wallet behind a passkey unlock when the user
- * has enrolled (G002 / WebAuthn PRF).
+ * AuthContext — gates the wallet behind the unlock step.
+ *
+ * Wallet types (G003):
+ *   - 'prf'      Type 1, pure PRF. Unlock = biometric → derive mnemonic
+ *   - 'password' Type 2. Unlock = enter password → decrypt mnemonic
+ *   - null       no enrolment yet (fresh device OR legacy plaintext)
  *
  * Lifecycle:
- *   1. On mount, check chrome.storage / localStorage for an auth blob
- *      (services/auth.isEnrolled()).
- *   2. If enrolled → state.locked = true; the UnlockGate component
- *      renders a fullscreen PasskeyUnlock prompt instead of children.
- *   3. User completes biometric → unlock() decrypts the seed → the
- *      plaintext is pushed into walletStore via the setter the
- *      WalletProvider exposes, then state.locked = false → children
- *      render.
+ *   1. On mount, read the blob → set `type` + 'locked' or 'unlocked'
+ *   2. UnlockGate renders the unlock screen if status === 'locked'
+ *   3. User completes the type-specific unlock → mnemonic in RAM →
+ *      pushed into walletStore via setSeedPhrase → status='unlocked'
+ *   4. Locking back happens only on:
+ *      - explicit "Lock wallet" → lockNow() wipes the mnemonic
+ *      - tab close / reload → RAM drops; next mount starts locked
  *
- * Locking back happens only when:
- *   - the user explicitly clicks "Lock wallet" (lockNow), OR
- *   - the tab is closed / reloaded — the next mount starts in 'locked'
- *     because the auth blob is on disk but the seed isn't in RAM.
- *
- * There is NO idle auto-lock: while the tab stays open, the session
- * stays unlocked. A user who wants stricter behaviour can close the
- * tab when they walk away.
- *
- * Non-enrolled users (or PRF-unsupported browsers) bypass this layer
- * entirely — `locked` stays false, no UI overlay, today's flow.
+ * No idle auto-lock. Per-action confirmation lives at the dialog
+ * level (Send, Beam, etc.) — not here.
  */
 
 import {
   createContext, useContext, useState, useEffect, useCallback,
 } from 'react';
 import {
-  isPrfSupported, getAuthMethod,
-  unlock as passkeyUnlock,
-  unlockPassword,
-  disable as authDisable,
+  isPrfSupported, getWalletType,
+  unlockPrfWallet, unlockPasswordWallet,
 } from '@/services/auth';
 import { useWallet } from '@/stores/walletStore';
 
@@ -49,38 +41,32 @@ export function useAuth() {
 export function AuthProvider({ children }) {
   const { setSeedPhrase } = useWallet();
 
-  // Initial state: 'checking' while we look for an auth blob; then either
-  // 'locked' (blob found, awaiting biometric), 'unlocked' (no blob OR
-  // already unlocked this session), or 'unsupported' (PRF not available).
-  const [status, setStatus] = useState('checking');
-  // Active auth method: 'prf' | 'password' | null (none enrolled)
-  const [method, setMethod] = useState(null);
+  const [status, setStatus] = useState('checking');     // 'checking' | 'locked' | 'unlocked'
+  const [walletType, setWalletType] = useState(null);   // 'prf' | 'password' | null
   const [error, setError] = useState(null);
 
-  // Detect enrollment + method on mount.
+  // Detect the wallet type on mount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const m = await getAuthMethod();
+      const t = await getWalletType();
       if (cancelled) return;
-      setMethod(m);
-      setStatus(m ? 'locked' : 'unlocked');
+      setWalletType(t);
+      setStatus(t ? 'locked' : 'unlocked');
     })();
     return () => { cancelled = true; };
   }, []);
 
-  // Re-read blob from disk and update method/status. Used after the
-  // MigrationGate or Settings flow writes a new blob.
-  const refreshAuthState = useCallback(async () => {
-    const m = await getAuthMethod();
-    setMethod(m);
+  const refreshWalletType = useCallback(async () => {
+    const t = await getWalletType();
+    setWalletType(t);
   }, []);
 
-  const triggerUnlockPasskey = useCallback(async () => {
+  const triggerUnlockPrf = useCallback(async () => {
     setError(null);
     try {
-      const seed = await passkeyUnlock();
-      setSeedPhrase?.(seed);
+      const mnemonic = await unlockPrfWallet();
+      setSeedPhrase?.(mnemonic);
       setStatus('unlocked');
     } catch (err) {
       setError(err.message || 'Unlock failed');
@@ -91,8 +77,8 @@ export function AuthProvider({ children }) {
   const triggerUnlockPassword = useCallback(async (password) => {
     setError(null);
     try {
-      const seed = await unlockPassword(password);
-      setSeedPhrase?.(seed);
+      const mnemonic = await unlockPasswordWallet({ password });
+      setSeedPhrase?.(mnemonic);
       setStatus('unlocked');
     } catch (err) {
       setError(err.message || 'Unlock failed');
@@ -100,40 +86,29 @@ export function AuthProvider({ children }) {
     }
   }, [setSeedPhrase]);
 
-  // Explicit lock — user clicked "Lock wallet" in the account menu.
-  // Wipes the seed from RAM; the encrypted blob on disk stays so the
-  // next unlock can decrypt again.
   const lockNow = useCallback(() => {
     setSeedPhrase?.(null);
     setStatus('locked');
   }, [setSeedPhrase]);
 
+  /** Mark the session unlocked without re-prompting — used right
+   *  after setup when the mnemonic is already in RAM. Re-reads the
+   *  blob so `walletType` reflects the new state. */
+  const markUnlocked = useCallback(async () => {
+    setStatus('unlocked');
+    await refreshWalletType();
+  }, [refreshWalletType]);
+
   const value = {
-    status,                  // 'checking' | 'locked' | 'unlocked'
-    method,                  // 'prf' | 'password' | null
+    status,
+    walletType,
     prfSupported: isPrfSupported(),
     error,
-    triggerUnlockPasskey,
+    triggerUnlockPrf,
     triggerUnlockPassword,
-    /** Legacy alias retained for callers still using the PRF-only API. */
-    triggerUnlock: triggerUnlockPasskey,
     lockNow,
-    refreshAuthState,
-    /** Mark the session unlocked without re-prompting — used right
-     *  after enrollment when we already hold the plaintext seed in
-     *  memory. Re-reads the blob so `method` reflects the new state. */
-    markUnlocked: async () => {
-      setStatus('unlocked');
-      await refreshAuthState();
-    },
-    /** Drop the auth blob (encryption disabled). Caller should ensure
-     *  the plaintext seed is back in storage first, otherwise the
-     *  wallet becomes unsignable. */
-    disablePasskey: async () => {
-      await authDisable();
-      setMethod(null);
-      setStatus('unlocked');
-    },
+    markUnlocked,
+    refreshWalletType,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
