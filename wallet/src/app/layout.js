@@ -11,17 +11,41 @@ import UpgradeGate from "@/components/system/UpgradeGate";
 import UnlockGate from "@/components/system/UnlockGate";
 import MigrationGate from "@/components/system/MigrationGate";
 import ExtensionTopBanner from "@/components/extension/ExtensionTopBanner";
+import ServiceWorkerRegister from "@/components/system/ServiceWorkerRegister";
 import Script from 'next/script';
 
 export const metadata = {
-  title: "Multi-Chain Wallet with Charms",
-  description: "A secure and user-friendly Bitcoin and Cardano wallet with Charms integration",
+  title: "Charms Wallet",
+  description: "Bitcoin + Cardano wallet with Charms and passkey unlock.",
+  manifest: "/manifest.json",
+  themeColor: "#0a0a0a",
+  appleWebApp: {
+    capable: true,
+    title: "Charms",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/icons/apple-touch-icon.png",
+  },
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+  themeColor: "#0a0a0a",
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
+        <ServiceWorkerRegister />
         <ExtensionTopBanner />
         <UpgradeGate>
           <WalletProvider>

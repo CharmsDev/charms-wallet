@@ -114,20 +114,27 @@ export default function Header({ activeSection, setActiveSection }) {
                                     height={24}
                                     className="h-6 w-auto"
                                 />
-                                <span className="text-sm font-semibold text-dark-100 tracking-tight" style={{ transform: 'translateX(-3px)' }}>
-                                    Charms Wallet
+                                <span className="text-sm font-semibold text-dark-100 tracking-tight">
+                                    Charms
                                 </span>
                             </div>
                             
-                            {/* Right-side controls (mobile) — same two-group hierarchy */}
-                            <div className="flex items-center gap-3">
-                                {/* (a) Chain context */}
+                            {/* Right-side controls (mobile) — both chain
+                                toggles present at parity with desktop, just
+                                smaller and tighter. */}
+                            <div className="flex items-center gap-2">
                                 <div className="flex items-center gap-1">
                                     <button
-                                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getBlockchainClass(BLOCKCHAINS.BITCOIN)}`}
+                                        className={`inline-flex items-center px-2 py-1 rounded-full text-[11px] font-medium ${getBlockchainClass(BLOCKCHAINS.BITCOIN)}`}
                                         onClick={() => handleBlockchainSelect(BLOCKCHAINS.BITCOIN)}
                                     >
-                                        Bitcoin
+                                        BTC
+                                    </button>
+                                    <button
+                                        className={`inline-flex items-center px-2 py-1 rounded-full text-[11px] font-medium ${getBlockchainClass(BLOCKCHAINS.CARDANO)}`}
+                                        onClick={() => handleBlockchainSelect(BLOCKCHAINS.CARDANO)}
+                                    >
+                                        ADA
                                     </button>
                                     <div className="relative z-[99999]">
                                         <button
@@ -143,7 +150,6 @@ export default function Header({ activeSection, setActiveSection }) {
                                     </div>
                                 </div>
 
-                                {/* (b) Account / system */}
                                 <HeaderAccountMenu />
                             </div>
                         </div>
