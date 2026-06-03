@@ -57,6 +57,27 @@ export function AuthProvider({ children }) {
     return () => { cancelled = true; };
   }, []);
 
+  // Multi-tab lock detection. The `storage` event fires only on
+  // cross-tab writes (own-tab changes don't trigger it). If another
+  // tab calls lockNow() — which wipes seedPhrase from walletStore but
+  // leaves the blob on disk untouched — we won't see that directly;
+  // however if another tab deletes the wallet or completes setup, the
+  // AUTH key changes and we re-read the type. Real cross-tab lock
+  // sync requires a BroadcastChannel; we defer that to a follow-up.
+  useEffect(() => {
+    const onStorage = async (e) => {
+      if (e.key && !e.key.includes('auth')) return;
+      const t = await getWalletType();
+      setWalletType(t);
+      // If the auth blob was removed elsewhere (e.g. user deleted the
+      // wallet in another tab), drop this tab's RAM seed too so we
+      // don't keep operating on a wallet that no longer exists.
+      if (!t) setSeedPhrase?.(null);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [setSeedPhrase]);
+
   const refreshWalletType = useCallback(async () => {
     const t = await getWalletType();
     setWalletType(t);
