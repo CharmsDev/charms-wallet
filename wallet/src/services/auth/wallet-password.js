@@ -65,13 +65,25 @@ export async function unlockPasswordWallet({ password }) {
   if (!blob || blob.version !== BLOB_VERSION || blob.type !== 'password') {
     throw new Error('No password wallet enrolled on this device.');
   }
+  // Structural validation up-front so corruption surfaces as a distinct
+  // error vs. "Incorrect password" (which the user might trust as
+  // recoverable by trying another password — a corrupt blob is not).
+  if (!blob.kdfSalt || !blob.iv || !blob.ciphertext) {
+    throw new Error('Auth blob is corrupted (missing fields). Restore from your seed phrase.');
+  }
 
-  const kdfSalt = b64decode(blob.kdfSalt);
+  let kdfSalt, iv, ciphertext;
+  try {
+    kdfSalt = b64decode(blob.kdfSalt);
+    iv = b64decode(blob.iv);
+    ciphertext = b64decode(blob.ciphertext);
+  } catch (_) {
+    throw new Error('Auth blob is corrupted (decode failed). Restore from your seed phrase.');
+  }
+
   const iters = blob.kdfIter || PBKDF2_ITERATIONS;
   const aesRawKey = await deriveKeyFromPassword(password, kdfSalt, iters);
   const aesKey = await importAesKey(aesRawKey);
-  const iv = b64decode(blob.iv);
-  const ciphertext = b64decode(blob.ciphertext);
 
   let mnemonic;
   try {

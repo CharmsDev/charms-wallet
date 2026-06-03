@@ -360,14 +360,18 @@ export function BeamOperationsProvider({ children }) {
     return id;
   }, [runBeamBack]);
 
-  // Auto-resume incomplete beams from localStorage. Fires the first
-  // time the wallet is unlocked (seedPhrase becomes non-null in RAM).
-  // Guard with a ref to prevent double-resume if useEffect re-fires
-  // due to dependency identity changes (React strict mode, HMR, etc.)
+  // Auto-resume incomplete beams from localStorage. Fires each time
+  // the wallet transitions from locked → unlocked (seedPhrase null →
+  // non-null). The ref prevents double-fire WITHIN a single unlocked
+  // session (StrictMode, HMR), but resets on lock so a subsequent
+  // unlock can resume beams that arrived in the meantime.
   const resumedRef = useRef(false);
   useEffect(() => {
+    if (!seedPhrase) {
+      resumedRef.current = false;   // lock cycle — re-arm for next unlock
+      return;
+    }
     if (resumedRef.current) return;
-    if (!seedPhrase) return;        // wallet still locked
     const incomplete = findIncompleteBeams();
     if (!incomplete.length) return;
     resumedRef.current = true;

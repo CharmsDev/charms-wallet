@@ -129,7 +129,12 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
   // (no effect, no eslint-disable) so the mnemonic closure is captured
   // explicitly at call time. InitWalletStep is terminal — nothing can
   // navigate away from it — so no cancellation is needed.
+  //
+  // Guard against double-fire (rapid double-click on the backup step's
+  // Continue button): if we're already at S.INIT, ignore the call so
+  // runInit doesn't execute twice with the same mnemonic.
   const onBackupAck = () => {
+    if (step === S.INIT) return;
     setStep(S.INIT);
     runInit(mnemonic);
   };
