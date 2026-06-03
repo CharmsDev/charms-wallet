@@ -25,6 +25,7 @@
 import { useState } from 'react';
 import { useWallet } from '@/stores/walletStore';
 import { useAuth } from '@/contexts/AuthContext';
+import { clearSeedPhrase } from '@/services/storage';
 import {
   isPrfSupported,
   generateRandomMnemonic,
@@ -100,9 +101,15 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
     setPassword(pwd);
     try {
       await createPasswordWallet({ mnemonic, password: pwd });
-      // For Type 2 path: backup is mandatory only for fresh-create mnemonic.
-      // For imports / legacy migration the user typed/already-had the seed;
-      // we still surface the mnemonic so they can write it down again.
+      // CRITICAL: with the encrypted blob now committed, wipe any
+      // residual plaintext seed in storage. This matters for the
+      // legacy-migration path (where the plaintext was loaded from
+      // SYSTEM_KEYS.SEED_PHRASE on mount). For fresh-create / import
+      // paths it's a no-op since we never wrote plaintext there.
+      await clearSeedPhrase();
+      // Backup is mandatory only for fresh-create mnemonic. For imports
+      // and legacy migration the user already has the seed; we still
+      // surface it so they can write it down again.
       setStep(S.BACKUP);
     } catch (e) {
       setError(e.message || 'Encryption failed');

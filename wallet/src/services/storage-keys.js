@@ -65,9 +65,11 @@ export const SYSTEM_KEYS = {
     // UI preferences (toggles, theme, list filters).
     UI_PREFS:          `${NS.WALLET}${SEP}prefs${SEP}ui`,
 
-    // G002: passkey-encrypted seed blob (WebAuthn PRF). When present,
-    // SEED_PHRASE is wiped and the seed lives only inside this blob
-    // (decrypted to RAM on demand via services/auth/passkey-prf.js).
+    // G003: auth blob — Type 1 (PRF metadata, no secret) or Type 2
+    // (PBKDF2-encrypted mnemonic ciphertext). When present, SEED_PHRASE
+    // is wiped and the mnemonic only exists in RAM after unlock. See
+    // services/auth/blob.js for the v3 schema, wallet-prf.js for Type 1,
+    // and wallet-password.js for Type 2.
     AUTH:              `${NS.WALLET}${SEP}auth`,
 };
 
