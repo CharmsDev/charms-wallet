@@ -23,7 +23,7 @@ export { isPrfSupported } from './prf-derive';
 export { isEnrolled, getWalletType, readBlob, removeBlob } from './blob';
 
 // Type 1 (Pure PRF)
-export { createPrfWallet, unlockPrfWallet } from './wallet-prf';
+export { createPrfWallet, restorePrfWallet, unlockPrfWallet } from './wallet-prf';
 
 // Type 2 (Password)
 export { createPasswordWallet, unlockPasswordWallet } from './wallet-password';

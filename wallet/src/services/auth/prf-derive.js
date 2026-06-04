@@ -101,6 +101,55 @@ export async function enrollPrf({ displayName, salt }) {
 }
 
 /**
+ * Discover a passkey for this RP without knowing its credentialId.
+ * Used on fresh devices where the user's passkey is synced (iCloud
+ * Keychain / Google Password Manager) but no local blob exists.
+ *
+ * Returns { prfBytes, credentialId, rpId } on success, or null if
+ * the user cancelled / no discoverable credentials were available.
+ *
+ * @param {Uint8Array} prfSalt
+ */
+export async function discoverPrf(prfSalt) {
+  if (!isPrfSupported()) {
+    throw new Error('WebAuthn PRF not supported in this environment.');
+  }
+
+  const rpId = getRpId();
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
+
+  let assertion;
+  try {
+    assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        allowCredentials: [],          // discoverable: browser surfaces any synced passkey for this RP
+        userVerification: 'required',
+        timeout: 60_000,
+        rpId,
+        extensions: { prf: { eval: { first: prfSalt } } },
+      },
+    });
+  } catch (err) {
+    // NotAllowedError on cancel / no creds → return null, let caller decide
+    if (err?.name === 'NotAllowedError' || err?.name === 'AbortError') return null;
+    throw new Error(`Passkey lookup failed: ${err.message}`);
+  }
+  if (!assertion) return null;
+
+  const prfResult = assertion.getClientExtensionResults?.()?.prf?.results?.first;
+  if (!prfResult) {
+    throw new Error('Discovered passkey but it did not produce PRF output.');
+  }
+
+  return {
+    prfBytes: new Uint8Array(prfResult),
+    credentialId: new Uint8Array(assertion.rawId),
+    rpId,
+  };
+}
+
+/**
  * Re-derive the PRF output from a stored credential.
  *
  * @param {object} blob  the stored Type 1 enrollment metadata

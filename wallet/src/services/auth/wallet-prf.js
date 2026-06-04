@@ -19,7 +19,7 @@
  * a fresh biometric.
  */
 
-import { enrollPrf, derivePrf, isPrfSupported } from './prf-derive';
+import { enrollPrf, derivePrf, discoverPrf, isPrfSupported } from './prf-derive';
 import { bytesToMnemonic } from './seed-derive';
 import { readBlob, writeBlob, BLOB_VERSION } from './blob';
 import { b64, b64decode, b64url, b64urlDecode } from './codec';
@@ -58,6 +58,43 @@ export async function createPrfWallet({ displayName } = {}) {
     credentialId: b64url(material.credentialId),
     prfSalt: b64(material.prfSalt),
     rpId: material.rpId,
+    enrolledAt: new Date().toISOString(),
+  });
+
+  return mnemonic;
+}
+
+/**
+ * Restore flow for fresh devices: looks up the user's synced passkey
+ * (iCloud Keychain / Google Password Manager) without knowing its
+ * credentialId, runs the PRF eval with the SAME salt, derives the
+ * SAME mnemonic the original device produced, and persists the blob
+ * locally so future opens can use the cheap `unlockPrfWallet()` path.
+ *
+ * Returns the mnemonic on success, or `null` if the user cancelled
+ * the system picker or no discoverable credential was found. The
+ * caller (setup wizard) decides whether to fall back to
+ * `createPrfWallet()` (= "create new wallet") or retry.
+ *
+ * @returns {Promise<string|null>}
+ */
+export async function restorePrfWallet() {
+  if (!isPrfSupported()) {
+    throw new Error('Passkey unlock is not supported on this browser.');
+  }
+  const salt = await deriveSalt();
+  const discovered = await discoverPrf(salt);
+  if (!discovered) return null;          // user cancelled or no creds
+
+  const mnemonic = bytesToMnemonic(discovered.prfBytes);
+  discovered.prfBytes.fill(0);
+
+  await writeBlob({
+    version: BLOB_VERSION,
+    type: 'prf',
+    credentialId: b64url(discovered.credentialId),
+    prfSalt: b64(salt),
+    rpId: discovered.rpId,
     enrolledAt: new Date().toISOString(),
   });
 
