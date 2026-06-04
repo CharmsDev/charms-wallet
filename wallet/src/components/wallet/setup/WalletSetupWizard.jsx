@@ -31,7 +31,8 @@ import {
 } from '@/services/auth';
 
 import WelcomeStep from './steps/WelcomeStep';
-import PrfAccessStep from './steps/PrfAccessStep';
+import PrfCreateStep from './steps/PrfCreateStep';
+import PrfRestoreStep from './steps/PrfRestoreStep';
 import MnemonicBackupStep from './steps/MnemonicBackupStep';
 import PasswordSetStep from './steps/PasswordSetStep';
 import ImportSeedStep from './steps/ImportSeedStep';
@@ -39,7 +40,8 @@ import InitWalletStep from './steps/InitWalletStep';
 
 const S = {
   WELCOME: 'welcome',
-  PRF_ACCESS: 'prf-access',
+  PRF_CREATE: 'prf-create',     // first-time setup on this device
+  PRF_RESTORE: 'prf-restore',   // discover synced passkey from another device
   PASSWORD_SET: 'password-set',
   IMPORT_SEED: 'import-seed',
   BACKUP: 'backup',
@@ -62,10 +64,16 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
 
   // --- transitions ---
 
-  const goPasskey = () => {
+  const goCreate = () => {
     setIsImport(false);
     setWalletType('prf');
-    setStep(S.PRF_ACCESS);
+    setStep(S.PRF_CREATE);
+  };
+
+  const goRestore = () => {
+    setIsImport(false);
+    setWalletType('prf');
+    setStep(S.PRF_RESTORE);
   };
 
   const goImport = () => {
@@ -73,7 +81,7 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
     setStep(S.IMPORT_SEED);
   };
 
-  const onPrfAccessed = (m) => {
+  const onPrfDone = (m) => {
     setMnemonic(m);
     setStep(S.BACKUP);
   };
@@ -146,15 +154,19 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
   if (step === S.WELCOME) {
     return (
       <WelcomeStep
-        onPasskey={goPasskey}
+        onCreate={goCreate}
+        onRestore={goRestore}
         onImport={goImport}
         prfSupported={prfSupported}
         extraAction={extraAction}
       />
     );
   }
-  if (step === S.PRF_ACCESS) {
-    return <PrfAccessStep onDone={onPrfAccessed} onBack={() => setStep(S.WELCOME)} />;
+  if (step === S.PRF_CREATE) {
+    return <PrfCreateStep onDone={onPrfDone} onBack={() => setStep(S.WELCOME)} />;
+  }
+  if (step === S.PRF_RESTORE) {
+    return <PrfRestoreStep onDone={onPrfDone} onBack={() => setStep(S.WELCOME)} />;
   }
   if (step === S.IMPORT_SEED) {
     return <ImportSeedStep onSubmit={onImportSubmitted} onBack={() => setStep(S.WELCOME)} />;

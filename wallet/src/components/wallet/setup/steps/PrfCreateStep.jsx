@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * PrfAccessStep — passkey path = one click, one biometric, done.
+ * PrfCreateStep — passkey path = one click, one biometric, done.
  *
  * Fires `createPrfWallet()` immediately on mount. The OS shows its
  * native biometric prompt (Touch ID / Face ID / Windows Hello /
@@ -21,7 +21,7 @@ import { useEffect, useRef, useState } from 'react';
 import SetupShell from './SetupShell';
 import { createPrfWallet } from '@/services/auth';
 
-export default function PrfAccessStep({ onDone, onBack }) {
+export default function PrfCreateStep({ onDone, onBack }) {
   const [err, setErr] = useState(null);
   const [retrying, setRetrying] = useState(false);
   const firedRef = useRef(false);
