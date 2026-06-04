@@ -4,6 +4,15 @@ import { useState, useEffect, useRef } from 'react';
 
 const STORAGE_KEY = 'extension_top_banner_dismissed';
 
+// Visibility rules:
+// - PWA (standalone display mode)         → never show (extension is irrelevant)
+// - Mobile viewport (≤640px width)        → never show (extension is desktop-only)
+// - Desktop web while extension is being
+//   updated to the new G003+ architecture → hide temporarily.
+//   Flip ENABLE_ON_DESKTOP back to true once the extension ships
+//   the matching wallet flow.
+const ENABLE_ON_DESKTOP = false;
+
 /**
  * Top-level extension banner — sits above the header.
  *
@@ -17,9 +26,20 @@ export default function ExtensionTopBanner() {
   const [hidden, setHidden] = useState(true);
   const [extensionState, setExtensionState] = useState(null); // null=checking, {installed, hasWallet}
   const [transferStatus, setTransferStatus] = useState(null); // 'transferring' | 'success' | 'error'
+  const [eligible, setEligible] = useState(false);
   const transferAttempted = useRef(false);
 
+  // Eligibility check runs client-side after mount so SSR is unaffected.
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!ENABLE_ON_DESKTOP) return;            // master kill-switch
+    if (window.matchMedia('(display-mode: standalone)').matches) return;  // PWA
+    if (window.matchMedia('(max-width: 640px)').matches) return;          // mobile
+    setEligible(true);
+  }, []);
+
+  useEffect(() => {
+    if (!eligible) return;
     // URL reset
     const params = new URLSearchParams(window.location.search);
     if (params.get('reset') === 'true') {
@@ -67,9 +87,9 @@ export default function ExtensionTopBanner() {
       clearTimeout(timeout);
       clearInterval(poll);
     };
-  }, []);
+  }, [eligible]);
 
-  if (hidden || !extensionState) return null;
+  if (!eligible || hidden || !extensionState) return null;
 
   const handleDismiss = () => {
     localStorage.setItem(STORAGE_KEY, 'true');
