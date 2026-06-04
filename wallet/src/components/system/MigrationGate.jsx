@@ -48,5 +48,5 @@ export default function MigrationGate({ children }) {
   // Hand the existing mnemonic to the wizard. presetSeed routes it to
   // the import branch which uses Type 2 (password) and preserves
   // addresses.
-  return <WalletSetupWizard presetSeed={seedPhrase} presetType="password" />;
+  return <WalletSetupWizard presetSeed={seedPhrase} presetType="password" isMigration />;
 }

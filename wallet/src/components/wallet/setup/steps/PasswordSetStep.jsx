@@ -14,7 +14,7 @@ import { validatePassword } from '@/services/auth';
  * failed `onSubmit` correctly re-enables the form and surfaces the
  * error here instead of on a later step.
  */
-export default function PasswordSetStep({ onSubmit, onBack, busy = false, error = null }) {
+export default function PasswordSetStep({ onSubmit, onBack, busy = false, error = null, isMigration = false }) {
   const [pwd, setPwd] = useState('');
   const [confirm, setConfirm] = useState('');
   const [show, setShow] = useState(false);
@@ -30,12 +30,34 @@ export default function PasswordSetStep({ onSubmit, onBack, busy = false, error 
   };
 
   return (
-    <SetupShell title="Set a password">
-      <p className="text-sm text-dark-200">
-        Your password protects the encrypted seed phrase on this device.
-        Your browser will offer to save it — accept so you can unlock
-        with biometric next time.
-      </p>
+    <SetupShell title={isMigration ? 'Secure your existing wallet' : 'Set a password'}>
+      {isMigration && (
+        <div className="rounded-lg border border-primary-500/30 bg-primary-500/10 p-3 space-y-2">
+          <p className="text-sm text-primary-200">
+            We're upgrading your wallet's security. Your addresses and
+            balances stay exactly the same — we're just encrypting the
+            seed phrase that currently sits in plaintext on this device.
+          </p>
+          <p className="text-xs text-dark-300 leading-relaxed">
+            <strong>Why password and not a passkey?</strong> A passkey-
+            derived wallet (where the passkey IS the wallet) would
+            generate different addresses, so it's only available when
+            you create a wallet from scratch. Here we encrypt your
+            existing seed with a password. Your browser may offer to
+            remember the password and unlock with Touch ID / Face ID —
+            that's an autofill convenience, not the wallet's security
+            floor.
+          </p>
+        </div>
+      )}
+
+      {!isMigration && (
+        <p className="text-sm text-dark-200">
+          Your password protects the encrypted seed phrase on this device.
+          Your browser will offer to save it — accept so you can unlock
+          with biometric next time.
+        </p>
+      )}
 
       {/* Semantic form so browser password managers detect + save the credential. */}
       <form onSubmit={submit} className="space-y-3" autoComplete="on">
@@ -85,9 +107,11 @@ export default function PasswordSetStep({ onSubmit, onBack, busy = false, error 
         </div>
 
         <div className="flex gap-3">
-          <button type="button" onClick={onBack} disabled={busy} className="flex-1 btn btn-secondary py-3">
-            Back
-          </button>
+          {onBack && (
+            <button type="button" onClick={onBack} disabled={busy} className="flex-1 btn btn-secondary py-3">
+              Back
+            </button>
+          )}
           <button type="submit" disabled={!canSubmit} className="flex-1 btn btn-primary py-3 disabled:opacity-40">
             {busy ? 'Encrypting…' : 'Continue'}
           </button>

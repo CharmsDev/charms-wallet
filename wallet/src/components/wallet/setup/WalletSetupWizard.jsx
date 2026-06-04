@@ -50,7 +50,7 @@ const S = {
   INIT: 'init',
 };
 
-export default function WalletSetupWizard({ presetSeed = null, presetType = null, extraAction = null }) {
+export default function WalletSetupWizard({ presetSeed = null, presetType = null, extraAction = null, isMigration = false }) {
   const { initializeWalletComplete } = useWallet();
   const { markUnlocked } = useAuth();
 
@@ -180,9 +180,10 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
     return (
       <PasswordSetStep
         onSubmit={onPasswordChosen}
-        onBack={() => { setError(null); setStep(passwordSetBackStep()); }}
+        onBack={isMigration ? null : () => { setError(null); setStep(passwordSetBackStep()); }}
         busy={busy}
         error={error}
+        isMigration={isMigration}
       />
     );
   }
