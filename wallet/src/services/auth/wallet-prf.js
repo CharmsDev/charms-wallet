@@ -124,3 +124,33 @@ export async function unlockPrfWallet() {
   prfBytes.fill(0);
   return mnemonic;
 }
+
+/**
+ * Signal to the platform authenticator (iCloud Keychain / Google
+ * Password Manager / Windows Hello) that the current credential is no
+ * longer valid. WebAuthn L3 `signalUnknownCredentialAsync` — modern
+ * browsers may then remove the synced passkey across devices.
+ *
+ * Best-effort: not all OS/browser combos honor this fully; on those
+ * the user is directed to delete manually from system Settings. The
+ * caller should communicate both outcomes to the user.
+ *
+ * Returns true if the API was available and the call resolved, false
+ * if the API isn't present or the call threw.
+ */
+export async function signalRemovePrfPasskey() {
+  const blob = await readBlob();
+  if (!blob || blob.type !== 'prf') return false;
+  if (typeof PublicKeyCredential === 'undefined') return false;
+  const fn = PublicKeyCredential.signalUnknownCredentialAsync;
+  if (typeof fn !== 'function') return false;
+  try {
+    await fn.call(PublicKeyCredential, {
+      rpId: blob.rpId,
+      credentialId: blob.credentialId,   // base64url, what the spec expects
+    });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
