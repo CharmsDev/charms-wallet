@@ -7,46 +7,38 @@
  * Condition to fire:
  *   hasWallet === true  AND
  *   seedPhrase !== null AND
- *   getWalletType() === null   (no v3 blob yet)
+ *   walletType === null   (no v3 blob yet)
  *
- * Behaviour:
- *   Hands the existing plaintext mnemonic to the WalletSetupWizard's
- *   import branch (with the seed pre-loaded) so the user goes through
- *   PasswordSetStep → MnemonicBackupStep → init. The existing
- *   addresses are preserved (Type 2 encrypts the actual mnemonic).
+ * walletType comes from AuthContext, which reads the blob on mount
+ * and exposes it as state. After the migration wizard writes the v3
+ * blob and calls markUnlocked(), walletType flips to 'password' and
+ * this gate stops blocking — without needing a manual onDone wire.
  *
- *   The Type 1 (pure PRF) option is intentionally NOT offered here —
- *   it would change the mnemonic (and addresses) and brick the user's
- *   funds. They must delete the wallet manually if they want a fresh
- *   PRF wallet.
+ * The wizard's `isMigration` flag short-circuits the post-backup
+ * Init step: addresses + UTXOs + charm caches survive intact in
+ * localStorage (the only thing that changed is the seed went from
+ * plaintext to encrypted). Re-deriving and re-syncing would be
+ * redundant work and confusing UX ("Preparing your wallet" for an
+ * existing wallet makes no sense).
  *
- *   No skip / dismiss. Only escape: Delete Wallet (from a small link).
+ * No skip / dismiss. Only escape: Delete Wallet from a small link.
  */
 
-import { useEffect, useState } from 'react';
 import { useWallet } from '@/stores/walletStore';
-import { getWalletType } from '@/services/auth';
+import { useAuth } from '@/contexts/AuthContext';
 import WalletSetupWizard from '@/components/wallet/setup/WalletSetupWizard';
 
 export default function MigrationGate({ children }) {
   const { seedPhrase, hasWallet } = useWallet();
-  const [needs, setNeeds] = useState(null);
+  const { status, walletType } = useAuth();
 
-  useEffect(() => {
-    if (!hasWallet || !seedPhrase) { setNeeds(false); return; }
-    let alive = true;
-    (async () => {
-      const type = await getWalletType();
-      if (alive) setNeeds(!type);
-    })();
-    return () => { alive = false; };
-  }, [hasWallet, seedPhrase]);
+  // While AuthContext is still probing storage, render nothing — same
+  // pattern as UnlockGate. Prevents a brief flash of the wizard before
+  // the blob-detection finishes.
+  if (status === 'checking') return null;
 
-  if (needs === null) return null;   // checking
+  const needs = hasWallet && !!seedPhrase && !walletType;
   if (!needs) return children;
 
-  // Hand the existing mnemonic to the wizard. presetSeed routes it to
-  // the import branch which uses Type 2 (password) and preserves
-  // addresses.
   return <WalletSetupWizard presetSeed={seedPhrase} presetType="password" isMigration />;
 }

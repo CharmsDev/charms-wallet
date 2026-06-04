@@ -1,106 +1,83 @@
 'use client';
 
 /**
- * PrfAccessStep — single entry point for the passkey path on a new
- * device. Tries to discover an existing synced passkey first; if the
- * user cancels or has none, offers an explicit choice between
- * retrying and creating a fresh wallet.
+ * PrfAccessStep — passkey path = one click, one biometric, done.
  *
- * This prevents the silent-create trap: a user with a synced passkey
- * who accidentally cancels the picker would otherwise get a brand
- * new (empty) wallet without realising their funds are on the
- * original passkey's wallet.
+ * Fires `createPrfWallet()` immediately on mount. The OS shows its
+ * native biometric prompt (Touch ID / Face ID / Windows Hello /
+ * Android biometric). On success → onDone(mnemonic) → backup step.
+ *
+ * Cross-device note: this always creates a new passkey + new wallet
+ * on this device. iCloud Keychain / Google Password Manager will sync
+ * the credential to the user's other devices, but recovering the SAME
+ * wallet across devices via passkey-discovery would require the
+ * cross-device picker (with QR option), which is bad UX for the
+ * primary-device case. Cross-device wallet portability is therefore
+ * exposed via the Import-seed-phrase path instead — standard BIP39
+ * mnemonic backup. Cleaner and matches industry convention.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import SetupShell from './SetupShell';
-import { restorePrfWallet, createPrfWallet } from '@/services/auth';
-
-const PHASE = { TRYING: 'trying', CHOOSE: 'choose', BUSY: 'busy', ERROR: 'error' };
+import { createPrfWallet } from '@/services/auth';
 
 export default function PrfAccessStep({ onDone, onBack }) {
-  const [phase, setPhase] = useState(PHASE.TRYING);
   const [err, setErr] = useState(null);
+  const [retrying, setRetrying] = useState(false);
+  const firedRef = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const mnemonic = await restorePrfWallet();
-        if (cancelled) return;
-        if (mnemonic) return onDone(mnemonic);   // existing wallet found
-        setPhase(PHASE.CHOOSE);                  // user cancelled / no creds
-      } catch (e) {
-        if (cancelled) return;
-        setErr(e.message || 'Passkey lookup failed');
-        setPhase(PHASE.ERROR);
-      }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const tryAgain = async () => {
+  const run = async () => {
     setErr(null);
-    setPhase(PHASE.TRYING);
-    try {
-      const mnemonic = await restorePrfWallet();
-      if (mnemonic) return onDone(mnemonic);
-      setPhase(PHASE.CHOOSE);
-    } catch (e) {
-      setErr(e.message); setPhase(PHASE.ERROR);
-    }
-  };
-
-  const createFresh = async () => {
-    setErr(null);
-    setPhase(PHASE.BUSY);
     try {
       const mnemonic = await createPrfWallet({ displayName: 'Charms Wallet user' });
       onDone(mnemonic);
     } catch (e) {
-      setErr(e.message || 'Could not create passkey'); setPhase(PHASE.ERROR);
+      setErr(e.message || 'Could not create passkey');
+      setRetrying(false);
     }
   };
 
-  if (phase === PHASE.TRYING) {
+  // Fire once on mount so the OS biometric prompt appears immediately
+  // — no extra click between "I want passkey" on Welcome and the
+  // biometric.
+  useEffect(() => {
+    if (firedRef.current) return;
+    firedRef.current = true;
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!err) {
     return (
-      <SetupShell title="Looking for your passkey…">
+      <SetupShell title="Setting up your wallet">
         <p className="text-sm text-dark-300 text-center">
-          Your browser will ask you to pick a passkey. If you've used Charms
-          Wallet before on a synced device, choose it now.
+          Confirm with your device's biometric (Touch ID / Face ID /
+          Windows Hello / fingerprint).
         </p>
       </SetupShell>
     );
   }
 
-  if (phase === PHASE.BUSY) {
-    return (
-      <SetupShell title="Setting up your wallet…">
-        <p className="text-sm text-dark-300 text-center">Creating a new passkey on this device.</p>
-      </SetupShell>
-    );
-  }
-
   return (
-    <SetupShell title="No passkey selected">
+    <SetupShell title="Passkey setup didn't complete">
       <p className="text-sm text-dark-200">
-        No passkey was used. If you have one synced on another device, try
-        again — otherwise create a fresh wallet now.
+        The biometric prompt was cancelled or your device rejected the
+        request. Tap below to try again, or go back and import an
+        existing seed phrase instead.
       </p>
-      <ul className="text-xs text-dark-400 space-y-1 list-disc pl-5">
-        <li>If you've used Charms before and have iCloud Keychain or Google
-            Password Manager enabled, Try again should surface your passkey.</li>
-        <li>If this is your first time, Create new wallet will set up a brand
-            new passkey on this device. Your wallet will be empty until you
-            receive funds.</li>
-      </ul>
-      {err && <p className="text-xs text-red-400 break-words">{err}</p>}
-      <div className="flex gap-3">
-        <button onClick={tryAgain} className="flex-1 btn btn-secondary py-3">Try again</button>
-        <button onClick={createFresh} className="flex-1 btn btn-primary py-3">Create new wallet</button>
-      </div>
-      <button onClick={onBack} className="text-xs text-dark-400 hover:text-dark-200 underline w-full text-center">
+      <p className="text-xs text-red-400 break-words">{err}</p>
+      <button
+        onClick={() => { setRetrying(true); run(); }}
+        disabled={retrying}
+        className="w-full py-3 rounded-xl bg-gradient-to-r from-primary-500 to-blue-500 text-white font-semibold disabled:opacity-50"
+      >
+        {retrying ? 'Waiting for biometric…' : 'Try again'}
+      </button>
+      <button
+        onClick={onBack}
+        disabled={retrying}
+        className="text-xs text-dark-400 hover:text-dark-200 underline w-full text-center disabled:opacity-50"
+      >
         ← Back
       </button>
     </SetupShell>

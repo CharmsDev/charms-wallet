@@ -102,10 +102,30 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
     setStep(S.PASSWORD_SET);
   };
 
-  // Backup acknowledged → flip to terminal init step AND fire the
-  // address-derivation + sync. Guard against double-click.
-  const onBackupAck = () => {
+  // Backup acknowledged. Two distinct paths:
+  //
+  // (a) Migration — the wallet already existed in this device. Its
+  //     addresses, UTXOs and caches survive intact in localStorage;
+  //     the only thing that changed is the seed went from plaintext
+  //     to encrypted. We skip the Init step entirely: markUnlocked()
+  //     flips auth state, MigrationGate stops blocking, the dashboard
+  //     mounts with the seed already in RAM. NO re-derivation, NO
+  //     re-sync, NO password re-prompt.
+  //
+  // (b) Fresh create / import — no addresses exist yet, so we run
+  //     initializeWalletComplete() to derive and sync, then
+  //     markUnlocked.
+  const onBackupAck = async () => {
     if (step === S.INIT) return;
+    if (isMigration) {
+      try {
+        await markUnlocked();
+        setMnemonic(null);
+      } catch (e) {
+        setError(e.message || 'Failed to finalize migration');
+      }
+      return;
+    }
     setStep(S.INIT);
     runInit(mnemonic);
   };

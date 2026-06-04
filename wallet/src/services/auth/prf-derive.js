@@ -75,6 +75,13 @@ export async function enrollPrf({ displayName, salt }) {
         user: { id: userHandle, name: 'charms-wallet', displayName: displayName || 'Charms Wallet user' },
         pubKeyCredParams: [{ type: 'public-key', alg: -7 }], // ES256
         authenticatorSelection: {
+          // 'platform' = use this device's built-in authenticator
+          // (Touch ID / Face ID / Windows Hello / Android biometric).
+          // Without this, Chrome's picker also shows QR cross-device
+          // and security key options — confusing for a wallet on the
+          // user's primary device. iCloud Keychain / Google Password
+          // Manager still sync platform credentials across devices.
+          authenticatorAttachment: 'platform',
           residentKey: 'required',
           userVerification: 'required',
         },
