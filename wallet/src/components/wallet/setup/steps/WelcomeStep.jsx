@@ -3,60 +3,37 @@
 import SetupShell from './SetupShell';
 
 /**
- * Welcome — three affordances mapped to user intent:
+ * Welcome — single primary action ("My Charms wallet") + a small
+ * import-seed-phrase fallback link.
  *
- *   1. "I'm setting up Charms for the first time"
- *        → createPrfWallet() — creates a passkey on THIS device.
- *          iCloud Keychain / Google Password Manager sync it to the
- *          user's other devices automatically. One biometric, no QR.
+ * The button triggers PrfAccessStep which transparently handles both
+ * "use existing passkey from iCloud / Google sync" AND "create new
+ * if none found yet". The user never has to pick a path.
  *
- *   2. "I already have a Charms wallet on another device"
- *        → restorePrfWallet() — discovers the synced passkey via
- *          iCloud Keychain / Google Password Manager. One biometric,
- *          no QR if the sync is healthy.
- *
- *   3. Small link: "Import a seed phrase from another wallet"
- *        → Type 2 path: paste BIP39 mnemonic + password protect.
- *
- * Non-PRF browsers (Firefox / Linux) see the two PRF cards disabled
- * and only the import link is active.
+ * Non-PRF browsers (Firefox / Linux) see the passkey card disabled
+ * with a hint, and the import link becomes the only path.
  *
  * `extraAction` is consumed by the extension popup for its
- * "Transfer from Web Wallet" option.
+ * "Transfer from Web Wallet" path.
  */
-export default function WelcomeStep({ onCreate, onRestore, onImport, prfSupported, extraAction }) {
+export default function WelcomeStep({ onPasskey, onImport, prfSupported, extraAction }) {
   return (
     <SetupShell title="Charms Wallet">
       <p className="text-sm text-dark-300 text-center">
-        How would you like to get into your wallet?
+        Sign in with your device passkey. If you don't have a Charms
+        wallet yet, we'll create one for you.
       </p>
 
       <button
-        onClick={onCreate}
+        onClick={onPasskey}
         disabled={!prfSupported}
         className="w-full text-left p-4 rounded-xl bg-gradient-to-r from-primary-500 to-blue-500 hover:opacity-90 text-white disabled:opacity-40 disabled:cursor-not-allowed"
       >
-        <div className="flex items-center justify-between">
-          <span className="font-semibold">I'm setting up Charms for the first time</span>
-          {prfSupported && <span className="text-[10px] uppercase tracking-wide opacity-80">Recommended</span>}
-        </div>
+        <div className="font-semibold">My Charms wallet</div>
         <p className="text-xs opacity-90 mt-1 leading-relaxed">
           {prfSupported
-            ? "Creates a passkey on this device. iCloud Keychain / Google Password Manager sync it to your other devices automatically — you'll see the same wallet everywhere."
-            : "Not supported on this browser. Use the latest Chrome, Safari or Edge for passkey setup."}
-        </p>
-      </button>
-
-      <button
-        onClick={onRestore}
-        disabled={!prfSupported}
-        className="w-full text-left p-4 rounded-xl bg-dark-700 hover:bg-dark-600 text-white disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        <div className="font-semibold">I already have a Charms wallet on another device</div>
-        <p className="text-xs opacity-90 mt-1 leading-relaxed">
-          {prfSupported
-            ? "Uses your passkey synced from another Apple / Google device. One Face ID / Touch ID and your wallet appears here too."
-            : "Requires passkey support — not available on this browser."}
+            ? "One tap with Face ID / Touch ID. Your wallet appears the same on every device synced via iCloud Keychain or Google Password Manager."
+            : "Not supported on this browser. Use the latest Chrome, Safari or Edge for passkey access."}
         </p>
       </button>
 
