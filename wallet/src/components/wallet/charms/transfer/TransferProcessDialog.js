@@ -25,6 +25,11 @@ export default function TransferProcessDialog({
     const hasStartedRef = useRef(false);
 
     const { seedPhrase } = useWallet();
+    // Capture seed via ref so the long-running async transfer reads the
+    // latest value, not a stale render-time closure.
+    const seedRef = useRef(seedPhrase);
+    useEffect(() => { seedRef.current = seedPhrase; }, [seedPhrase]);
+
     const { updateAfterTransfer, addPendingCharm } = useCharms();
     const { syncAfterCharmTransfer, syncFullWallet } = useWalletSync();
     const { activeNetwork } = useBlockchain();
@@ -55,7 +60,7 @@ export default function TransferProcessDialog({
                 spellTxHex,
                 prevTxMap,
                 inputSigningMap,
-                seedPhrase,
+                seedPhrase: seedRef.current,
                 network: activeNetwork,
                 onStatus: setStatusMsg,
             });
