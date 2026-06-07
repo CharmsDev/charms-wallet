@@ -7,6 +7,7 @@ import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { charmUtxoSelector } from '@/services/charms/utils/charm-utxo-selector';
 import { getNetworkFeeRate } from '@/services/shared/fee-rate';
+import { reserveForOperation } from '@/services/utxo-reservations';
 
 /**
  * Step 2: Confirmation Dialog
@@ -186,6 +187,21 @@ export default function TransferConfirmDialog({
             isChange: fundingEntry?.isChange || false,
         };
 
+        // Lock the selected UTXOs against concurrent operations for the
+        // ~5–10 min duration of the proof. The process dialog releases the
+        // op on failure so the funds are reusable; on success the executor
+        // marks the inputs as spent before the network reflects it.
+        const opId = `charm-transfer:${fundingUtxo.txid}:${fundingUtxo.vout}:${Date.now()}`;
+        const reservationItems = [
+            ...selectedCharmUtxos.map(u => ({ txid: u.txid, vout: u.outputIndex })),
+            { txid: fundingUtxo.txid, vout: fundingUtxo.vout },
+        ];
+        try {
+            reserveForOperation(opId, 'bitcoin', reservationItems, 'Charm Transfer');
+        } catch (e) {
+            console.error('[TransferConfirmDialog] reserveForOperation failed:', e);
+        }
+
         onConfirm({
             selectedCharmUtxos,
             fundingUtxo: { utxoId: `${fundingUtxo.txid}:${fundingUtxo.vout}`, value: fundingUtxo.value, address: fundingUtxo.address },
@@ -193,6 +209,7 @@ export default function TransferConfirmDialog({
             changeAddress,
             inputSigningMap,
             feeRate,
+            opId,
         });
     };
 
