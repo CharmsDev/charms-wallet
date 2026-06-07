@@ -39,6 +39,12 @@ export default function TransferProcessDialog({
 
     const executeTransfer = async () => {
         try {
+            // Fail-fast: if the wallet is locked we cannot sign. Aborting
+            // before proving avoids wasting 5–10 min on a proof we can't use.
+            if (!seedRef.current) {
+                throw new Error('Wallet locked. Please unlock and retry.');
+            }
+
             // ── Phase 1: Prove ────────────────────────────────────────────
             setCurrentPhase('proving');
 
@@ -55,6 +61,11 @@ export default function TransferProcessDialog({
 
             // ── Phase 2: Sign + Broadcast ─────────────────────────────────
             setCurrentPhase('broadcasting');
+
+            // Re-check seed: the wallet could have been locked during proving.
+            if (!seedRef.current) {
+                throw new Error('Wallet locked. Please unlock and retry.');
+            }
 
             const { txid } = await signAndBroadcastTransfer({
                 spellTxHex,
