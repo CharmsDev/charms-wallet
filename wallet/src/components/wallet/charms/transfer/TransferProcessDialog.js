@@ -77,72 +77,84 @@ export default function TransferProcessDialog({
                 onStatus: setStatusMsg,
             });
 
+            // Broadcast succeeded. From here on the tx is on the network —
+            // every local-state update is best-effort and MUST NOT flip the
+            // dialog back to the error state. The chain sync at the end is
+            // the source of truth; if any optimistic step fails, the next
+            // sync still reconciles correctly.
             setTxId(txid);
-
-            // ── Post-transfer: update local state ─────────────────────────
+            success = true;
 
             const walletAddressSet = new Set(walletAddresses.map(a => a.address));
             const isInternalTransfer = walletAddressSet.has(v10Params.recipientAddress);
 
             // Add pending charm for change output if not internal
-            if (v10Params.changeAddress && !isInternalTransfer) {
-                const remainingTokens = v10Params.charmInputs.reduce((s, i) => s + i.amount, 0) - v10Params.transferAmount;
-                if (remainingTokens > 0) {
-                    addPendingCharm({
-                        txid,
-                        outputIndex: 1,
-                        address: v10Params.changeAddress,
-                        amount: remainingTokens,
-                        appId: v10Params.tokenAppId,
-                        name: charm.name || charm.metadata?.name || 'Charm',
-                        ticker: charm.ticker || charm.metadata?.ticker || 'CHARM',
-                        image: charm.image || charm.metadata?.image,
-                        type: 'token',
-                        status: 'pending',
-                    });
+            try {
+                if (v10Params.changeAddress && !isInternalTransfer) {
+                    const remainingTokens = v10Params.charmInputs.reduce((s, i) => s + i.amount, 0) - v10Params.transferAmount;
+                    if (remainingTokens > 0) {
+                        addPendingCharm({
+                            txid,
+                            outputIndex: 1,
+                            address: v10Params.changeAddress,
+                            amount: remainingTokens,
+                            appId: v10Params.tokenAppId,
+                            name: charm.name || charm.metadata?.name || 'Charm',
+                            ticker: charm.ticker || charm.metadata?.ticker || 'CHARM',
+                            image: charm.image || charm.metadata?.image,
+                            type: 'token',
+                            status: 'pending',
+                        });
+                    }
                 }
-            }
+            } catch (e) { console.error('[TransferProcessDialog] addPendingCharm failed:', e); }
 
             // Record transaction
-            const { useTransactionStore } = await import('@/stores/transactionStore');
-            const recordSentTransaction = useTransactionStore.getState().recordSentTransaction;
-            await recordSentTransaction({
-                id: `tx_${Date.now()}_charm_${Math.random().toString(36).substr(2, 9)}`,
-                txid,
-                type: 'charm_transfer',
-                amount: fee || 0,
-                fee: fee || 0,
-                timestamp: Date.now(),
-                status: 'pending',
-                addresses: {
-                    from: selectedCharmUtxos.map(u => u.address).filter(Boolean),
-                    to: [v10Params.recipientAddress],
-                },
-                metadata: {
-                    isCharmTransfer: true,
-                    isInternalTransfer,
-                    charmAmount: v10Params.transferAmount,
-                    charmName: charm.name || charm.metadata?.name || 'Charm',
-                    ticker: charm.ticker || charm.metadata?.ticker || 'CHARM',
-                },
-            }, 'bitcoin', activeNetwork);
+            try {
+                const { useTransactionStore } = await import('@/stores/transactionStore');
+                const recordSentTransaction = useTransactionStore.getState().recordSentTransaction;
+                await recordSentTransaction({
+                    id: `tx_${Date.now()}_charm_${Math.random().toString(36).substr(2, 9)}`,
+                    txid,
+                    type: 'charm_transfer',
+                    amount: fee || 0,
+                    fee: fee || 0,
+                    timestamp: Date.now(),
+                    status: 'pending',
+                    addresses: {
+                        from: selectedCharmUtxos.map(u => u.address).filter(Boolean),
+                        to: [v10Params.recipientAddress],
+                    },
+                    metadata: {
+                        isCharmTransfer: true,
+                        isInternalTransfer,
+                        charmAmount: v10Params.transferAmount,
+                        charmName: charm.name || charm.metadata?.name || 'Charm',
+                        ticker: charm.ticker || charm.metadata?.ticker || 'CHARM',
+                    },
+                }, 'bitcoin', activeNetwork);
+            } catch (e) { console.error('[TransferProcessDialog] recordSentTransaction failed:', e); }
 
-            // Remove spent UTXOs from stores
-            const { useUTXOStore } = await import('@/stores/utxoStore');
-            const updateAfterTransaction = useUTXOStore.getState().updateAfterTransaction;
-            const fundingTxid = fundingUtxo?.utxoId?.split(':')[0];
-            const fundingVout = parseInt(fundingUtxo?.utxoId?.split(':')[1] || '0');
-            const spentUtxos = [
-                ...selectedCharmUtxos.map(u => ({ txid: u.txid, vout: u.outputIndex ?? u.vout, address: u.address })),
-                ...(fundingTxid ? [{ txid: fundingTxid, vout: fundingVout, address: fundingUtxo.address }] : []),
-            ];
-            await updateAfterTransaction(spentUtxos, {}, 'bitcoin', activeNetwork);
+            // Remove spent UTXOs from stores (optimistic — chain sync below is authoritative)
+            try {
+                const { useUTXOStore } = await import('@/stores/utxoStore');
+                const updateAfterTransaction = useUTXOStore.getState().updateAfterTransaction;
+                const fundingTxid = fundingUtxo?.utxoId?.split(':')[0];
+                const fundingVout = parseInt(fundingUtxo?.utxoId?.split(':')[1] || '0');
+                const spentUtxos = [
+                    ...selectedCharmUtxos.map(u => ({ txid: u.txid, vout: u.outputIndex ?? u.vout, address: u.address })),
+                    ...(fundingTxid ? [{ txid: fundingTxid, vout: fundingVout, address: fundingUtxo.address }] : []),
+                ];
+                await updateAfterTransaction(spentUtxos, {}, 'bitcoin', activeNetwork);
+            } catch (e) { console.error('[TransferProcessDialog] updateAfterTransaction failed:', e); }
 
-            for (const u of selectedCharmUtxos) {
-                await updateAfterTransfer(u);
-            }
+            try {
+                for (const u of selectedCharmUtxos) {
+                    await updateAfterTransfer(u);
+                }
+            } catch (e) { console.error('[TransferProcessDialog] updateAfterTransfer failed:', e); }
 
-            // Sync wallet
+            // Sync wallet — authoritative reconciliation against the chain.
             try {
                 await syncAfterCharmTransfer({
                     inputAddresses: selectedCharmUtxos.map(u => u.address).filter(Boolean),
@@ -150,9 +162,8 @@ export default function TransferProcessDialog({
                     fundingAddress: fundingUtxo?.address,
                 });
                 await syncFullWallet();
-            } catch (_) { /* silent */ }
+            } catch (e) { console.error('[TransferProcessDialog] syncFullWallet failed:', e); }
 
-            success = true;
             setCurrentPhase('success');
 
         } catch (err) {
