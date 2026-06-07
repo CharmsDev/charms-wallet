@@ -35,9 +35,10 @@ export default function TransferProcessDialog({
     const { activeNetwork } = useBlockchain();
     const { addresses: walletAddresses } = useAddresses();
 
-    const { selectedCharmUtxos, fundingUtxo, v10Params, changeAddress, inputSigningMap } = confirmData;
+    const { selectedCharmUtxos, fundingUtxo, v10Params, changeAddress, inputSigningMap, opId } = confirmData;
 
     const executeTransfer = async () => {
+        let success = false;
         try {
             // Fail-fast: if the wallet is locked we cannot sign. Aborting
             // before proving avoids wasting 5–10 min on a proof we can't use.
@@ -151,11 +152,25 @@ export default function TransferProcessDialog({
                 await syncFullWallet();
             } catch (_) { /* silent */ }
 
+            success = true;
             setCurrentPhase('success');
 
         } catch (err) {
             setError(err.message);
             setCurrentPhase('error');
+        } finally {
+            // On failure: release the reservation so the user can retry.
+            // On success: leave the entry — executor.markSpent already
+            // pinned the inputs in the flat set; syncWithChain will reap
+            // them when the network reflects the spend.
+            if (!success && opId) {
+                try {
+                    const { releaseOperation } = await import('@/services/utxo-reservations');
+                    releaseOperation(opId);
+                } catch (e) {
+                    console.error('[TransferProcessDialog] releaseOperation failed:', e);
+                }
+            }
         }
     };
 
