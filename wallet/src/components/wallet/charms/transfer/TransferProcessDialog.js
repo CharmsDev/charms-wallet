@@ -1,208 +1,94 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useWallet } from '@/stores/walletStore';
-import { useCharms } from '@/stores/charmsStore';
-import { useBlockchain } from '@/stores/blockchainStore';
-import { useWalletSync } from '@/hooks/useWalletSync';
-import { proveCharmTransfer, signAndBroadcastTransfer } from '@/services/charm-transfer';
-import { getExplorerUrl } from '@/services/charms/sign/broadcastTx';
-import { balanceService } from '@/services/balance';
-
 /**
- * Step 3: Transfer Process Dialog (v10 — single TX)
- * Phases: proving → broadcasting → success
+ * Step 3: Transfer Process Dialog (v10 — background-driven).
+ *
+ * The actual prove → sign → broadcast pipeline lives in
+ * `CharmTransferOperationsContext`, which checkpoints to localStorage at
+ * every step so the op survives reloads. This dialog is a thin live view
+ * that subscribes to the operation. Closing it does NOT cancel the op —
+ * progress keeps streaming into the InTransitPanel and the op auto-resumes
+ * on the next unlock if the user kills the tab mid-proof.
  */
-export default function TransferProcessDialog({
-    charm,
-    confirmData,
-    onClose
-}) {
-    const [currentPhase, setCurrentPhase] = useState('proving');
-    const [statusMsg, setStatusMsg] = useState('');
-    const [error, setError] = useState(null);
-    const [txId, setTxId] = useState(null);
-    const hasStartedRef = useRef(false);
 
-    const { seedPhrase } = useWallet();
-    // Capture seed via ref so the long-running async transfer reads the
-    // latest value, not a stale render-time closure.
-    const seedRef = useRef(seedPhrase);
-    useEffect(() => { seedRef.current = seedPhrase; }, [seedPhrase]);
+import { useEffect, useRef, useMemo } from 'react';
+import { useBlockchain } from '@/stores/blockchainStore';
+import { getExplorerUrl } from '@/services/charms/sign/broadcastTx';
+import { useCharmTransferOperations } from '@/contexts/CharmTransferOperationsContext';
+import { CHARM_TRANSFER_PHASE } from '@/services/charm-transfer/persistence';
 
-    const { updateAfterTransfer } = useCharms();
-    const { syncAfterCharmTransfer, syncFullWallet } = useWalletSync();
+export default function TransferProcessDialog({ charm, confirmData, onClose }) {
     const { activeNetwork } = useBlockchain();
+    const { startCharmTransfer, getOperation } = useCharmTransferOperations();
+    const startedRef = useRef(false);
 
     const {
-        selectedCharmUtxos, fundingUtxo, v10Params, changeAddress, inputSigningMap,
-        opId, changeOpId, isInternalTransfer,
+        selectedCharmUtxos, fundingUtxo, v10Params, inputSigningMap,
+        changeAddress, opId, childOpIds = [], isInternalTransfer, feeRate,
     } = confirmData;
 
-    const executeTransfer = async () => {
-        let success = false;
-        try {
-            // Fail-fast: if the wallet is locked we cannot sign. Aborting
-            // before proving avoids wasting 5–10 min on a proof we can't use.
-            if (!seedRef.current) {
-                throw new Error('Wallet locked. Please unlock and retry.');
-            }
-
-            // ── Phase 1: Prove ────────────────────────────────────────────
-            setCurrentPhase('proving');
-
-            const { spellTxHex, prevTxMap, fee } = await proveCharmTransfer({
-                tokenAppId: v10Params.tokenAppId,
-                charmInputs: v10Params.charmInputs,
-                fundingUtxo,
-                transferAmount: v10Params.transferAmount,
-                recipientAddress: v10Params.recipientAddress,
-                changeAddress: v10Params.changeAddress,
-                network: activeNetwork,
-                onStatus: setStatusMsg,
-            });
-
-            // ── Phase 2: Sign + Broadcast ─────────────────────────────────
-            setCurrentPhase('broadcasting');
-
-            // Re-check seed: the wallet could have been locked during proving.
-            if (!seedRef.current) {
-                throw new Error('Wallet locked. Please unlock and retry.');
-            }
-
-            const { txid } = await signAndBroadcastTransfer({
-                spellTxHex,
-                prevTxMap,
-                inputSigningMap,
-                seedPhrase: seedRef.current,
-                network: activeNetwork,
-                onStatus: setStatusMsg,
-            });
-
-            // Broadcast succeeded. From here on the tx is on the network —
-            // every local-state update is best-effort and MUST NOT flip the
-            // dialog back to the error state. The chain sync at the end is
-            // the source of truth; if any optimistic step fails, the next
-            // sync still reconciles correctly.
-            setTxId(txid);
-            success = true;
-
-            // Advance the BalanceService pendings to BROADCAST. The change
-            // entry (if any) was created at Confirm time and tracks the
-            // same lifecycle.
-            try { await balanceService.markBroadcast(opId, txid); } catch (e) { console.error('[TransferProcessDialog] markBroadcast failed:', e); }
-            if (changeOpId) {
-                try { await balanceService.markBroadcast(changeOpId, txid); } catch (e) { console.error('[TransferProcessDialog] markBroadcast(change) failed:', e); }
-            }
-
-            // Record transaction
-            try {
-                const { useTransactionStore } = await import('@/stores/transactionStore');
-                const recordSentTransaction = useTransactionStore.getState().recordSentTransaction;
-                await recordSentTransaction({
-                    id: `tx_${Date.now()}_charm_${Math.random().toString(36).substr(2, 9)}`,
-                    txid,
-                    type: 'charm_transfer',
-                    amount: fee || 0,
-                    fee: fee || 0,
-                    timestamp: Date.now(),
-                    status: 'pending',
-                    addresses: {
-                        from: selectedCharmUtxos.map(u => u.address).filter(Boolean),
-                        to: [v10Params.recipientAddress],
-                    },
-                    metadata: {
-                        isCharmTransfer: true,
-                        isInternalTransfer,
-                        charmAmount: v10Params.transferAmount,
-                        charmName: charm.name || charm.metadata?.name || 'Charm',
-                        ticker: charm.ticker || charm.metadata?.ticker || 'CHARM',
-                    },
-                }, 'bitcoin', activeNetwork);
-            } catch (e) { console.error('[TransferProcessDialog] recordSentTransaction failed:', e); }
-
-            // Remove spent UTXOs from stores (optimistic — chain sync below is authoritative)
-            try {
-                const { useUTXOStore } = await import('@/stores/utxoStore');
-                const updateAfterTransaction = useUTXOStore.getState().updateAfterTransaction;
-                const fundingTxid = fundingUtxo?.utxoId?.split(':')[0];
-                const fundingVout = parseInt(fundingUtxo?.utxoId?.split(':')[1] || '0');
-                const spentUtxos = [
-                    ...selectedCharmUtxos.map(u => ({ txid: u.txid, vout: u.outputIndex ?? u.vout, address: u.address })),
-                    ...(fundingTxid ? [{ txid: fundingTxid, vout: fundingVout, address: fundingUtxo.address }] : []),
-                ];
-                await updateAfterTransaction(spentUtxos, {}, 'bitcoin', activeNetwork);
-            } catch (e) { console.error('[TransferProcessDialog] updateAfterTransaction failed:', e); }
-
-            try {
-                for (const u of selectedCharmUtxos) {
-                    await updateAfterTransfer(u);
-                }
-            } catch (e) { console.error('[TransferProcessDialog] updateAfterTransfer failed:', e); }
-
-            // Sync wallet — authoritative reconciliation against the chain.
-            try {
-                await syncAfterCharmTransfer({
-                    inputAddresses: selectedCharmUtxos.map(u => u.address).filter(Boolean),
-                    changeAddress: v10Params.changeAddress,
-                    fundingAddress: fundingUtxo?.address,
-                });
-                await syncFullWallet();
-            } catch (e) { console.error('[TransferProcessDialog] syncFullWallet failed:', e); }
-
-            setCurrentPhase('success');
-
-        } catch (err) {
-            setError(err.message);
-            setCurrentPhase('error');
-            // BalanceService.markFailed releases the UTXO reservation
-            // automatically. Same for the linked change pending.
-            if (opId) {
-                try { await balanceService.markFailed(opId, err.message || 'unknown'); } catch {}
-            }
-            if (changeOpId) {
-                try { await balanceService.markFailed(changeOpId, err.message || 'unknown'); } catch {}
-            }
-        }
-    };
-
+    // Dispatch the op to the context once. The context owns the runner +
+    // persistence; the dialog only watches the resulting operation.
     useEffect(() => {
-        if (hasStartedRef.current) return;
-        hasStartedRef.current = true;
-        executeTransfer();
+        if (startedRef.current) return;
+        startedRef.current = true;
+        const label = `Send ${charm.ticker || charm.metadata?.ticker || charm.name || 'Charm'}`;
+        startCharmTransfer(label, {
+            opId,
+            childOpIds,
+            isInternalTransfer,
+            tokenAppId: v10Params.tokenAppId,
+            charmInputs: v10Params.charmInputs,
+            transferAmount: v10Params.transferAmount,
+            recipientAddress: v10Params.recipientAddress,
+            changeAddress: v10Params.changeAddress,
+            fundingUtxo,
+            inputSigningMap,
+            feeRate,
+            network: activeNetwork,
+            selectedCharmAddresses: (selectedCharmUtxos || []).map(u => u.address).filter(Boolean),
+        });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const phases = ['proving', 'broadcasting', 'success'];
+    const op = getOperation(opId);
+    const phase = op?.phase || CHARM_TRANSFER_PHASE.QUEUED;
+    const statusMsg = op?.statusMessage || '';
+    const txId = op?.txid || null;
+    const error = op?.error || null;
 
-    const getPhaseIcon = (phase) => {
-        if (currentPhase === 'error') return '⏳';
-        if (currentPhase === phase) return (
+    const phases = [CHARM_TRANSFER_PHASE.PROVING, CHARM_TRANSFER_PHASE.BROADCASTING, CHARM_TRANSFER_PHASE.COMPLETE];
+
+    const getPhaseIcon = (target) => {
+        if (phase === CHARM_TRANSFER_PHASE.ERROR) return '⏳';
+        if (phase === target) return (
             <div className="inline-block animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-primary-500" />
         );
-        return phases.indexOf(currentPhase) > phases.indexOf(phase) ? '✅' : '⏳';
+        return phases.indexOf(phase) > phases.indexOf(target) ? '✅' : '⏳';
     };
+
+    const isDone = phase === CHARM_TRANSFER_PHASE.COMPLETE;
+    const isError = phase === CHARM_TRANSFER_PHASE.ERROR;
+    const headerTitle = useMemo(() => {
+        if (isDone) return 'Transfer Complete!';
+        if (isError) return 'Transfer Failed';
+        return 'Processing Transfer…';
+    }, [isDone, isError]);
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm flex items-center justify-center z-50">
             <div className="card w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-                {/* Header */}
                 <div className="bg-primary-600 text-white px-6 py-4 flex justify-between items-center">
-                    <h3 className="text-lg font-bold">
-                        {currentPhase === 'success' ? 'Transfer Complete!' : 'Processing Transfer...'}
-                    </h3>
-                    {(currentPhase === 'success' || currentPhase === 'error') && (
-                        <button onClick={onClose} className="text-white hover:text-gray-200">
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    )}
+                    <h3 className="text-lg font-bold">{headerTitle}</h3>
+                    <button onClick={onClose} className="text-white hover:text-gray-200" title="Close (transfer keeps running)">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
                 </div>
 
-                {/* Content */}
                 <div className="p-6 overflow-y-auto flex-grow">
-                    {currentPhase === 'error' && (
+                    {isError && (
                         <div className="bg-red-900/30 p-6 rounded-lg border border-red-800 text-center">
                             <div className="text-6xl mb-4">❌</div>
                             <h4 className="text-xl font-bold text-red-400 mb-2">Transfer Failed</h4>
@@ -210,7 +96,7 @@ export default function TransferProcessDialog({
                         </div>
                     )}
 
-                    {currentPhase === 'success' && (
+                    {isDone && (
                         <div className="bg-green-900/30 p-6 rounded-lg border border-green-800 text-center">
                             <div className="text-6xl mb-4">✅</div>
                             <h4 className="text-xl font-bold text-green-400 mb-2">Transfer Successful!</h4>
@@ -229,33 +115,31 @@ export default function TransferProcessDialog({
                         </div>
                     )}
 
-                    {currentPhase !== 'success' && currentPhase !== 'error' && (
+                    {!isDone && !isError && (
                         <div className="space-y-4">
-                            {/* Proving */}
-                            <div className={`glass-effect p-4 rounded-xl ${currentPhase === 'proving' ? 'border-2 border-primary-500' : ''}`}>
+                            <div className={`glass-effect p-4 rounded-xl ${phase === CHARM_TRANSFER_PHASE.PROVING ? 'border-2 border-primary-500' : ''}`}>
                                 <div className="flex items-center gap-3">
-                                    <div className="text-2xl">{getPhaseIcon('proving')}</div>
+                                    <div className="text-2xl">{getPhaseIcon(CHARM_TRANSFER_PHASE.PROVING)}</div>
                                     <div className="flex-1">
                                         <h4 className="font-bold text-white">Generating ZK Proof</h4>
                                         <p className="text-sm text-dark-400">
-                                            {currentPhase === 'proving'
-                                                ? (statusMsg || 'This can take 5–10 minutes...')
-                                                : 'Proof complete'}
+                                            {phase === CHARM_TRANSFER_PHASE.PROVING
+                                                ? (statusMsg || 'This can take 5–10 minutes…')
+                                                : (phases.indexOf(phase) > phases.indexOf(CHARM_TRANSFER_PHASE.PROVING) ? 'Proof complete' : 'Queued')}
                                         </p>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Sign + Broadcast */}
-                            <div className={`glass-effect p-4 rounded-xl ${currentPhase === 'broadcasting' ? 'border-2 border-primary-500' : ''}`}>
+                            <div className={`glass-effect p-4 rounded-xl ${phase === CHARM_TRANSFER_PHASE.BROADCASTING ? 'border-2 border-primary-500' : ''}`}>
                                 <div className="flex items-center gap-3">
-                                    <div className="text-2xl">{getPhaseIcon('broadcasting')}</div>
+                                    <div className="text-2xl">{getPhaseIcon(CHARM_TRANSFER_PHASE.BROADCASTING)}</div>
                                     <div className="flex-1">
                                         <h4 className="font-bold text-white">Signing & Broadcasting</h4>
                                         <p className="text-sm text-dark-400">
-                                            {currentPhase === 'broadcasting'
-                                                ? (statusMsg || 'Signing and sending to Bitcoin network...')
-                                                : 'Waiting...'}
+                                            {phase === CHARM_TRANSFER_PHASE.BROADCASTING
+                                                ? (statusMsg || 'Signing and sending to Bitcoin network…')
+                                                : 'Waiting…'}
                                         </p>
                                     </div>
                                 </div>
@@ -263,14 +147,16 @@ export default function TransferProcessDialog({
 
                             <div className="bg-blue-900/20 p-4 rounded-lg border border-blue-800/50">
                                 <p className="text-sm text-blue-300">
-                                    Please wait. The ZK proof step can take up to 10 minutes.
+                                    You can close this dialog — the transfer keeps running in the background
+                                    and you'll see it in the "In Transit" panel. If the page reloads, it resumes
+                                    from where it stopped.
                                 </p>
                             </div>
                         </div>
                     )}
                 </div>
 
-                {(currentPhase === 'success' || currentPhase === 'error') && (
+                {(isDone || isError) && (
                     <div className="bg-dark-800 px-6 py-4 flex justify-end">
                         <button onClick={onClose} className="btn btn-primary">Close</button>
                     </div>

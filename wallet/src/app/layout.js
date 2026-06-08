@@ -6,6 +6,7 @@ import { NavigationProvider } from "@/contexts/NavigationContext";
 import { UTXOProvider } from "@/stores/utxoStore";
 import { CharmsProvider } from "@/stores/charmsStore";
 import { BeamOperationsProvider } from "@/contexts/BeamOperationsContext";
+import { CharmTransferOperationsProvider } from "@/contexts/CharmTransferOperationsContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import UpgradeGate from "@/components/system/UpgradeGate";
 import UnlockGate from "@/components/system/UnlockGate";
@@ -62,9 +63,11 @@ export default function RootLayout({ children }) {
                     <UTXOProvider>
                       <CharmsProvider>
                         <BeamOperationsProvider>
-                          <MainLayout>
-                            {children}
-                          </MainLayout>
+                          <CharmTransferOperationsProvider>
+                            <MainLayout>
+                              {children}
+                            </MainLayout>
+                          </CharmTransferOperationsProvider>
                         </BeamOperationsProvider>
                       </CharmsProvider>
                     </UTXOProvider>

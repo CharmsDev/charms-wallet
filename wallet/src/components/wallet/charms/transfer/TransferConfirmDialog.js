@@ -214,22 +214,34 @@ export default function TransferConfirmDialog({
         const walletAddressSet = new Set(addresses.map(a => a.address));
         const isInternalTransfer = walletAddressSet.has(v10Params.recipientAddress);
         const remainingTokens = v10Params.charmInputs.reduce((s, i) => s + i.amount, 0) - v10Params.transferAmount;
-        let changeOpId = null;
-        if (remainingTokens > 0 && !isInternalTransfer && changeAddress) {
-            changeOpId = `${opId}:change`;
+
+        // Register every charm-returning output as pendingIn so the dashboard
+        // shows the net move correctly. Outputs that go back to a wallet
+        // address are:
+        //   1. CHANGE (always — `changeAddress` is wallet-owned by construction)
+        //   2. DESTINATION when isInternalTransfer (sending to self)
+        const childOpIds = [];
+        if (remainingTokens > 0 && changeAddress) {
+            const id = `${opId}:change`;
             try {
                 await balanceService.registerIncoming({
-                    opId: changeOpId,
-                    assetKey: cKey,
-                    network: activeNetwork,
-                    amount: String(remainingTokens),
-                    relatedOpId: opId,
+                    opId: id, assetKey: cKey, network: activeNetwork,
+                    amount: String(remainingTokens), relatedOpId: opId,
                     label: 'Charm change',
                 });
-            } catch (e) {
-                console.error('[TransferConfirmDialog] registerIncoming(change) failed:', e);
-                changeOpId = null;
-            }
+                childOpIds.push(id);
+            } catch (e) { console.error('[TransferConfirmDialog] registerIncoming(change) failed:', e); }
+        }
+        if (isInternalTransfer) {
+            const id = `${opId}:self`;
+            try {
+                await balanceService.registerIncoming({
+                    opId: id, assetKey: cKey, network: activeNetwork,
+                    amount: String(v10Params.transferAmount), relatedOpId: opId,
+                    label: 'Charm self-transfer',
+                });
+                childOpIds.push(id);
+            } catch (e) { console.error('[TransferConfirmDialog] registerIncoming(self) failed:', e); }
         }
 
         onConfirm({
@@ -240,7 +252,7 @@ export default function TransferConfirmDialog({
             inputSigningMap,
             feeRate,
             opId,
-            changeOpId,
+            childOpIds,
             isInternalTransfer,
         });
     };

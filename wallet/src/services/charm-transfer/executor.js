@@ -47,7 +47,7 @@ import { getNetworkFeeRate } from '@/services/shared/fee-rate';
 export async function proveCharmTransfer(params) {
   const {
     tokenAppId, charmInputs, fundingUtxo, transferAmount,
-    recipientAddress, changeAddress, network, onStatus,
+    recipientAddress, changeAddress, network, onStatus, feeRate: feeRateInput,
   } = params;
 
   const status = msg => { console.log('[CharmTransfer]', msg); onStatus?.(msg); };
@@ -74,8 +74,11 @@ export async function proveCharmTransfer(params) {
     return { bitcoin: hex };
   });
 
-  // ── Step 4: Fetch dynamic fee rate (same criterion as charms-cast) ───────
-  const feeRate = await getNetworkFeeRate(network);
+  // ── Step 4: Fee rate ──────────────────────────────────────────────────────
+  // Prefer the rate the UI computed at Confirm-time so the displayed fee
+  // matches the one the prover bakes into the change output. Only fetch
+  // anew if the caller didn't supply one.
+  const feeRate = feeRateInput || await getNetworkFeeRate(network);
   status(`Using fee rate: ${feeRate} sat/vB`);
 
   // ── Step 5: Send to prover ────────────────────────────────────────────────

@@ -48,6 +48,7 @@ export default function TransferCharmWizard({ charm, show, onClose }) {
                     charm={charm}
                     onNext={handleFormNext}
                     onClose={handleClose}
+                    initialData={transferData}
                 />
             )}
 

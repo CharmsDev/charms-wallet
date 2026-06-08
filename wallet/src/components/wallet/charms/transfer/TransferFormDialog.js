@@ -10,9 +10,11 @@ import { charmUtxoSelector } from '@/services/charms/utils/charm-utxo-selector';
  * - Amount input (for tokens only)
  * - Auto-detects NFT vs Token
  */
-export default function TransferFormDialog({ charm, onNext, onClose }) {
-    const [destinationAddress, setDestinationAddress] = useState('');
-    const [transferAmount, setTransferAmount] = useState('');
+export default function TransferFormDialog({ charm, onNext, onClose, initialData = null }) {
+    // Preserve user-entered values when the wizard returns from Confirm via
+    // Back. They're only cleared on Cancel/Close (which unmounts the wizard).
+    const [destinationAddress, setDestinationAddress] = useState(initialData?.destinationAddress || '');
+    const [transferAmount, setTransferAmount] = useState(initialData?.displayAmount || '');
     const { isCharmNFT, isCharmToken } = useCharms();
 
     const isNFT = isCharmNFT(charm);
