@@ -22,6 +22,8 @@ import { useBlockchain } from '@/stores/blockchainStore';
 import { useWalletSync } from '@/hooks/useWalletSync';
 import { proveCharmTransfer, signAndBroadcastTransfer } from '@/services/charm-transfer';
 import { balanceService } from '@/services/balance';
+import { applyBroadcastedTx } from '@/services/wallet/post-broadcast';
+import { useAddresses } from '@/stores/addressesStore';
 import {
   CHARM_TRANSFER_PHASE,
   saveCharmTransferState,
@@ -93,6 +95,9 @@ export function CharmTransferOperationsProvider({ children }) {
 
   const { activeNetwork } = useBlockchain();
   const { syncAfterCharmTransfer, syncFullWallet } = useWalletSync();
+  const { addresses } = useAddresses();
+  const ownAddressesRef = useRef(addresses);
+  useEffect(() => { ownAddressesRef.current = addresses; }, [addresses]);
 
   const updateOp = useCallback((id, patch, persist = true) => {
     dispatch({ type: 'UPDATE', id, patch });
@@ -165,43 +170,42 @@ export function CharmTransferOperationsProvider({ children }) {
         updateOp(id, { txid });
       }
 
-      // Advance BalanceService pendings (parent + children).
-      try { await balanceService.markBroadcast(id, txid); } catch {}
-      for (const c of childOpIds) { try { await balanceService.markBroadcast(c, txid); } catch {} }
-
-      // Optimistic store updates so the dashboard reflects the net move
-      // immediately: drop spent charm UTXOs from charmsStore and the
-      // funding UTXO from utxoStore. The BalanceService pendingIn entries
-      // (change + self) then show as the "+X pending" delta on top of
-      // the now-reduced confirmed total. Chain sync below corrects any
-      // discrepancy.
+      // Single post-broadcast entry point: advances BalanceService pendings
+      // (parent + children), drops spent UTXOs/charms from the local stores,
+      // and records the tx in transactionStore so Recent Transactions shows
+      // it without waiting for the indexer.
       try {
-        const { useCharmsStore } = await import('@/stores/charms');
-        const removeCharm = useCharmsStore.getState().removeCharm;
-        for (const ci of (saved.charmInputs || [])) {
-          const [txidIn, voutStrIn] = (ci.utxoId || `${ci.txid}:${ci.vout}`).split(':');
-          if (txidIn && voutStrIn != null) {
-            removeCharm({ txid: txidIn, vout: parseInt(voutStrIn, 10) });
-          }
-        }
-      } catch (e) { console.warn('[charm-transfer] removeCharm failed:', e?.message); }
+        // Need the signed tx hex to parse. signAndBroadcastTransfer returns
+        // only the txid, but we can re-fetch from the prover output if we
+        // persisted it. For now we hand the existing spell tx hex (the
+        // signed one is also derivable from prevTxMap+inputSigningMap+seed
+        // but we already have the broadcast result). Reconstructing the
+        // signed hex from txid would require a chain fetch — instead the
+        // signer should return it. For simplicity here we pass spellTxHex
+        // (unsigned) — the parser only reads vin/vout shape, which is the
+        // same in signed and unsigned txs (witnesses don't change the
+        // outputs structure).
+        await applyBroadcastedTx({
+          signedTxHex: spellTxHex,
+          txid,
+          network,
+          opId: id,
+          childOpIds,
+          ownAddresses: ownAddressesRef.current || [],
+          txType: 'charm_transfer',
+          label: saved.label,
+          charmContext: {
+            tokenAppId: saved.tokenAppId,
+            transferAmount: saved.transferAmount,
+            recipientAddress: saved.recipientAddress,
+            name: saved.charmName,
+            ticker: saved.charmTicker,
+          },
+          feePaid: fee || 0,
+        });
+      } catch (e) { console.error('[charm-transfer] applyBroadcastedTx failed:', e); }
 
-      try {
-        const { useUTXOStore } = await import('@/stores/utxoStore');
-        const updateAfterTransaction = useUTXOStore.getState().updateAfterTransaction;
-        const fundingTxid = saved.fundingUtxo?.utxoId?.split(':')[0];
-        const fundingVout = parseInt(saved.fundingUtxo?.utxoId?.split(':')[1] || '0', 10);
-        if (fundingTxid) {
-          await updateAfterTransaction(
-            [{ txid: fundingTxid, vout: fundingVout, address: saved.fundingUtxo.address }],
-            {},
-            'bitcoin',
-            network,
-          );
-        }
-      } catch (e) { console.warn('[charm-transfer] updateAfterTransaction failed:', e?.message); }
-
-      // Best-effort chain sync — errors don't roll back the success.
+      // Best-effort chain sync — only flips status, never re-derives data.
       try {
         await syncAfterCharmTransfer({
           inputAddresses: (saved.selectedCharmAddresses || []).filter(Boolean),

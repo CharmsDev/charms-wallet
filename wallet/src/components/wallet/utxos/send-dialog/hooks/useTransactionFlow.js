@@ -7,6 +7,7 @@ import { useBlockchain } from '@/stores/blockchainStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useCharms } from '@/stores/charmsStore';
 import { balanceService, BTC_KEY } from '@/services/balance';
+import { applyBroadcastedTx } from '@/services/wallet/post-broadcast';
 import config from '@/config';
 
 export function useTransactionFlow(formState, onClose) {
@@ -304,21 +305,30 @@ export function useTransactionFlow(formState, onClose) {
                 throw new Error(broadcastResult.error || 'Failed to broadcast transaction');
             }
 
-            // Remove spent UTXOs from storage immediately after successful broadcast
-            await updateAfterTransaction(transactionData.selectedUtxos, {}, 'bitcoin', activeNetwork);
-
             setTxId(broadcastResult.txid);
             setShowConfirmation(false);
             setShowSuccess(true);
 
-            // Advance the BalanceService pendings to BROADCAST so the
-            // change/incoming-self entries become visible "in transit".
+            // Single post-broadcast entry point — handles BalanceService
+            // pendings + utxoStore cleanup + transactionStore history in
+            // one call, parsing the signed tx as the source of truth.
             opRef.current.broadcasted = true;
             const txid = broadcastResult.txid;
             const { opId, changeOpId, selfOpId } = opRef.current;
-            if (opId) { try { await balanceService.markBroadcast(opId, txid); } catch {} }
-            if (changeOpId) { try { await balanceService.markBroadcast(changeOpId, txid); } catch {} }
-            if (selfOpId) { try { await balanceService.markBroadcast(selfOpId, txid); } catch {} }
+            const childOpIds = [changeOpId, selfOpId].filter(Boolean);
+            try {
+                await applyBroadcastedTx({
+                    signedTxHex: transactionData.txHex,
+                    txid,
+                    network: activeNetwork,
+                    opId,
+                    childOpIds,
+                    ownAddresses: addresses,
+                    txType: 'sent',
+                    label: 'Send BTC',
+                    feePaid: transactionData.estimatedFee || 0,
+                });
+            } catch (e) { console.error('[SendBTC] applyBroadcastedTx failed:', e); }
 
         } catch (err) {
             setShowPreparing(false);
