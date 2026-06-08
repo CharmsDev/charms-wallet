@@ -64,12 +64,8 @@ const useCardanoStore = create((set, get) => ({
   initialized: false,
   currentNetwork: null,
 
-  // Optimistic pending state: while a just-sent tx is still in the mempool,
-  // the change UTXO hasn't confirmed so `adaBalance` understates our real
-  // holdings. Tracking the expected credit + tx hash lets the dashboard show
-  // "+ X ADA confirming" and self-clear once the change lands on-chain.
-  pendingCreditLovelace: '0',
-  pendingSendTxHash: null,
+  // Pending in-flight balances (incoming change, outgoing send) live in
+  // `@/services/balance` (BalanceService) — never duplicated here.
 
   // ── UTXO reservation (delegates to unified utxo-reservations service) ────
   // Backed by services/utxo-reservations (chain-agnostic singleton).
@@ -107,21 +103,6 @@ const useCardanoStore = create((set, get) => ({
     const { isSpent } = require('@/services/utxo-reservations');
     return isSpent('cardano', txHash, outputIndex);
   },
-
-  /** Record an outgoing send so the dashboard can show the expected change
-   *  as "pending" until the tx confirms. `changeLovelace` may be zero if the
-   *  send emptied the UTXO entirely. */
-  recordOutgoingSend: ({ txHash, changeLovelace }) => {
-    const credit = BigInt(changeLovelace || 0);
-    if (credit <= 0n) return;
-    set({
-      pendingCreditLovelace: credit.toString(),
-      pendingSendTxHash: txHash,
-    });
-  },
-
-  /** Force-clear the pending credit (e.g. after manual refresh confirms it). */
-  clearPendingSend: () => set({ pendingCreditLovelace: '0', pendingSendTxHash: null }),
 
   /** Mark all UTXOs from a successful tx as spent in one call.
    *  Accepts items with shape { utxoId } or { txHash, outputIndex }. */
@@ -294,15 +275,9 @@ const useCardanoStore = create((set, get) => ({
       const visibleUtxos = allUtxos.filter(u => !liveSpent.has(`${u.txHash}:${u.outputIndex}`));
       const visibleBalance = visibleUtxos.reduce((s, u) => s + BigInt(u.lovelace || '0'), 0n).toString();
 
-      // If a pending outgoing send's change UTXO has now appeared on-chain,
-      // clear the optimistic credit — the real balance already includes it.
-      const pendingUpdate = (() => {
-        if (!state.pendingSendTxHash) return {};
-        const landed = allUtxos.some(u => u.txHash === state.pendingSendTxHash);
-        if (landed) return { pendingCreditLovelace: '0', pendingSendTxHash: null };
-        return {};
-      })();
-
+      // Reconciliation of in-flight sends (advance to confirmed when
+      // the indexer's UTXOs include our change) is the BalanceService's
+      // job — see balance-service.onSyncResult, wired in Phase 6.
       set({
         utxos: visibleUtxos,
         assets,
@@ -310,7 +285,6 @@ const useCardanoStore = create((set, get) => ({
         assetMetaCache: cache,
         isRefreshing: false,
         initialized: true,
-        ...pendingUpdate,
       });
 
       // Persist everything to storage

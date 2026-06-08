@@ -4,34 +4,12 @@
  * 2-tier failover: Explorer API → mempool.space
  * Explorer API is primary because it supports large OP_RETURN (charms proof data).
  *
- * After every successful broadcast we reserve the tx inputs in the in-memory
- * UTXO reservation set so any concurrent op (BTC send, charm transfer, beam,
- * redeem) running in the same session can't double-spend the same UTXO before
- * the tx confirms. Reservations auto-clear on the next chain refresh via
- * `syncWithChain`.
+ * Reservation of inputs is the BalanceService's job — flows call
+ * `balanceService.registerOutgoing({reserveUtxos})` BEFORE handing the
+ * signed tx to this broadcaster. Don't double-lock here.
  */
 
 import { EXPLORER_API, getMempoolBase, getExplorerNetworkParam } from './constants.js';
-
-/** Parse the inputs of a signed raw tx and mark each as reserved. Failures
- *  are swallowed — the broadcast already succeeded and the reservation
- *  layer is best-effort defence in depth, not a correctness guarantee. */
-async function reserveInputs(rawTxHex) {
-  try {
-    const bitcoin = await import('bitcoinjs-lib');
-    const tx = bitcoin.Transaction.fromHex(rawTxHex);
-    const items = tx.ins.map(inp => ({
-      txid: Buffer.from(inp.hash).reverse().toString('hex'),
-      vout: inp.index,
-    }));
-    if (!items.length) return;
-    const { markBatch } = await import('@/services/utxo-reservations');
-    const n = markBatch('bitcoin', items);
-    console.log(`[Broadcaster] reserved ${n}/${items.length} inputs from broadcast tx`);
-  } catch (e) {
-    console.warn('[Broadcaster] reserveInputs failed (non-fatal):', e?.message || e);
-  }
-}
 
 /**
  * Broadcast a signed raw transaction.
@@ -49,10 +27,7 @@ export async function broadcastTx(rawTxHex, network) {
       body: JSON.stringify({ raw_tx: rawTxHex }),
     });
     const data = await res.json();
-    if (res.ok && data?.txid) {
-      await reserveInputs(rawTxHex);
-      return data.txid;
-    }
+    if (res.ok && data?.txid) return data.txid;
     throw new Error(data?.error || `Explorer broadcast HTTP ${res.status}`);
   } catch (e) {
     console.warn('[Broadcaster] Explorer failed, trying mempool:', e.message);
@@ -67,6 +42,5 @@ export async function broadcastTx(rawTxHex, network) {
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`Mempool broadcast failed: ${text.slice(0, 200)}`);
-  await reserveInputs(rawTxHex);
   return text.trim();
 }

@@ -8,7 +8,8 @@
  */
 
 import { fetchUtxos } from './api';
-import { getSpentSet, markBatch } from '@/services/utxo-reservations';
+import { getSpentSet } from '@/services/utxo-reservations';
+import { balanceService, ADA_KEY } from '@/services/balance';
 import { loadCsl, createTxBuilder, signAndSubmit, toCardanoNet, loadProtocolParams } from './tx-builder';
 
 /** Minimum ADA we allow users to send. Below this, UTxO economics get noisy. */
@@ -34,6 +35,7 @@ export async function sendAda({
   addressIndex = 0,
   network,
   onStatus,
+  opId,
 }) {
   if (!fromAddress) throw new Error('Missing sender address');
   if (!toAddress) throw new Error('Missing recipient address');
@@ -98,18 +100,53 @@ export async function sendAda({
   // CSL auto-computes the exact fee here and refunds the rest to the sender.
   txBuilder.add_change_if_needed(fromAddr);
 
-  const { txHash, feeLovelace } = await signAndSubmit(CSL, txBuilder, {
-    seedPhrase,
-    addressIndex,
-    cardanoNet,
-    onStatus,
+  // Reserve consumed UTxOs BEFORE broadcast via the BalanceService. The
+  // service stamps a CREATED pending entry so the dashboard sees the
+  // outflow immediately; markBroadcast advances to BROADCAST after
+  // submit. markFailed (in catch) releases the reservation.
+  const effectiveOpId = opId || `send-ada:${selected[0]?.txHash || 'x'}:${selected[0]?.outputIndex || 0}:${Date.now()}`;
+  await balanceService.registerOutgoing({
+    opId: effectiveOpId,
+    assetKey: ADA_KEY,
+    network,
+    amount: amount.toString(),
+    label: 'Send ADA',
+    reserveUtxos: selected.map(u => ({ txid: u.txHash, vout: u.outputIndex })),
   });
 
-  // Reserve consumed UTxOs AFTER broadcast so concurrent ops skip them.
-  markBatch('cardano', selected);
+  let txHash, feeLovelace;
+  try {
+    ({ txHash, feeLovelace } = await signAndSubmit(CSL, txBuilder, {
+      seedPhrase,
+      addressIndex,
+      cardanoNet,
+      onStatus,
+    }));
+  } catch (e) {
+    try { await balanceService.markFailed(effectiveOpId, e.message || 'broadcast'); } catch {}
+    throw e;
+  }
+
+  await balanceService.markBroadcast(effectiveOpId, txHash);
 
   // Expected change that returns to us, for optimistic balance display.
   const changeLovelace = total - amount - feeLovelace;
+  if (changeLovelace > 0n) {
+    const changeOpId = `${effectiveOpId}:change`;
+    try {
+      await balanceService.registerIncoming({
+        opId: changeOpId,
+        assetKey: ADA_KEY,
+        network,
+        amount: changeLovelace.toString(),
+        relatedOpId: effectiveOpId,
+        label: 'Send ADA change',
+      });
+      await balanceService.markBroadcast(changeOpId, txHash);
+    } catch (e) {
+      console.error('[sendAda] registerIncoming(change) failed:', e);
+    }
+  }
 
-  return { txHash, feeLovelace, changeLovelace };
+  return { txHash, feeLovelace, changeLovelace, opId: effectiveOpId };
 }

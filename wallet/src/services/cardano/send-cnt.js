@@ -12,7 +12,8 @@
  */
 
 import { fetchUtxos } from './api';
-import { getSpentSet, markBatch } from '@/services/utxo-reservations';
+import { getSpentSet } from '@/services/utxo-reservations';
+import { balanceService, ADA_KEY, cntKey } from '@/services/balance';
 import { loadCsl, createTxBuilder, signAndSubmit, toCardanoNet, loadProtocolParams } from './tx-builder';
 
 /** Fallback when CSL's min-ADA helper is unavailable; generous but safe. */
@@ -96,6 +97,7 @@ export async function sendCnt({
   addressIndex = 0,
   network,
   onStatus,
+  opId,
 }) {
   if (!fromAddress) throw new Error('Missing sender address');
   if (!toAddress) throw new Error('Missing recipient address');
@@ -199,19 +201,73 @@ export async function sendCnt({
   // CSL computes fee, packs leftover lovelace + residual tokens into change.
   txBuilder.add_change_if_needed(fromAddr);
 
-  const { txHash, feeLovelace } = await signAndSubmit(CSL, txBuilder, {
-    seedPhrase,
-    addressIndex,
-    cardanoNet,
-    onStatus,
+  // Lock inputs and create the pending entry BEFORE broadcast — same
+  // pattern as sendAda.
+  const cKey = cntKey(policyId, assetName);
+  const effectiveOpId = opId || `send-cnt:${allInputs[0]?.txHash || 'x'}:${allInputs[0]?.outputIndex || 0}:${Date.now()}`;
+  await balanceService.registerOutgoing({
+    opId: effectiveOpId,
+    assetKey: cKey,
+    network,
+    amount: qty.toString(),
+    label: 'Send CNT',
+    reserveUtxos: allInputs.map(u => ({ txid: u.txHash, vout: u.outputIndex })),
   });
 
-  markBatch('cardano', allInputs);
+  let txHash, feeLovelace;
+  try {
+    ({ txHash, feeLovelace } = await signAndSubmit(CSL, txBuilder, {
+      seedPhrase,
+      addressIndex,
+      cardanoNet,
+      onStatus,
+    }));
+  } catch (e) {
+    try { await balanceService.markFailed(effectiveOpId, e.message || 'broadcast'); } catch {}
+    throw e;
+  }
+
+  await balanceService.markBroadcast(effectiveOpId, txHash);
+
+  // CNT residual (haveQty − qty sent) returns to us as change.
+  const residualQty = haveQty - qty;
+  if (residualQty > 0n) {
+    const cntChangeOpId = `${effectiveOpId}:cnt-change`;
+    try {
+      await balanceService.registerIncoming({
+        opId: cntChangeOpId,
+        assetKey: cKey,
+        network,
+        amount: residualQty.toString(),
+        relatedOpId: effectiveOpId,
+        label: 'Send CNT residual',
+      });
+      await balanceService.markBroadcast(cntChangeOpId, txHash);
+    } catch (e) {
+      console.error('[sendCnt] registerIncoming(cnt-change) failed:', e);
+    }
+  }
 
   // Expected ADA change returning to us (leftover lovelace after the token
   // output + fee). Useful for optimistic balance updates on the dashboard.
   const totalAdaIn = allInputs.reduce((s, u) => s + BigInt(u.lovelace || '0'), 0n);
   const changeLovelace = totalAdaIn - minAda - feeLovelace;
+  if (changeLovelace > 0n) {
+    const adaChangeOpId = `${effectiveOpId}:ada-change`;
+    try {
+      await balanceService.registerIncoming({
+        opId: adaChangeOpId,
+        assetKey: ADA_KEY,
+        network,
+        amount: changeLovelace.toString(),
+        relatedOpId: effectiveOpId,
+        label: 'Send CNT ADA change',
+      });
+      await balanceService.markBroadcast(adaChangeOpId, txHash);
+    } catch (e) {
+      console.error('[sendCnt] registerIncoming(ada-change) failed:', e);
+    }
+  }
 
-  return { txHash, feeLovelace, changeLovelace };
+  return { txHash, feeLovelace, changeLovelace, opId: effectiveOpId };
 }

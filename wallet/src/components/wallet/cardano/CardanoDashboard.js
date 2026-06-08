@@ -9,6 +9,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useCardano } from '@/stores/cardanoStore';
 import { useWallet } from '@/stores/walletStore';
 import { useBlockchain } from '@/stores/blockchainStore';
+import { useBalance, ADA_KEY } from '@/services/balance';
 import CardanoAssetList from './CardanoAssetList';
 import CardanoAddressCard from './CardanoAddressCard';
 import CardanoSendDialog from './CardanoSendDialog';
@@ -22,9 +23,10 @@ export default function CardanoDashboard() {
   const { activeNetwork, isCardano } = useBlockchain();
   const {
     addresses, adaBalance, assets, isRefreshing, initialized, error,
-    pendingCreditLovelace, pendingSendTxHash,
     deriveAddresses, refresh,
   } = useCardano();
+  const network = activeNetwork === 'mainnet' ? 'mainnet' : 'preprod';
+  const adaSlice = useBalance(ADA_KEY, network);
 
   const { loadFromStorage } = useCardano();
   const initRef = useRef(null);
@@ -48,7 +50,6 @@ export default function CardanoDashboard() {
   // Load from storage first (instant UI), then derive + refresh from API
   useEffect(() => {
     if (!seedPhrase || !isCardano()) return;
-    const network = activeNetwork === 'mainnet' ? 'mainnet' : 'preprod';
     const key = `${network}-${seedPhrase.slice(0, 8)}`;
 
     // Prevent re-running for same network+seed
@@ -65,7 +66,8 @@ export default function CardanoDashboard() {
 
   if (!isCardano()) return null;
 
-  const pendingCredit = BigInt(pendingCreditLovelace || '0');
+  // BalanceService is the source of truth for in-flight amounts.
+  const pendingCredit = adaSlice ? adaSlice.pendingIn : 0n;
   const totalLovelace = BigInt(adaBalance || '0') + pendingCredit;
   const adaDisplay = initialized
     ? (Number(totalLovelace) / 1_000_000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })

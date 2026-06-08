@@ -168,16 +168,9 @@ export async function signAndBroadcastTransfer(params) {
   const txid = await broadcastTx(signedTxHex, network);
   status(`Broadcast OK — txid: ${txid}`);
 
-  // Mark all inputs as spent so concurrent operations don't reuse them
-  try {
-    const { markSpent } = await import('@/services/utxo-reservations');
-    const bitcoin = await import('bitcoinjs-lib');
-    const tx = bitcoin.Transaction.fromHex(signedTxHex);
-    for (const inp of tx.ins) {
-      const inTxid = Buffer.from(inp.hash).reverse().toString('hex');
-      markSpent('bitcoin', inTxid, inp.index);
-    }
-  } catch {}
+  // Reservation of inputs is owned by the BalanceService — the caller
+  // (TransferConfirmDialog) registered the outgoing op with the input
+  // UTXOs as `reserveUtxos` before proving. No double-lock here.
 
   return { txid };
 }
