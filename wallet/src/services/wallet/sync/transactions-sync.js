@@ -179,14 +179,46 @@ export async function syncTransactionHistory({
     console.log(`[tx-sync] new=${added} updated=${updated} typeUpgraded=${typeUpgraded} total=${localTxs.length}`);
 
     // Reclassify INLINE so storage holds final types (BEAM_IN/BEAM_OUT/etc.)
-    // before the UI ever reads it. Previously this ran on the History page
-    // mount, which is why users briefly saw generic "received/sent" labels
-    // that flipped to the proper ones a moment later.
+    // before the UI ever reads it.
     try {
         const { useTransactionStore } = await import('@/stores/transactionStore');
         await useTransactionStore.getState().reprocessCharmTransactions(blockchain, network, stored);
+        // Re-pull the persisted list so RecentTransactions sees what we
+        // just merged without waiting for a network/blockchain change.
+        await useTransactionStore.getState().loadTransactions(blockchain, network);
     } catch (e) {
         console.warn('[tx-sync] inline classify failed (non-fatal):', e?.message || e);
+    }
+
+    // Reconcile BalanceService pendings against the indexer's view:
+    // every locally-known pending entry whose txid is now confirmed
+    // on-chain advances to CONFIRMED, freeing the dashboard from
+    // counting it as "+X pending" forever. Without this the optimistic
+    // pendings accumulate across refreshes.
+    try {
+        const { balanceService } = await import('@/services/balance');
+        const confirmedTxids = new Set();
+        for (const tx of localTxs) {
+            const bh = tx.blockHeight ?? tx.block_height ?? 0;
+            if (bh > 0 && tx.txid) confirmedTxids.add(tx.txid);
+        }
+        const { pendingRepo } = await import('@/services/balance/pending-repo');
+        await pendingRepo.load();
+        for (const txid of confirmedTxids) {
+            const ops = pendingRepo.queryByTxid(txid);
+            for (const op of ops) {
+                try {
+                    // Move through in-block then confirmed so the state
+                    // machine accepts the transition cleanly.
+                    if (op.state === 'broadcast' || op.state === 'mempool') {
+                        await balanceService.markInBlock(op.opId);
+                    }
+                    await balanceService.markConfirmed(op.opId);
+                } catch (e) { /* state may already be terminal — fine */ }
+            }
+        }
+    } catch (e) {
+        console.warn('[tx-sync] balance reconcile failed (non-fatal):', e?.message || e);
     }
 
     return { newTxCount: added, lastBlock: maxBlock || null, typeUpgraded };

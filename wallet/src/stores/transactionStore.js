@@ -54,13 +54,20 @@ const useTransactionStore = create((set, get) => ({
         try {
             const storedTransactions = await getTransactions(blockchain, network);
 
-            // Sort most-recent first. Prefer `blockHeight` because during
-            // a fresh rescan many txs receive the same `Date.now()` fallback
-            // timestamp, which would leave them in arbitrary order.
+            // Sort most-recent first. Pending txs (no blockHeight yet)
+            // float to the TOP — they're newer than any confirmed tx in
+            // the list and the user expects to see what just left the
+            // wallet at the top of "Recent Transactions". After that,
+            // confirmed txs sort by blockHeight DESC.
             const sortedTransactions = storedTransactions.sort((a, b) => {
-                const bh = (b.blockHeight ?? b.block_height ?? 0) - (a.blockHeight ?? a.block_height ?? 0);
-                if (bh !== 0) return bh;
-                return (b.timestamp || 0) - (a.timestamp || 0);
+                const ah = a.blockHeight ?? a.block_height ?? 0;
+                const bh = b.blockHeight ?? b.block_height ?? 0;
+                const aPending = ah === 0;
+                const bPending = bh === 0;
+                if (aPending && !bPending) return -1;
+                if (bPending && !aPending) return 1;
+                if (aPending && bPending) return (b.timestamp || 0) - (a.timestamp || 0);
+                return bh - ah;
             });
 
             // Calculate pagination info
