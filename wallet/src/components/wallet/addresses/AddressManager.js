@@ -50,8 +50,9 @@ export default function AddressManager() {
             }
 
             if (isBitcoin()) {
-                // Use the optimized store function for Bitcoin
-                await generateMoreAddresses(seedPhrase, activeBlockchain, activeNetwork, 5);
+                // G003: generateMoreAddresses signature is (seedPhrase, count).
+                // It reads activeBlockchain/Network from blockchainStore internally.
+                await generateMoreAddresses(seedPhrase, 5);
             } else if (isCardano()) {
                 await generateCardanoAddress();
             }

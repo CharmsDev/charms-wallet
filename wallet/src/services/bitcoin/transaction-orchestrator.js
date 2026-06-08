@@ -19,8 +19,11 @@ export class BitcoinTransactionOrchestrator {
         this.transactionRecorder = new TransactionRecorder('bitcoin', network);
     }
 
-    async processTransaction(destinationAddress, amountInSats, availableUtxos, feeRate = 5, updateStateCallback = null) {
+    async processTransaction(destinationAddress, amountInSats, availableUtxos, feeRate = 5, updateStateCallback = null, seedPhrase = null) {
         const amountInSatsInt = parseInt(amountInSats);
+        if (!seedPhrase) {
+            throw new Error('Wallet locked. Please unlock and retry.');
+        }
 
         const selectionResult = await this.utxoSelector.selectUtxosForAmountDynamic(
             availableUtxos,
@@ -74,7 +77,8 @@ export class BitcoinTransactionOrchestrator {
             amount: amountInSats / 100000000,
             utxos: selectionResult.selectedUtxos,
             feeRate,
-            amountInSats: amountInSatsInt
+            amountInSats: amountInSatsInt,
+            seedPhrase,   // G003: signer reads seed from here, not from storage
         };
 
         const signingResult = await this.signer.createAndSignTransaction(transactionData);
@@ -106,13 +110,14 @@ export class BitcoinTransactionOrchestrator {
         );
     }
 
-    async sendTransaction(destinationAddress, amountInSats, availableUtxos, feeRate = 5, updateStateCallback = null) {
+    async sendTransaction(destinationAddress, amountInSats, availableUtxos, feeRate = 5, updateStateCallback = null, seedPhrase = null) {
         const processResult = await this.processTransaction(
             destinationAddress,
             amountInSats,
             availableUtxos,
             feeRate,
-            updateStateCallback
+            updateStateCallback,
+            seedPhrase
         );
 
         if (!processResult.success) {

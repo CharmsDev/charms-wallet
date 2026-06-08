@@ -3,7 +3,6 @@ import { BIP32Factory } from 'bip32';
 import * as bip39 from 'bip39';
 import * as ecc from 'tiny-secp256k1';
 import { ECPairFactory } from 'ecpair';
-import { getSeedPhrase } from '@/services/storage';
 import { utxoService } from '@/services/utxo';
 import {
     parseUnsignedTx,
@@ -16,8 +15,10 @@ import {
 const ECPair = ECPairFactory(ecc);
 const bip32 = BIP32Factory(ecc);
 
-// Signs a Bitcoin Taproot (P2TR) transaction with derived keys
-export async function signCommitTransaction(unsignedTxHex, network, inputSigningMap = null, logCallback) {
+// Signs a Bitcoin Taproot (P2TR) transaction with derived keys.
+// G003: seedPhrase MUST be passed by the caller — it lives in RAM via
+// walletStore.seedPhrase after unlock, never in storage.
+export async function signCommitTransaction(unsignedTxHex, network, inputSigningMap = null, logCallback, seedPhrase = null) {
 
     // Initialize transaction
     if (!unsignedTxHex) {
@@ -54,9 +55,8 @@ export async function signCommitTransaction(unsignedTxHex, network, inputSigning
         // Derive private key
         const path = getDerivationPath(addressInfo, network, 'bitcoin');
 
-        // Get seed phrase from secure storage
-        const seedPhrase = await getSeedPhrase();
-        if (!seedPhrase) throw new Error('Seed phrase not found in storage');
+        // G003: seed lives in RAM via walletStore.seedPhrase — caller passes it.
+        if (!seedPhrase) throw new Error('Wallet locked. Please unlock and retry.');
 
         // Convert mnemonic to seed buffer
         const seed = await bip39.mnemonicToSeed(seedPhrase);

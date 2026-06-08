@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import { getAddresses, saveAddresses, getSeedPhrase } from '@/services/storage';
+import { getAddresses, saveAddresses } from '@/services/storage';
 import { generateTaprootAddress, generateInitialBitcoinAddresses } from '@/utils/addressUtils';
 import { useBlockchain } from './blockchainStore';
 
@@ -39,28 +39,11 @@ const useAddressesStore = create((set, get) => ({
         try {
             let storedAddresses = await getAddresses(blockchain, network);
 
-            // If Cardano and no addresses found, derive on the fly from seed
-            if (blockchain === 'cardano' && (!storedAddresses || storedAddresses.length === 0)) {
-                const seedPhrase = await getSeedPhrase();
-                if (seedPhrase) {
-                    try {
-                        const { generateCardanoAddress } = await import('@/lib/cardano/wallet');
-                        const addr = await generateCardanoAddress(seedPhrase, 0, network);
-                        const newAddresses = [{
-                            address: addr,
-                            index: 0,
-                            isChange: false,
-                            isStaking: false,
-                            blockchain: 'cardano',
-                            created: new Date().toISOString(),
-                        }];
-                        await saveAddresses(newAddresses, blockchain, network);
-                        storedAddresses = newAddresses;
-                    } catch (err) {
-                        console.warn('[ADDRESSES] Cardano address derivation failed:', err.message);
-                    }
-                }
-            }
+            // Cardano on-the-fly derivation requires a seed; G003 means
+            // seed is in RAM only. cardanoStore.deriveAddresses (called by
+            // CardanoDashboard with seedPhrase from walletStore) handles
+            // first-time derivation. If nothing is in storage here, leave
+            // the list empty and let that path populate it.
 
             await new Promise(resolve => setTimeout(resolve, 200));
 
@@ -80,21 +63,21 @@ const useAddressesStore = create((set, get) => ({
         }
     },
 
-    // Generate more addresses on demand, now self-sufficient
-    generateMoreAddresses: async (count = 5) => {
+    // Generate more addresses on demand. G003: seedPhrase must be passed
+    // by the caller (lives in RAM via walletStore.seedPhrase, never in
+    // storage). Signature: (seedPhrase, count = 5).
+    generateMoreAddresses: async (seedPhrase, count = 5) => {
         const state = get();
         if (state.isGenerating) return;
+
+        if (!seedPhrase) {
+            throw new Error('Wallet locked. Please unlock and retry.');
+        }
 
         set({ isGenerating: true });
 
         try {
-            // Get required data from other stores/storage
-            const seedPhrase = await getSeedPhrase();
             const { activeBlockchain, activeNetwork } = useBlockchain.getState();
-
-            if (!seedPhrase) {
-                throw new Error('Seed phrase not found.');
-            }
 
             const currentAddresses = state.addresses;
             const maxIndex = Math.max(...currentAddresses.map(addr => addr.index), -1);

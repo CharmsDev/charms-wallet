@@ -1,7 +1,8 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import BitcoinTransactionOrchestrator from '@/services/bitcoin/transaction-orchestrator';
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
 import { useUTXOs } from '@/stores/utxoStore';
+import { useWallet } from '@/stores/walletStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useCharms } from '@/stores/charmsStore';
@@ -24,6 +25,12 @@ export function useTransactionFlow(formState, onClose) {
     const { activeNetwork } = useBlockchain();
     const { addresses } = useAddresses();
     const { charms } = useCharms();
+    // G003: seed lives in RAM after unlock. Capture via ref so the long
+    // confirmation/broadcast flow always reads the latest value, not a
+    // stale render-time closure (same pattern as TransferProcessDialog).
+    const { seedPhrase } = useWallet();
+    const seedRef = useRef(seedPhrase);
+    useEffect(() => { seedRef.current = seedPhrase; }, [seedPhrase]);
 
     const handleSendClick = async () => {
         
@@ -144,13 +151,18 @@ export function useTransactionFlow(formState, onClose) {
             }
             // Create transaction and get decoded data
             const orchestrator = new BitcoinTransactionOrchestrator(activeNetwork);
-            
+
+            if (!seedRef.current) {
+                throw new Error('Wallet locked. Please unlock and retry.');
+            }
+
             const result = await orchestrator.processTransaction(
                 formState.destinationAddress,
                 selectionResult.adjustedAmount || amountInSats,
                 selectionResult.selectedUtxos,
                 currentFeeRate,
-                updateAfterTransaction
+                updateAfterTransaction,
+                seedRef.current,
             );
 
 

@@ -3,7 +3,7 @@ import { BIP32Factory } from 'bip32';
 import * as bip39 from 'bip39';
 import * as ecc from 'tiny-secp256k1';
 import { ECPairFactory } from 'ecpair';
-import { getSeedPhrase, getAddresses } from '@/services/storage';
+import { getAddresses } from '@/services/storage';
 import { utxoService } from '@/services/utxo';
 import { decodeTx } from '@/utils/txDecoder';
 import {
@@ -48,9 +48,11 @@ export async function signSpellTransaction(
         const spellTx = bitcoin.Transaction.fromBuffer(Buffer.from(spellTxHex, 'hex'), true);
         spellTx.version = 2; // Set version 2 for Taproot compatibility
 
-        // Generate BIP32 root key from seed phrase
-        const mnemonic = seedPhrase || await getSeedPhrase();
-        if (!mnemonic) throw new Error('Seed phrase not found');
+        // G003: seed must be passed in by the caller (lives in RAM via
+        // walletStore.seedPhrase). No storage fallback — that path is dead
+        // post-G003 and would mask a locked-wallet bug.
+        const mnemonic = seedPhrase;
+        if (!mnemonic) throw new Error('Wallet locked. Please unlock and retry.');
         const seed = await bip39.mnemonicToSeed(mnemonic);
         const bitcoinNetwork = network === 'mainnet' ? bitcoin.networks.bitcoin : bitcoin.networks.testnet;
         const root = bip32.fromSeed(seed, bitcoinNetwork);

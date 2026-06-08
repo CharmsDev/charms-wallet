@@ -1,6 +1,6 @@
 import * as btc from '@scure/btc-signer';
 import { hex } from '@scure/base';
-import { getSeedPhrase, getAddresses } from '@/services/storage';
+import { getAddresses } from '@/services/storage';
 import { BitcoinKeyDerivation } from './bitcoin-key-derivation';
 import { NETWORKS } from '@/stores/blockchainStore';
 import { calculateMixedFee } from '@/services/wallet/utils/fee';
@@ -60,10 +60,14 @@ class BitcoinScureSigner {
         try {
             log('Starting Bitcoin transaction creation and signing...');
 
-            // Get seed phrase
-            const seedPhrase = await getSeedPhrase();
+            // G003: seed lives in RAM (walletStore) after unlock — never in
+            // storage. The caller (orchestrator) must pass it explicitly via
+            // transactionData.seedPhrase. Fail-fast otherwise; the storage
+            // fallback was removed because in Type 1 (PRF) and Type 2
+            // (password) wallets nothing decrypts on the storage path.
+            const seedPhrase = transactionData.seedPhrase;
             if (!seedPhrase) {
-                throw new Error('Seed phrase not found in storage');
+                throw new Error('Wallet locked. Please unlock and retry.');
             }
 
             // Validate transaction data
