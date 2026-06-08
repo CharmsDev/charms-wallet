@@ -58,9 +58,10 @@ const getDisplayName = (charm) => {
 // ============================================
 
 export const useCharmsStore = create((set, get) => ({
-    // State
+    // State — `charms` is the confirmed snapshot from the explorer sync.
+    // Pending state (incoming change, outgoing in-flight) lives in
+    // `@/services/balance` (BalanceService) and is never duplicated here.
     charms: [],
-    pendingCharms: [], // Pending charms waiting for confirmation
     isLoading: false,
     error: null,
     initialized: false,
@@ -94,7 +95,7 @@ export const useCharmsStore = create((set, get) => ({
 
         // Network changed — clear and reinitialize
         if (state.currentNetwork && state.currentNetwork !== networkKey) {
-            set({ charms: [], pendingCharms: [], initialized: false, currentNetwork: networkKey });
+            set({ charms: [], initialized: false, currentNetwork: networkKey });
         } else if (state.initialized && state.currentNetwork === networkKey) {
             // Already initialized for this network — skip reload
             return;
@@ -142,26 +143,19 @@ export const useCharmsStore = create((set, get) => ({
     },
 
     /**
-     * Add charm progressively (with deduplication)
-     * Also removes matching pending charm if found
+     * Add charm progressively (with deduplication).
+     * Pending bookkeeping for the same (txid, outputIndex) is the
+     * BalanceService's job — when the indexer confirms the change
+     * output, onSyncResult will mark the related pending CONFIRMED.
      */
     addCharm: async (charm) => {
         const enhanced = await charmsExplorerAPI.processCharmsWithReferenceData([charm]);
-        
+
         set((state) => {
-            const filtered = state.charms.filter(c => 
+            const filtered = state.charms.filter(c =>
                 !enhanced.some(newC => getCharmKey(c) === getCharmKey(newC))
             );
-            
-            // Remove matching pending charms (now confirmed)
-            const updatedPending = state.pendingCharms.filter(p => 
-                !enhanced.some(newC => p.txid === newC.txid && p.outputIndex === newC.outputIndex)
-            );
-            
-            return { 
-                charms: [...filtered, ...enhanced],
-                pendingCharms: updatedPending
-            };
+            return { charms: [...filtered, ...enhanced] };
         });
     },
 
@@ -179,41 +173,7 @@ export const useCharmsStore = create((set, get) => ({
     /**
      * Clear all charms
      */
-    clear: () => set({ charms: [], pendingCharms: [], initialized: false }),
-
-    /**
-     * Add pending charm (expected change from transfer)
-     */
-    addPendingCharm: (pendingCharm) => {
-        set((state) => ({
-            pendingCharms: [...state.pendingCharms, {
-                ...pendingCharm,
-                isPending: true,
-                createdAt: Date.now()
-            }]
-        }));
-    },
-
-    /**
-     * Remove pending charm (when confirmed or timeout)
-     */
-    removePendingCharm: (txid, outputIndex) => {
-        set((state) => ({
-            pendingCharms: state.pendingCharms.filter(c => 
-                !(c.txid === txid && c.outputIndex === outputIndex)
-            )
-        }));
-    },
-
-    /**
-     * Clear old pending charms (older than 10 minutes)
-     */
-    clearOldPendingCharms: () => {
-        const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
-        set((state) => ({
-            pendingCharms: state.pendingCharms.filter(c => c.createdAt > tenMinutesAgo)
-        }));
-    },
+    clear: () => set({ charms: [], initialized: false }),
 
     // ============================================
     // Selectors (computed values)
@@ -227,16 +187,6 @@ export const useCharmsStore = create((set, get) => ({
         return state.charms
             .filter(charm => isToken(charm) && charm.appId === appId)
             .reduce((total, charm) => total + extractAmount(charm), 0);
-    },
-
-    /**
-     * Get pending balance for specific token by appId
-     */
-    getPendingByAppId: (appId) => {
-        const state = get();
-        return state.pendingCharms
-            .filter(charm => charm.appId === appId)
-            .reduce((total, charm) => total + (charm.amount || 0), 0);
     },
 
     /**

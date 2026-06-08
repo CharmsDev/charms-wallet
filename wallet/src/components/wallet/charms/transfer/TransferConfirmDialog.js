@@ -7,7 +7,7 @@ import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { charmUtxoSelector } from '@/services/charms/utils/charm-utxo-selector';
 import { getNetworkFeeRate } from '@/services/shared/fee-rate';
-import { reserveForOperation } from '@/services/utxo-reservations';
+import { balanceService, charmKey } from '@/services/balance';
 
 /**
  * Step 2: Confirmation Dialog
@@ -161,7 +161,7 @@ export default function TransferConfirmDialog({
         prepareFees();
     }, [charm, charms, transferAmount, destinationAddress, utxos, isNFT, isToken, changeAddress, activeNetwork]);
 
-    const handleConfirm = () => {
+    const handleConfirm = async () => {
         if (!fundingUtxo || !v10Params || selectedCharmUtxos.length === 0) {
             return;
         }
@@ -187,19 +187,49 @@ export default function TransferConfirmDialog({
             isChange: fundingEntry?.isChange || false,
         };
 
-        // Lock the selected UTXOs against concurrent operations for the
-        // ~5–10 min duration of the proof. The process dialog releases the
-        // op on failure so the funds are reusable; on success the executor
-        // marks the inputs as spent before the network reflects it.
+        // Declare intent to the BalanceService. registerOutgoing reserves
+        // the UTXOs internally and creates a CREATED pending entry so the
+        // displayed balance drops immediately. If the change goes back to
+        // a known wallet address, register the incoming side too so the
+        // wallet doesn't show a temporary "missing" gap on the change.
         const opId = `charm-transfer:${fundingUtxo.txid}:${fundingUtxo.vout}:${Date.now()}`;
-        const reservationItems = [
+        const reserveUtxos = [
             ...selectedCharmUtxos.map(u => ({ txid: u.txid, vout: u.outputIndex })),
             { txid: fundingUtxo.txid, vout: fundingUtxo.vout },
         ];
+        const cKey = charmKey(v10Params.tokenAppId);
         try {
-            reserveForOperation(opId, 'bitcoin', reservationItems, 'Charm Transfer');
+            await balanceService.registerOutgoing({
+                opId,
+                assetKey: cKey,
+                network: activeNetwork,
+                amount: String(v10Params.transferAmount),
+                label: 'Charm Transfer',
+                reserveUtxos,
+            });
         } catch (e) {
-            console.error('[TransferConfirmDialog] reserveForOperation failed:', e);
+            console.error('[TransferConfirmDialog] registerOutgoing failed:', e);
+        }
+
+        const walletAddressSet = new Set(addresses.map(a => a.address));
+        const isInternalTransfer = walletAddressSet.has(v10Params.recipientAddress);
+        const remainingTokens = v10Params.charmInputs.reduce((s, i) => s + i.amount, 0) - v10Params.transferAmount;
+        let changeOpId = null;
+        if (remainingTokens > 0 && !isInternalTransfer && changeAddress) {
+            changeOpId = `${opId}:change`;
+            try {
+                await balanceService.registerIncoming({
+                    opId: changeOpId,
+                    assetKey: cKey,
+                    network: activeNetwork,
+                    amount: String(remainingTokens),
+                    relatedOpId: opId,
+                    label: 'Charm change',
+                });
+            } catch (e) {
+                console.error('[TransferConfirmDialog] registerIncoming(change) failed:', e);
+                changeOpId = null;
+            }
         }
 
         onConfirm({
@@ -210,6 +240,8 @@ export default function TransferConfirmDialog({
             inputSigningMap,
             feeRate,
             opId,
+            changeOpId,
+            isInternalTransfer,
         });
     };
 

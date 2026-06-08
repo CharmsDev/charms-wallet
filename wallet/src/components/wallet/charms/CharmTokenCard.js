@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { useCharms } from '@/stores/charmsStore';
 import TransferCharmWizard from './transfer/TransferCharmWizard';
 import BeamDialog from '@/components/beam/BeamDialog';
+import { useBlockchain } from '@/stores/blockchainStore';
+import { useBalance, charmKey } from '@/services/balance';
 
 /**
  * Card component for displaying grouped Charm Tokens by APP ID
@@ -14,10 +15,11 @@ export default function CharmTokenCard({ groupedToken }) {
     const [showBeamDialog, setShowBeamDialog] = useState(false);
     const [imageError, setImageError] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
-    const { getPendingByAppId } = useCharms();
-    
-    // Get pending balance for this token
-    const pendingAmount = getPendingByAppId(groupedToken.appId);
+    const { activeNetwork } = useBlockchain();
+    const balance = useBalance(charmKey(groupedToken.appId), activeNetwork);
+    // BalanceService stores amounts in base units (bigint string); the
+    // UI here is base-units (no decimals) so the cast is direct.
+    const pendingAmount = balance ? Number(balance.pendingIn) : 0;
     
     const handleTransferTokenClick = () => {
         setShowTransferDialog(true);

@@ -7,12 +7,15 @@ import { useUTXOs } from '@/stores/utxoStore';
 import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { formatBTC } from '@/utils/formatters';
+import { useBalance, charmKey } from '@/services/balance';
 
 export default function BalanceDisplay({ balance, pendingBalance, btcPrice, priceLoading, isLoading, network, onRefresh, isRefreshing, refreshProgress, onSendBTC, onReceiveBTC, onSendBro, onReceiveBro, onBeamBro, onEbtcBeam }) {
     const [showUSD, setShowUSD] = useState(false);
     const [trend, setTrend] = useState(null);
-    const { charms, getTotalByAppId, getPendingByAppId, isLoading: charmsLoading } = useCharms();
+    const { charms, getTotalByAppId, isLoading: charmsLoading } = useCharms();
     const { activeBlockchain, activeNetwork } = useBlockchain();
+    const broAppId = useMemo(() => getBroTokenAppId(), []);
+    const broBalanceSlice = useBalance(charmKey(broAppId), activeNetwork);
 
     // Format balance in fiat
     const formatFiat = (satoshis, currency = 'usd') => {
@@ -27,20 +30,12 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
         }).format(fiatValue);
     };
 
-    // UNIFIED BRO token balance calculation using store function
-    // This ensures consistency with Charms tab and other components
-    const broBalance = useMemo(() => {
-        const targetId = getBroTokenAppId();
-        const balance = getTotalByAppId(targetId);
-        return balance;
-    }, [charms, getTotalByAppId]); // Recalculate when charms change
-
-    // Get pending BRO balance
-    const broPendingBalance = useMemo(() => {
-        const targetId = getBroTokenAppId();
-        const pending = getPendingByAppId(targetId);
-        return pending;
-    }, [charms, getPendingByAppId]);
+    // BRO confirmed total still comes from charmsStore (the local snapshot
+    // populated by the explorer sync); pending in/out come from the
+    // BalanceService. Phase 4-ish (when charms sync pushes into the
+    // service) collapses this into one read.
+    const broBalance = useMemo(() => getTotalByAppId(broAppId), [charms, getTotalByAppId, broAppId]);
+    const broPendingBalance = broBalanceSlice ? Number(broBalanceSlice.pendingIn) : 0;
 
     // Charms are now auto-initialized by useCharms hook
     // No manual loading needed

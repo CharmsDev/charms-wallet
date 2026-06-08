@@ -3,11 +3,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useWallet } from '@/stores/walletStore';
 import { useCharms } from '@/stores/charmsStore';
-import { useAddresses } from '@/stores/addressesStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useWalletSync } from '@/hooks/useWalletSync';
 import { proveCharmTransfer, signAndBroadcastTransfer } from '@/services/charm-transfer';
 import { getExplorerUrl } from '@/services/charms/sign/broadcastTx';
+import { balanceService } from '@/services/balance';
 
 /**
  * Step 3: Transfer Process Dialog (v10 — single TX)
@@ -30,12 +30,14 @@ export default function TransferProcessDialog({
     const seedRef = useRef(seedPhrase);
     useEffect(() => { seedRef.current = seedPhrase; }, [seedPhrase]);
 
-    const { updateAfterTransfer, addPendingCharm } = useCharms();
+    const { updateAfterTransfer } = useCharms();
     const { syncAfterCharmTransfer, syncFullWallet } = useWalletSync();
     const { activeNetwork } = useBlockchain();
-    const { addresses: walletAddresses } = useAddresses();
 
-    const { selectedCharmUtxos, fundingUtxo, v10Params, changeAddress, inputSigningMap, opId } = confirmData;
+    const {
+        selectedCharmUtxos, fundingUtxo, v10Params, changeAddress, inputSigningMap,
+        opId, changeOpId, isInternalTransfer,
+    } = confirmData;
 
     const executeTransfer = async () => {
         let success = false;
@@ -85,29 +87,13 @@ export default function TransferProcessDialog({
             setTxId(txid);
             success = true;
 
-            const walletAddressSet = new Set(walletAddresses.map(a => a.address));
-            const isInternalTransfer = walletAddressSet.has(v10Params.recipientAddress);
-
-            // Add pending charm for change output if not internal
-            try {
-                if (v10Params.changeAddress && !isInternalTransfer) {
-                    const remainingTokens = v10Params.charmInputs.reduce((s, i) => s + i.amount, 0) - v10Params.transferAmount;
-                    if (remainingTokens > 0) {
-                        addPendingCharm({
-                            txid,
-                            outputIndex: 1,
-                            address: v10Params.changeAddress,
-                            amount: remainingTokens,
-                            appId: v10Params.tokenAppId,
-                            name: charm.name || charm.metadata?.name || 'Charm',
-                            ticker: charm.ticker || charm.metadata?.ticker || 'CHARM',
-                            image: charm.image || charm.metadata?.image,
-                            type: 'token',
-                            status: 'pending',
-                        });
-                    }
-                }
-            } catch (e) { console.error('[TransferProcessDialog] addPendingCharm failed:', e); }
+            // Advance the BalanceService pendings to BROADCAST. The change
+            // entry (if any) was created at Confirm time and tracks the
+            // same lifecycle.
+            try { await balanceService.markBroadcast(opId, txid); } catch (e) { console.error('[TransferProcessDialog] markBroadcast failed:', e); }
+            if (changeOpId) {
+                try { await balanceService.markBroadcast(changeOpId, txid); } catch (e) { console.error('[TransferProcessDialog] markBroadcast(change) failed:', e); }
+            }
 
             // Record transaction
             try {
@@ -169,18 +155,13 @@ export default function TransferProcessDialog({
         } catch (err) {
             setError(err.message);
             setCurrentPhase('error');
-        } finally {
-            // On failure: release the reservation so the user can retry.
-            // On success: leave the entry — executor.markSpent already
-            // pinned the inputs in the flat set; syncWithChain will reap
-            // them when the network reflects the spend.
-            if (!success && opId) {
-                try {
-                    const { releaseOperation } = await import('@/services/utxo-reservations');
-                    releaseOperation(opId);
-                } catch (e) {
-                    console.error('[TransferProcessDialog] releaseOperation failed:', e);
-                }
+            // BalanceService.markFailed releases the UTXO reservation
+            // automatically. Same for the linked change pending.
+            if (opId) {
+                try { await balanceService.markFailed(opId, err.message || 'unknown'); } catch {}
+            }
+            if (changeOpId) {
+                try { await balanceService.markFailed(changeOpId, err.message || 'unknown'); } catch {}
             }
         }
     };

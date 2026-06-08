@@ -26,3 +26,5 @@ export {
 } from './pending-state-machine';
 
 export { TriggerHub, triggerHub } from './trigger-hub';
+
+export { useBalance, useInTransit } from './use-balance';

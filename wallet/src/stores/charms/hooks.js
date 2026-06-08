@@ -1,72 +1,54 @@
 /**
  * Charms Store Hooks
- * Compatibility layer for components using old charmsStore API
+ *
+ * Thin compatibility layer around `useCharmsStore`. Auto-initialises
+ * the local charm cache when the active (blockchain, network) changes.
+ *
+ * Pending charm bookkeeping lives in `@/services/balance`
+ * (BalanceService) — this module no longer surfaces `pendingCharms`,
+ * `addPendingCharm`, `getPendingByAppId` or `clearOldPendingCharms`.
  */
 
 import { useCharmsStore } from './index';
 import { useBlockchain } from '../blockchainStore';
 import { useEffect } from 'react';
 
-/**
- * Hook that mimics old charmsStore API
- * Provides backward compatibility
- */
 export function useCharms() {
     const { activeBlockchain, activeNetwork } = useBlockchain();
-    
+
     const {
         charms,
-        pendingCharms,
         isLoading,
         error,
         initialized,
         initialize,
         addCharm,
         removeCharm,
-        addPendingCharm,
-        removePendingCharm,
-        clearOldPendingCharms,
         getTotalByAppId,
-        getPendingByAppId,
         groupTokensByAppId,
         getNFTs,
         isCharmNFT,
         isCharmToken,
-        getCharmDisplayName
+        getCharmDisplayName,
     } = useCharmsStore();
 
-    // Auto-initialize on mount or network change
     useEffect(() => {
         if (activeBlockchain && activeNetwork) {
             initialize(activeBlockchain, activeNetwork);
         }
     }, [activeBlockchain, activeNetwork]);
 
-    // Auto-cleanup old pending charms (every 2 minutes)
-    useEffect(() => {
-        const interval = setInterval(() => {
-            clearOldPendingCharms();
-        }, 2 * 60 * 1000); // 2 minutes
-
-        return () => clearInterval(interval);
-    }, [clearOldPendingCharms]);
-
     return {
         charms,
-        pendingCharms,
         isLoading,
         error,
         initialized,
         updateAfterTransfer: removeCharm,
-        addPendingCharm,
-        removePendingCharm,
-        clearOldPendingCharms,
         getTotalByAppId,
-        getPendingByAppId,
         groupTokensByAppId,
         getNFTs,
         isCharmNFT,
         isCharmToken,
-        getCharmDisplayName
+        getCharmDisplayName,
     };
 }
