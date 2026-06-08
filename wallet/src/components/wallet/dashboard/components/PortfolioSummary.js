@@ -1,47 +1,18 @@
 'use client';
 
-import { useBlockchain } from '@/stores/blockchainStore';
-import { getBalance } from '@/services/storage';
-import { useState, useEffect } from 'react';
 import { formatBTC } from '@/utils/formatters';
 
 export default function PortfolioSummary({ utxos, charms, addresses, isLoading }) {
-    const { activeBlockchain, activeNetwork } = useBlockchain();
-    const [balanceData, setBalanceData] = useState(null);
-
-    useEffect(() => {
-        const data = getBalance(activeBlockchain, activeNetwork);
-        setBalanceData(data);
-    }, [activeBlockchain, activeNetwork, utxos, charms]);
-
-    const getPortfolioStats = () => {
-        if (balanceData) {
-            return {
-                spendable: balanceData.bitcoin?.spendable || 0,
-                pending: balanceData.bitcoin?.pending || 0,
-                nonSpendable: balanceData.bitcoin?.nonSpendable || 0,
-                utxoCount: balanceData.counts?.utxos || 0,
-                charmsCount: balanceData.counts?.charms || 0,
-                ordinalCount: balanceData.counts?.ordinals || 0,
-                runeCount: balanceData.counts?.runes || 0
-            };
-        }
-        
-        const utxoCount = Object.keys(utxos || {}).length;
-        const charmsCount = charms?.length || 0;
-        
-        return {
-            spendable: 0,
-            pending: 0,
-            nonSpendable: 0,
-            utxoCount,
-            charmsCount,
-            ordinalCount: 0,
-            runeCount: 0
-        };
+    // Counts come from the live store props the parent passes in — they
+    // re-render whenever the underlying stores change. The old
+    // `getBalance(storage)` snapshot was sync and went stale after a
+    // send/refresh (B7 in the audit). Removed.
+    const stats = {
+        utxoCount: Object.keys(utxos || {}).length,
+        charmsCount: charms?.length || 0,
+        ordinalCount: 0,
+        runeCount: 0,
     };
-
-    const stats = getPortfolioStats();
 
     const portfolioCards = [
         {

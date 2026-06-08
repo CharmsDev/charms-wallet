@@ -10,6 +10,7 @@ import coinGeckoService from '@/services/shared/coingecko-service';
 import BalanceDisplay from './components/BalanceDisplay';
 import QuickActionsPanel from './components/QuickActionsPanel';
 import PortfolioSummary from './components/PortfolioSummary';
+import InTransitPanel from './components/InTransitPanel';
 import RecentTransactions from './components/RecentTransactions';
 import SendBitcoinDialog from '../utxos/SendBitcoinDialog';
 import ReceiveBitcoinDialog from './components/ReceiveBitcoinDialog';
@@ -276,6 +277,9 @@ export default function UserDashboard({ seedPhrase, walletInfo, derivationLoadin
                             addresses={addresses}
                             isLoading={utxosLoading || charmsLoading || addressesLoading}
                         />
+
+                        {/* In-Transit panel — single source for all in-flight ops */}
+                        <InTransitPanel />
 
                     </div>
                 </div>
