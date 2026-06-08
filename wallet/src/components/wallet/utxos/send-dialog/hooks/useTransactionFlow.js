@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import BitcoinTransactionOrchestrator from '@/services/bitcoin/transaction-orchestrator';
 import { decodeTx } from '@/lib/bitcoin/txDecoder';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useCharms } from '@/stores/charmsStore';
+import { balanceService, BTC_KEY } from '@/services/balance';
 import config from '@/config';
 
 export function useTransactionFlow(formState, onClose) {
@@ -15,6 +16,9 @@ export function useTransactionFlow(formState, onClose) {
     const [txId, setTxId] = useState(null);
     const [transactionData, setTransactionData] = useState(null);
     const [preparingStatus, setPreparingStatus] = useState('');
+    // Track the in-flight BalanceService op so resetFlow / cancel can
+    // release the reservation without needing it threaded everywhere.
+    const opRef = useRef({ opId: null, changeOpId: null, broadcasted: false });
 
     const { updateAfterTransaction, utxos } = useUTXOs();
     const { activeNetwork } = useBlockchain();
@@ -172,6 +176,56 @@ export function useTransactionFlow(formState, onClose) {
             setShowPreparing(false);
             setShowConfirmation(true);
 
+            // Declare intent to the BalanceService. Reserves the selected
+            // UTXOs until the user confirms or cancels. The amount sent
+            // includes the fee — that's the net outflow the user perceives.
+            const walletAddressSet = new Set(addresses.map(a => a.address));
+            const isInternal = walletAddressSet.has(formState.destinationAddress);
+            const adjustedAmount = selectionResult.adjustedAmount || amountInSats;
+            const outflow = adjustedAmount + (selectionResult.estimatedFee || 0);
+            const change = selectionResult.change || 0;
+            const opId = `send-btc:${selectionResult.selectedUtxos[0]?.txid || 'x'}:${selectionResult.selectedUtxos[0]?.vout || 0}:${Date.now()}`;
+            opRef.current = { opId, changeOpId: null, broadcasted: false };
+
+            try {
+                await balanceService.registerOutgoing({
+                    opId,
+                    assetKey: BTC_KEY,
+                    network: activeNetwork,
+                    amount: String(outflow),
+                    label: 'Send BTC',
+                    reserveUtxos: selectionResult.selectedUtxos.map(u => ({ txid: u.txid, vout: u.vout })),
+                    // When destination is a wallet-owned address, the destination
+                    // amount also comes back — register that as incoming below.
+                });
+                if (change > 0) {
+                    const changeOpId = `${opId}:change`;
+                    await balanceService.registerIncoming({
+                        opId: changeOpId,
+                        assetKey: BTC_KEY,
+                        network: activeNetwork,
+                        amount: String(change),
+                        relatedOpId: opId,
+                        label: 'Send BTC change',
+                    });
+                    opRef.current.changeOpId = changeOpId;
+                }
+                if (isInternal) {
+                    const selfOpId = `${opId}:self`;
+                    await balanceService.registerIncoming({
+                        opId: selfOpId,
+                        assetKey: BTC_KEY,
+                        network: activeNetwork,
+                        amount: String(adjustedAmount),
+                        relatedOpId: opId,
+                        label: 'Send BTC self',
+                    });
+                    opRef.current.selfOpId = selfOpId;
+                }
+            } catch (e) {
+                console.error('[SendFlow] balanceService.registerOutgoing failed:', e);
+            }
+
         } catch (err) {
             setShowPreparing(false);
             const errorMessage = err.message || 'Transaction preparation failed';
@@ -245,9 +299,22 @@ export function useTransactionFlow(formState, onClose) {
             setShowConfirmation(false);
             setShowSuccess(true);
 
+            // Advance the BalanceService pendings to BROADCAST so the
+            // change/incoming-self entries become visible "in transit".
+            opRef.current.broadcasted = true;
+            const txid = broadcastResult.txid;
+            const { opId, changeOpId, selfOpId } = opRef.current;
+            if (opId) { try { await balanceService.markBroadcast(opId, txid); } catch {} }
+            if (changeOpId) { try { await balanceService.markBroadcast(changeOpId, txid); } catch {} }
+            if (selfOpId) { try { await balanceService.markBroadcast(selfOpId, txid); } catch {} }
+
         } catch (err) {
             setShowPreparing(false);
-            
+            const { opId, changeOpId, selfOpId } = opRef.current;
+            if (opId) { try { await balanceService.markFailed(opId, err.message || 'broadcast'); } catch {} }
+            if (changeOpId) { try { await balanceService.markFailed(changeOpId, err.message || 'broadcast'); } catch {} }
+            if (selfOpId) { try { await balanceService.markFailed(selfOpId, err.message || 'broadcast'); } catch {} }
+
             if (err.message.includes('bad-txns-inputs-missingorspent')) {
                 // UTXOs were spent between verification and broadcast - remove them
                 if (transactionData?.selectedUtxos) {
@@ -266,6 +333,17 @@ export function useTransactionFlow(formState, onClose) {
     };
 
     const resetFlow = () => {
+        // If the user backed out of a prepared-but-not-broadcast send,
+        // release the BalanceService reservation so the UTXOs are usable
+        // again immediately.
+        const { opId, changeOpId, selfOpId, broadcasted } = opRef.current;
+        if (opId && !broadcasted) {
+            balanceService.markFailed(opId, 'cancelled').catch(() => {});
+            if (changeOpId) balanceService.markFailed(changeOpId, 'cancelled').catch(() => {});
+            if (selfOpId) balanceService.markFailed(selfOpId, 'cancelled').catch(() => {});
+        }
+        opRef.current = { opId: null, changeOpId: null, broadcasted: false };
+
         setShowConfirmation(false);
         setShowSuccess(false);
         setShowPreparing(false);

@@ -7,7 +7,7 @@ import { useUTXOs } from '@/stores/utxoStore';
 import { getBroTokenAppId } from '@/services/charms/charms-explorer-api';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { formatBTC } from '@/utils/formatters';
-import { useBalance, charmKey } from '@/services/balance';
+import { useBalance, charmKey, BTC_KEY } from '@/services/balance';
 
 export default function BalanceDisplay({ balance, pendingBalance, btcPrice, priceLoading, isLoading, network, onRefresh, isRefreshing, refreshProgress, onSendBTC, onReceiveBTC, onSendBro, onReceiveBro, onBeamBro, onEbtcBeam }) {
     const [showUSD, setShowUSD] = useState(false);
@@ -16,6 +16,12 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
     const { activeBlockchain, activeNetwork } = useBlockchain();
     const broAppId = useMemo(() => getBroTokenAppId(), []);
     const broBalanceSlice = useBalance(charmKey(broAppId), activeNetwork);
+    // BTC pending-in from the BalanceService: change of an in-flight Send,
+    // self-transfer return, or beam-back. The utxoStore's `pendingBalance`
+    // prop covers indexer-seen unconfirmed inputs from external senders.
+    const btcBalanceSlice = useBalance(BTC_KEY, activeNetwork);
+    const btcServicePending = btcBalanceSlice ? Number(btcBalanceSlice.pendingIn) : 0;
+    const totalBtcPending = (pendingBalance || 0) + btcServicePending;
 
     // Format balance in fiat
     const formatFiat = (satoshis, currency = 'usd') => {
@@ -131,7 +137,7 @@ export default function BalanceDisplay({ balance, pendingBalance, btcPrice, pric
                                 </div>
                                 {!isRefreshing && (
                                     <div className="text-xs text-orange-400 mb-1">
-                                        {pendingBalance > 0 ? `+${formatBTC(pendingBalance)} BTC pending` : 'No BTC pending'}
+                                        {totalBtcPending > 0 ? `+${formatBTC(totalBtcPending)} BTC pending` : 'No BTC pending'}
                                     </div>
                                 )}
                                 <div className="text-sm text-dark-400">
