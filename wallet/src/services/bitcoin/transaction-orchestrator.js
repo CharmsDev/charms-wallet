@@ -3,7 +3,6 @@
 import { BitcoinScureSigner } from '../wallet/core/bitcoin-scure-signer';
 import { UtxoSelector } from '@/services/utxo';
 import BitcoinBroadcastService from './broadcast-service';
-import TransactionRecorder from '@/services/transactions/transaction-recorder';
 import { BLOCKCHAINS } from '@/stores/blockchainStore';
 import { getCharms } from '@/services/storage';
 
@@ -16,7 +15,6 @@ export class BitcoinTransactionOrchestrator {
         this.broadcastService = new BitcoinBroadcastService();
         this.utxoSelector = new UtxoSelector();
         this.signer = new BitcoinScureSigner(network);
-        this.transactionRecorder = new TransactionRecorder('bitcoin', network);
     }
 
     async processTransaction(destinationAddress, amountInSats, availableUtxos, feeRate, updateStateCallback = null, seedPhrase = null) {
@@ -103,107 +101,11 @@ export class BitcoinTransactionOrchestrator {
         };
     }
 
-    async broadcastTransaction(signedTxHex, selectedUtxos, transactionData, updateStateCallback = null) {
-        return await this.broadcastService.broadcastWithRetry(
-            signedTxHex,
-            selectedUtxos,
-            transactionData,
-            updateStateCallback,
-            this.network
-        );
-    }
-
-    async sendTransaction(destinationAddress, amountInSats, availableUtxos, feeRate, updateStateCallback = null, seedPhrase = null) {
-        const processResult = await this.processTransaction(
-            destinationAddress,
-            amountInSats,
-            availableUtxos,
-            feeRate,
-            updateStateCallback,
-            seedPhrase
-        );
-
-        if (!processResult.success) {
-            throw new Error(processResult.error);
-        }
-
-        const broadcastResult = await this.broadcastTransaction(
-            processResult.signedTxHex,
-            processResult.selectedUtxos,
-            processResult.transactionMetadata,
-            updateStateCallback
-        );
-
-        // Record sent transaction after successful broadcast
-        if (broadcastResult.success && broadcastResult.txid) {
-            try {
-                // Prepare inputs from selected UTXOs
-                const inputs = processResult.selectedUtxos.map(utxo => ({
-                    txid: utxo.txid,
-                    vout: utxo.vout,
-                    address: utxo.address,
-                    value: utxo.value
-                }));
-
-                // Prepare outputs (destination + change if exists)
-                const outputs = [
-                    {
-                        address: destinationAddress,
-                        amount: amountInSats,
-                        vout: 0
-                    }
-                ];
-                
-                if (processResult.change > 0 && processResult.changeAddress) {
-                    outputs.push({
-                        address: processResult.changeAddress,
-                        amount: processResult.change,
-                        vout: 1
-                    });
-                }
-
-                const recordedTransaction = await this.transactionRecorder.recordSentTransaction(
-                    {
-                        txid: broadcastResult.txid,
-                        amountInSats: amountInSats,
-                        change: processResult.change,
-                        totalSelected: processResult.totalSelected,
-                        inputs: inputs,
-                        outputs: outputs
-                    },
-                    processResult.estimatedFee,
-                    {
-                        from: processResult.selectedUtxos.map(utxo => utxo.address),
-                        to: [destinationAddress]
-                    }
-                );
-
-                // Dispatch event to update UI
-                if (typeof window !== 'undefined') {
-                    const event = new CustomEvent('transactionRecorded', { 
-                        detail: { 
-                            txid: broadcastResult.txid,
-                            type: 'sent',
-                            transaction: recordedTransaction
-                        } 
-                    });
-                    window.dispatchEvent(event);
-                }
-                
-            } catch (recordError) {
-                // Don't fail the entire transaction if recording fails
-            }
-        }
-
-        return {
-            success: true,
-            txid: broadcastResult.txid,
-            selectedUtxos: processResult.selectedUtxos,
-            totalSelected: processResult.totalSelected,
-            estimatedFee: processResult.estimatedFee,
-            change: processResult.change
-        };
-    }
+    // Note: broadcasting + post-broadcast bookkeeping moved out of this
+    // class. Callers do:
+    //   1. orchestrator.processTransaction(...) → signed tx
+    //   2. orchestrator.broadcastService.broadcastTransaction(...) → txid
+    //   3. applyBroadcastedTx({...}) from @/services/wallet/post-broadcast
 }
 
 export default BitcoinTransactionOrchestrator;
