@@ -17,6 +17,7 @@ import { executeEbtcBeam } from '@/services/beam/processor/executor-ebtc';
 import { executeEbtcRedeem } from '@/services/beam/processor/executor-ebtc-redeem';
 import { findIncompleteBeams, removeBeamState } from '@/services/beam/core/persistence';
 import { useWallet } from '@/stores/walletStore';
+import { balanceService, BTC_KEY, charmKey } from '@/services/balance';
 
 const BeamOperationsContext = createContext(null);
 
@@ -126,12 +127,19 @@ export function BeamOperationsProvider({ children }) {
   const closePanel = useCallback(() => dispatch({ type: 'SET_PANEL', open: false }), []);
   const togglePanel = useCallback(() => dispatch({ type: 'TOGGLE_PANEL' }), []);
 
-  // Lock BTC UTXOs used by a beam so concurrent ops don't reuse them.
-  // Uses the per-operation API so the beam's reservation can be released
-  // exactly (and so the send dialog can name "<beam label>" when shortage
-  // is caused by this op).
-  const lockBeamUtxos = useCallback(async (id, label, payload) => {
-    const { reserveForOperation } = await import('@/services/utxo-reservations');
+  // Register a beam's BTC-side outgoing with the BalanceService. The
+  // service reserves the listed UTXOs internally and creates a CREATED
+  // pending entry so the dashboard sees the outflow immediately.
+  //
+  // Source assetKey:
+  //   - if `tokenAppId` present  → charm (charmKey)
+  //   - else                     → BTC native
+  //
+  // For Cardano-source variants (beam-back, ebtc-redeem) the source
+  // reservation is added inline by the executor's placeholder/funding
+  // step (markBatch in cardano/placeholder, etc.); the orchestration
+  // doesn't reserve anything up-front there.
+  const registerBeamOutgoing = useCallback(async (id, label, payload) => {
     const toLock = [];
     if (payload.fundingUtxo?.utxoId) toLock.push({ utxoId: payload.fundingUtxo.utxoId });
     if (payload.charmInputs?.length) {
@@ -140,13 +148,30 @@ export function BeamOperationsProvider({ children }) {
       }
     }
     if (payload.btcInputUtxo) toLock.push({ utxoId: payload.btcInputUtxo });
-    reserveForOperation(id, 'bitcoin', toLock, label || 'Beam operation');
-    return toLock;
-  }, []);
 
-  const unlockBeamUtxos = useCallback(async (id) => {
-    const { releaseOperation } = await import('@/services/utxo-reservations');
-    releaseOperation(id);
+    const assetKey = payload.tokenAppId ? charmKey(payload.tokenAppId) : BTC_KEY;
+    const amount = String(payload.beamAmount ?? payload.lockSats ?? 0);
+    if (amount === '0') {
+      // Fall back to plain reservation when we can't quote a meaningful
+      // amount (rare — happens only for malformed legacy payloads).
+      try {
+        const { reserveForOperation } = await import('@/services/utxo-reservations');
+        reserveForOperation(id, 'bitcoin', toLock, label || 'Beam operation');
+      } catch {}
+      return;
+    }
+    try {
+      await balanceService.registerOutgoing({
+        opId: id,
+        assetKey,
+        network: payload.network || 'mainnet',
+        amount,
+        label: label || 'Beam',
+        reserveUtxos: toLock,
+      });
+    } catch (e) {
+      console.error('[Beam] registerOutgoing failed:', e);
+    }
   }, []);
 
   // Refresh both chains' state so UI reflects new balances/assets immediately after beam
@@ -169,18 +194,21 @@ export function BeamOperationsProvider({ children }) {
       dispatch({ type: 'UPDATE_PHASE', id, phase, statusMessage: message });
     };
     (async () => {
-      await lockBeamUtxos(id, label, payload);
+      await registerBeamOutgoing(id, label, payload);
+      let success = false;
       try {
         const result = await executeBeamOut({ beamId: id, ...payload, onPhase });
         dispatch({ type: 'COMPLETE', id, btcTxid: result.btcTxid, adaClaimTxid: result.adaClaimTxid });
+        if (result.btcTxid) { try { await balanceService.markBroadcast(id, result.btcTxid); } catch {} }
+        success = true;
         refreshAllBalances().catch(() => {});
       } catch (err) {
         dispatch({ type: 'ERROR', id, error: err?.message || 'Beam failed' });
       } finally {
-        await unlockBeamUtxos(id);
+        if (!success) { try { await balanceService.markFailed(id, 'beam-error'); } catch {} }
       }
     })();
-  }, [lockBeamUtxos, unlockBeamUtxos, refreshAllBalances]);
+  }, [registerBeamOutgoing, refreshAllBalances]);
 
   // Shared executor for ADA→BTC
   const runBeamBack = useCallback((id, label, payload) => {
@@ -232,18 +260,21 @@ export function BeamOperationsProvider({ children }) {
       dispatch({ type: 'UPDATE_PHASE', id, phase, statusMessage: message });
     };
     (async () => {
-      await lockBeamUtxos(id, label, payload);
+      await registerBeamOutgoing(id, label, payload);
+      let success = false;
       try {
         const result = await executeEbtcBeam({ beamId: id, ...payload, onPhase });
         dispatch({ type: 'COMPLETE', id, btcTxid: result.btcTxid, adaClaimTxid: result.adaClaimTxid });
+        if (result.btcTxid) { try { await balanceService.markBroadcast(id, result.btcTxid); } catch {} }
+        success = true;
         refreshAllBalances().catch(() => {});
       } catch (err) {
         dispatch({ type: 'ERROR', id, error: err?.message || 'eBTC beam failed' });
       } finally {
-        await unlockBeamUtxos(id);
+        if (!success) { try { await balanceService.markFailed(id, 'ebtc-beam-error'); } catch {} }
       }
     })();
-  }, [lockBeamUtxos, unlockBeamUtxos, refreshAllBalances]);
+  }, [registerBeamOutgoing, refreshAllBalances]);
 
   // Shared executor for eBTC redeem (ADA → BTC, burn + vault release)
   const runEbtcRedeem = useCallback((id, label, payload) => {
