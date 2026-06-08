@@ -36,5 +36,5 @@ export const CHARM_TYPES = {
   TOKEN: 't'
 };
 
-// Transaction fee rate (sats/vbyte)
-export const DEFAULT_FEE_RATE = 2;
+// Fee rate is owned by `@/services/shared/fee-rate::getNetworkFeeRate`
+// (single source of truth for every BTC tx the wallet builds).

@@ -1,41 +1,35 @@
 /**
- * Dynamic Bitcoin fee rate — single source of truth for every BTC tx the
- * wallet builds (regular send, charm transfer, beam, eBTC mint+beam).
+ * Bitcoin fee rate — SINGLE SOURCE OF TRUTH.
  *
- * Strategy:
- *   1. Pull mempool.space `fastestFee` (next-block target).
- *   2. Apply a 10% margin — pay a touch more than the borderline-included
- *      tx so a small bump in mempool pressure doesn't strand us.
- *   3. Floor at 2.5 sat/vB. The floor isn't about cost-saving, it's about
- *      protecting against the case where mempool reports a low fastestFee
- *      *just before* a wave of new txs raises the bar. Real-world: tx sits
- *      a few minutes, fee market shifts, and a marginal 1–2 sat/vB tx ends
- *      up stuck for hours. 2.5 is the lowest rate that has historically
- *      cleared on mainnet during routine load.
- *   4. Return as a float rounded to 1 decimal place. We don't ceil to
- *      integer because the prover/builder accept fractional rates and we
- *      don't want to overpay (e.g. 2.4 → 3 is +25%).
+ * Every BTC tx the wallet builds (send, charm transfer, beam, eBTC,
+ * placeholder, mint, redeem) MUST get its rate from this function.
  *
- * Earlier we used `halfHourFee` (30 min target) which left a beam stuck
- * for two hours during a fee bump. `fastestFee` aims for the current
- * block; the margin + floor guard against the few-minute gap between
- * "selected funding" and "broadcast".
+ * Formula:
+ *   rate = max(MIN_FEE_RATE, mempool.space.fastestFee × MARGIN)
+ *        = max(2.5, current_next-block_rate × 1.1), rounded to 1 decimal
+ *
+ * The floor (2.5 sat/vB) protects against a fee bump landing between
+ * "selected funding" and "broadcast": a marginal 1–2 sat/vB tx can
+ * sit for hours when the market shifts. The margin (×1.1) keeps us a
+ * touch above the borderline so a small mempool surge doesn't strand us.
+ * The result is a float — the prover and our selector both accept
+ * fractional rates, so 2.4 stays 2.4 (we don't ceil to 3 and overpay).
+ *
+ * Anti-patterns (forbidden — any reintroduction is a regression):
+ *   - shadow constants (FALLBACK_FEE_RATE, DEFAULT_FEE_RATE, MIN_FEE_RATE
+ *     in other modules)
+ *   - hardcoded `feeRate = N` defaults in function signatures
+ *   - `feeRate || 5` fallback, `size * 5 : 1000` magic
+ *   - any number ending in `sat/vB` literally typed outside this file
  */
 
 import { getMempoolBase } from '@/services/charm-transfer/constants';
 
-const MIN_FEE_RATE = 2.5;
-const MARGIN = 1.1;
+export const MIN_FEE_RATE = 2.5;       // floor — never broadcast below this
+const MARGIN = 1.1;                    // 10% safety over current network rate
+const FALLBACK_FASTEST_FEE = 5;        // mempool.space unreachable → 5 × 1.1 = 5.5 sat/vB
 
-// Conservative fallback when mempool.space is unreachable. Picked to be
-// safely confirmable on a normal day (5 sat/vB after the 1.1× margin).
-const FALLBACK_FASTEST_FEE = 5;
-
-/** Round a fee rate to 1 decimal place, preserving fractional rates so
- *  we don't pay 3 sat/vB when the network is asking for 2.4. */
-function round1(n) {
-  return Math.round(n * 10) / 10;
-}
+function round1(n) { return Math.round(n * 10) / 10; }
 
 export async function getNetworkFeeRate(network = 'mainnet') {
   let fastestFee = FALLBACK_FASTEST_FEE;
@@ -47,9 +41,7 @@ export async function getNetworkFeeRate(network = 'mainnet') {
       fastestFee = data.fastestFee ?? FALLBACK_FASTEST_FEE;
       source = 'mempool.space';
     }
-  } catch {
-    // swallow — defaults applied
-  }
+  } catch { /* swallow — fallback applied */ }
   const rate = Math.max(MIN_FEE_RATE, round1(fastestFee * MARGIN));
   console.log(`[FeeRate] ${rate} sat/vB (fastestFee=${fastestFee}, source=${source}, network=${network})`);
   return rate;

@@ -106,15 +106,15 @@ export class UTXOService {
     // SELECTION OPERATIONS
     // ============================================================================
 
-    selectUtxos(utxoMap, amountBtc, feeRate = 1) {
+    selectUtxos(utxoMap, amountBtc, feeRate) {
         return this.selector.selectUtxos(utxoMap, amountBtc, feeRate);
     }
 
-    selectUtxosGreedy(utxoMap, amountBtc, feeRate = 1) {
+    selectUtxosGreedy(utxoMap, amountBtc, feeRate) {
         return this.selector.selectUtxosGreedy(utxoMap, amountBtc, feeRate);
     }
 
-    async selectUtxosForAmountDynamic(availableUtxos, amountInSats, feeRate = 1, updateStateCallback = null, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
+    async selectUtxosForAmountDynamic(availableUtxos, amountInSats, feeRate, updateStateCallback = null, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET) {
         return await this.selector.selectUtxosForAmountDynamic(
             availableUtxos,
             amountInSats,
@@ -126,7 +126,7 @@ export class UTXOService {
         );
     }
 
-    selectUtxosForAmount(availableUtxos, amountInSats, feeRate = 1) {
+    selectUtxosForAmount(availableUtxos, amountInSats, feeRate) {
         return this.selector.selectUtxosForAmount(availableUtxos, amountInSats, feeRate);
     }
 
@@ -150,11 +150,11 @@ export class UTXOService {
     // CALCULATION OPERATIONS
     // ============================================================================
 
-    calculateFee(inputCount, outputCount, feeRate = 1) {
+    calculateFee(inputCount, outputCount, feeRate) {
         return this.calculations.calculateFee(inputCount, outputCount, feeRate);
     }
 
-    calculateMixedFee(utxos, outputCount, feeRate = 1) {
+    calculateMixedFee(utxos, outputCount, feeRate) {
         return this.calculations.calculateMixedFee(utxos, outputCount, feeRate);
     }
 
@@ -265,32 +265,10 @@ export class UTXOService {
                         });
                     }
                 }
-            } else {
-                // Fallback: Try to estimate change output
-                const totalInput = transactionData.utxos.reduce((sum, utxo) => sum + utxo.value, 0);
-                const amountSent = Math.floor(transactionData.amount * 100000000); // Convert to satoshis
-                const estimatedFee = transactionData.size ? transactionData.size * 5 : 1000; // Rough estimate
-                const changeAmount = totalInput - amountSent - estimatedFee;
-
-                if (changeAmount > 546) { // Above dust threshold
-                    // Find a change address
-                    const changeAddress = addresses.find(addr => addr.isChange)?.address || addresses[0]?.address;
-
-                    if (changeAddress) {
-                        newUtxos[changeAddress] = [{
-                            txid: transactionData.txid,
-                            vout: 1,
-                            value: changeAmount,
-                            status: {
-                                confirmed: false,
-                                block_height: null,
-                                block_hash: null,
-                                block_time: null
-                            }
-                        }];
-                    }
-                }
             }
+            // No fallback: if we don't have decodedTx outputs, the next
+            // chain sync rebuilds the UTXO set authoritatively. Guessing
+            // the change with a magic fee constant produced wrong values.
 
         } catch (error) {
             // Return empty object - we'll get the real UTXOs on next refresh

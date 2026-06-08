@@ -83,33 +83,10 @@ class UTXOManager {
                         });
                     }
                 }
-            } else {
-                // Fallback: Try to estimate change output
-                // This is less reliable but better than nothing
-                const totalInput = transactionData.utxos.reduce((sum, utxo) => sum + utxo.value, 0);
-                const amountSent = Math.floor(transactionData.amount * 100000000); // Convert to satoshis
-                const estimatedFee = transactionData.size ? transactionData.size * 5 : 1000; // Rough estimate
-                const changeAmount = totalInput - amountSent - estimatedFee;
-
-                if (changeAmount > 546) { // Above dust threshold
-                    // Find a change address
-                    const changeAddress = addresses.find(addr => addr.isChange)?.address || addresses[0]?.address;
-                    
-                    if (changeAddress) {
-                        newUtxos[changeAddress] = [{
-                            txid: transactionData.txid,
-                            vout: 1,
-                            value: changeAmount,
-                            status: {
-                                confirmed: false,
-                                block_height: null,
-                                block_hash: null,
-                                block_time: null
-                            }
-                        }];
-                    }
-                }
             }
+            // No fallback: if we don't have decodedTx outputs, the next
+            // chain sync rebuilds the UTXO set authoritatively. Guessing
+            // the change with a magic fee constant produced wrong values.
 
         } catch (error) {
             // Return empty object - we'll get the real UTXOs on next refresh

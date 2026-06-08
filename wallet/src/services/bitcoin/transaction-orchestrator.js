@@ -19,8 +19,11 @@ export class BitcoinTransactionOrchestrator {
         this.transactionRecorder = new TransactionRecorder('bitcoin', network);
     }
 
-    async processTransaction(destinationAddress, amountInSats, availableUtxos, feeRate = 5, updateStateCallback = null, seedPhrase = null) {
+    async processTransaction(destinationAddress, amountInSats, availableUtxos, feeRate, updateStateCallback = null, seedPhrase = null) {
         const amountInSatsInt = parseInt(amountInSats);
+        if (!feeRate || feeRate <= 0) {
+            throw new Error('processTransaction: feeRate is required (call getNetworkFeeRate first).');
+        }
         if (!seedPhrase) {
             throw new Error('Wallet locked. Please unlock and retry.');
         }
@@ -110,7 +113,7 @@ export class BitcoinTransactionOrchestrator {
         );
     }
 
-    async sendTransaction(destinationAddress, amountInSats, availableUtxos, feeRate = 5, updateStateCallback = null, seedPhrase = null) {
+    async sendTransaction(destinationAddress, amountInSats, availableUtxos, feeRate, updateStateCallback = null, seedPhrase = null) {
         const processResult = await this.processTransaction(
             destinationAddress,
             amountInSats,

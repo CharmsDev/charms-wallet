@@ -55,13 +55,12 @@ export class UTXOCalculations {
 
         return true;
     }
-    // Calculate fee for a transaction with standard inputs
-    calculateFee(inputCount, outputCount, feeRate = 1) {
+    // Thin pass-throughs to wallet/utils/fee. feeRate is required there.
+    calculateFee(inputCount, outputCount, feeRate) {
         return calculateFee(inputCount, outputCount, feeRate);
     }
 
-    // Calculate fee for a transaction with mixed input types
-    calculateMixedFee(utxos, outputCount, feeRate = 1) {
+    calculateMixedFee(utxos, outputCount, feeRate) {
         return calculateMixedFeeUtil(utxos, outputCount, feeRate);
     }
 

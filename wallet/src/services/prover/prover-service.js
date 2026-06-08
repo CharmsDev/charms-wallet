@@ -21,7 +21,7 @@ export class ProverService {
      * @param {Function} onStatus - Optional status callback for progress updates
      * @returns {Promise<Object>} Result with commit_tx and spell_tx
      */
-    async proveTransfer(spellData, fundingUtxo, network, feeRate = 1, onStatus = null) {
+    async proveTransfer(spellData, fundingUtxo, network, feeRate, onStatus = null) {
         try {
             // Step 1: Generate payload
             if (onStatus) {

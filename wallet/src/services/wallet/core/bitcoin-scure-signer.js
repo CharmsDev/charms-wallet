@@ -163,8 +163,11 @@ class BitcoinScureSigner {
             });
 
             const totalInputValue = transactionData.utxos.reduce((sum, utxo) => sum + utxo.value, 0);
-            const feeRate = transactionData.feeRate || 5;
-            
+            const feeRate = transactionData.feeRate;
+            if (!feeRate || feeRate <= 0) {
+                throw new Error('Signer: feeRate is required (call getNetworkFeeRate first).');
+            }
+
             // First estimate with 2 outputs (destination + change)
             let estimatedFee = calculateMixedFee(transactionData.utxos, 2, feeRate);
             let changeAmount = totalInputValue - amountInSatoshis - estimatedFee;

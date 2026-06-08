@@ -5,10 +5,9 @@
 
 export const SPELL_VERSION = 14;
 export const CHARM_DUST = 546;          // sats — relay-safe P2TR dust
-export const FALLBACK_FEE_RATE = 3;     // sat/vB — only if API fails
-export const MIN_FEE_RATE = 2;          // sat/vB — absolute minimum
 export const MAX_CHARM_INPUTS = 16;     // prover limit
 export const MIN_FUNDING_SATS = 1000;   // minimum usable funding UTXO
+// Fee-rate constants live in @/services/shared/fee-rate (single source).
 
 // ── API URLs ─────────────────────────────────────────────────────────────────
 

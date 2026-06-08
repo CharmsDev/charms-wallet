@@ -14,10 +14,10 @@
  */
 
 import { getMempoolBase } from '@/services/charm-transfer/constants';
+import { getNetworkFeeRate } from '@/services/shared/fee-rate';
 import { compactToDER } from './signer-utils';
 
 const DUST_PLACEHOLDER = 546;
-const FEE_RATE = 2;
 
 /**
  * Create a dust P2WPKH placeholder UTXO at `btcAddress`.
@@ -52,7 +52,8 @@ export async function createBtcPlaceholder({ btcAddress, seedPhrase, network, on
   const funding = spendable[0];
 
   const estVBytes = 140;
-  const fee = estVBytes * FEE_RATE;
+  const feeRate = await getNetworkFeeRate(network);
+  const fee = Math.ceil(estVBytes * feeRate);
   const change = funding.value - DUST_PLACEHOLDER - fee;
   if (change < 546) throw new Error(`Change too small: ${change}`);
 

@@ -19,7 +19,7 @@ export class PayloadGenerator {
      * @param {number} feeRate - Fee rate in sats/vbyte
      * @returns {Promise<Object>} Generated payload
      */
-    async generatePayload(spellData, fundingUtxo, network, feeRate = 1) {
+    async generatePayload(spellData, fundingUtxo, network, feeRate) {
         try {
             // Parse spell if it's a string
             let spell;

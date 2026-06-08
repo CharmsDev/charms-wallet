@@ -1,0 +1,49 @@
+version: 1
+id: charms-wallet
+type: dev
+name: "Charms Wallet"
+description: "Next.js wallet + Chrome extension for Bitcoin charms (BRO, eBTC) with cross-chain beam to Cardano."
+
+transport:
+  protocol: websocket
+  endpoint: wss://hub.meshkore.com/ws
+
+bootstrap:
+  hub: https://hub.meshkore.com
+  standard: https://meshkore.com/standard
+  spec: https://meshkore.com/standard/spec
+
+git:
+  repo: git@github.com:CharmsDev/charms-wallet.git
+  branch: main
+  auto_pull: true
+  auto_commit: false
+
+portal:
+  port: 5570
+
+profile:
+  capabilities: []
+  visible_in_directory: false
+
+admission:
+  mode: pubkey
+  approval: manual
+  max_pending_requests: 50
+
+members: []
+
+modules:
+  - id: general
+    kind: area
+    description: "Project-wide work without specific module."
+  - id: wallet
+    name: "Web Wallet"
+    kind: code
+    path: wallet/
+    description: "Next.js application — main wallet UI, beam flows, charm management."
+  - id: extension
+    name: "Browser Extension"
+    kind: code
+    path: extension/
+    description: "Chrome extension wrapping the wallet for DApp connectivity."

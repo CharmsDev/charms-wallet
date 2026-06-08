@@ -17,7 +17,10 @@ export class UTXOSelector {
         return getSpentSet('bitcoin');
     }
 
-    selectUtxosGreedy(utxoMap, amountBtc, feeRate = 1) {
+    selectUtxosGreedy(utxoMap, amountBtc, feeRate) {
+        if (!feeRate || feeRate <= 0) {
+            throw new Error('selectUtxosGreedy: feeRate is required (call getNetworkFeeRate first).');
+        }
         const amountSats = Math.floor(amountBtc * 100000000);
         const allUtxos = [];
 
@@ -50,17 +53,14 @@ export class UTXOSelector {
         return selectedAmount >= amountSats ? selectedUtxos : [];
     }
 
-    selectUtxos(utxoMap, amountBtc, feeRate = 1) {
-        const amountSats = Math.floor(amountBtc * 100000000);
-
-        if (amountSats < 100000) {
-            return this.selectUtxosGreedy(utxoMap, amountBtc, feeRate);
-        } else {
-            return this.selectUtxosGreedy(utxoMap, amountBtc, feeRate);
-        }
+    selectUtxos(utxoMap, amountBtc, feeRate) {
+        return this.selectUtxosGreedy(utxoMap, amountBtc, feeRate);
     }
 
-    async selectUtxosForAmountDynamic(availableUtxos, amountInSats, feeRate = 1, verifier = null, updateStateCallback = null, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, transactionDataMap = null) {
+    async selectUtxosForAmountDynamic(availableUtxos, amountInSats, feeRate, verifier = null, updateStateCallback = null, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, transactionDataMap = null) {
+        if (!feeRate || feeRate <= 0) {
+            throw new Error('selectUtxosForAmountDynamic: feeRate is required (call getNetworkFeeRate first).');
+        }
         // Get current charms to exclude their UTXOs
         const networkKey = network === 'mainnet' ? 'mainnet' : 'testnet4';
         const charms = await getCharms(blockchain, networkKey) || [];
@@ -90,48 +90,38 @@ export class UTXOSelector {
         }
 
         const sortedUtxos = [...candidateUtxos].sort((a, b) => b.value - a.value);
-        
+
         const selectedUtxos = [];
         let totalSelected = 0;
-
-        // Start with estimated fee for 2 outputs (destination + change)
-        let estimatedFee = this.calculateMixedFee([], 2, feeRate);
-
-        const targetAmount = amountInSats + estimatedFee;
+        // Bootstrap with one average input so the initial target is realistic;
+        // each picked input may shift the fee, so we re-estimate inside the loop.
+        let estimatedFee = this.calculateMixedFee([{ scriptPubKey: '5120' }], 2, feeRate);
 
         for (const utxo of sortedUtxos) {
-            if (totalSelected >= targetAmount) {
-                break;
-            }
+            if (totalSelected >= amountInSats + estimatedFee) break;
 
-            // Skip UTXOs that are already reserved
-            if (isSpent('bitcoin', utxo.txid, utxo.vout)) {
-                continue;
-            }
+            if (isSpent('bitcoin', utxo.txid, utxo.vout)) continue;
 
-            // Verify UTXO is still unspent if verifier is provided
             if (verifier) {
                 try {
-                    const isUnspent = await verifier.isUtxoSpent(utxo.txid, utxo.vout, network);
-                    
-                    if (!isUnspent) {
-                        // UTXO is unspent
-                    } else {
-                        // Immediately delete spent UTXO from storage/state; no blacklisting
+                    const spent = await verifier.isUtxoSpent(utxo.txid, utxo.vout, network);
+                    if (spent) {
                         if (updateStateCallback) {
                             await updateStateCallback([utxo], {}, blockchain, network);
                         }
                         continue;
                     }
-                } catch (error) {
-                    // On verification failure, proceed without selecting
-                }
+                } catch { /* proceed without verification */ }
             }
 
             selectedUtxos.push(utxo);
             totalSelected += utxo.value;
+            // Re-estimate fee with the actual input set so the next iteration
+            // (and the final target) sees the real cost of what we've picked.
+            estimatedFee = this.calculateMixedFee(selectedUtxos, 2, feeRate);
         }
 
+        const targetAmount = amountInSats + estimatedFee;
         if (totalSelected < targetAmount) {
             // If reservations are taking enough sats to make the difference,
             // surface that to the user instead of an opaque shortfall.
@@ -180,12 +170,12 @@ export class UTXOSelector {
         };
     }
 
-    async selectUtxosForAmount(availableUtxos, amountInSats, feeRate = 1, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, transactionDataMap = null) {
-        // Get current charms to exclude their UTXOs
+    async selectUtxosForAmount(availableUtxos, amountInSats, feeRate, blockchain = BLOCKCHAINS.BITCOIN, network = NETWORKS.BITCOIN.TESTNET, transactionDataMap = null) {
+        if (!feeRate || feeRate <= 0) {
+            throw new Error('selectUtxosForAmount: feeRate is required (call getNetworkFeeRate first).');
+        }
         const networkKey = network === 'mainnet' ? 'mainnet' : 'testnet4';
         const charms = await getCharms(blockchain, networkKey) || [];
-        
-        // CRITICAL: isUtxoSpendable filters out charms, ordinals, runes, and locked UTXOs - NEVER select reserved UTXOs
         const candidateUtxos = availableUtxos.filter(utxo => {
             const transactionData = transactionDataMap ? transactionDataMap[utxo.txid] : null;
             return utxoCalculations.isUtxoSpendable(utxo, charms, this.lockedUtxos, transactionData);
@@ -194,31 +184,28 @@ export class UTXOSelector {
         const sortedUtxos = [...candidateUtxos].sort((a, b) => b.value - a.value);
         const selectedUtxos = [];
         let totalSelected = 0;
-
-        // Calculate estimated fee for 2 outputs (destination + change)
-        let estimatedFee = this.calculateMixedFee([], 2, feeRate);
-
-        const totalNeeded = amountInSats + estimatedFee;
+        let estimatedFee = this.calculateMixedFee([{ scriptPubKey: '5120' }], 2, feeRate);
 
         for (const utxo of sortedUtxos) {
-            if (totalSelected >= totalNeeded) break;
-
+            if (totalSelected >= amountInSats + estimatedFee) break;
             markSpent('bitcoin', utxo.txid, utxo.vout);
             selectedUtxos.push(utxo);
             totalSelected += utxo.value;
+            estimatedFee = this.calculateMixedFee(selectedUtxos, 2, feeRate);
         }
-
-        const sufficientFunds = totalSelected >= totalNeeded;
 
         return {
             selectedUtxos,
             totalSelected,
-            sufficientFunds,
-            estimatedFee
+            sufficientFunds: totalSelected >= amountInSats + estimatedFee,
+            estimatedFee,
         };
     }
 
-    calculateMixedFee(utxos, outputCount, feeRate = 1) {
+    calculateMixedFee(utxos, outputCount, feeRate) {
+        if (!feeRate || feeRate <= 0) {
+            throw new Error('calculateMixedFee: feeRate is required (call getNetworkFeeRate first).');
+        }
         return calculateMixedFee(utxos, outputCount, feeRate);
     }
 

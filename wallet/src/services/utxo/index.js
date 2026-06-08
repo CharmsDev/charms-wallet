@@ -13,7 +13,7 @@ export class UtxoSelector {
         this.verifier = utxoVerifier;
     }
 
-    async selectUtxosForAmountDynamic(availableUtxos, amountInSats, feeRate = 1, updateStateCallback = null, blockchain, network) {
+    async selectUtxosForAmountDynamic(availableUtxos, amountInSats, feeRate, updateStateCallback = null, blockchain, network) {
         return await this.selector.selectUtxosForAmountDynamic(
             availableUtxos,
             amountInSats,
@@ -25,7 +25,7 @@ export class UtxoSelector {
         );
     }
 
-    selectUtxosForAmount(availableUtxos, amountInSats, feeRate = 1) {
+    selectUtxosForAmount(availableUtxos, amountInSats, feeRate) {
         return this.selector.selectUtxosForAmount(availableUtxos, amountInSats, feeRate);
     }
 }
