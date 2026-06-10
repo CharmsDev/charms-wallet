@@ -23,13 +23,23 @@
 
 const RP_NAME = 'Charms Wallet';
 const RP_ID_FALLBACK = 'localhost';
+// Canonical RP id. Locked to one host so a passkey enrolled at any
+// deploy URL (alchemy.charms.dev, alchemy-pk.pages.dev, wallet.charms.dev)
+// shares the same WebAuthn scope. Cross-origin acceptance is authorised
+// via `/.well-known/webauthn` served from this host.
+const PRIMARY_RP_ID = 'wallet.charms.dev';
 
 function getRpId() {
-  if (typeof window !== 'undefined' && window.location?.hostname) {
-    const host = window.location.hostname;
-    return host === 'localhost' ? 'localhost' : host;
+  if (typeof window === 'undefined') return RP_ID_FALLBACK;
+  const host = window.location?.hostname;
+  if (!host) return RP_ID_FALLBACK;
+  if (host === 'localhost' || host === '127.0.0.1') return 'localhost';
+  // Anything served from a charms.dev subdomain or a pages.dev preview
+  // collapses into the canonical RP id. Same passkey across all URLs.
+  if (host.endsWith('.charms.dev') || host.endsWith('.pages.dev')) {
+    return PRIMARY_RP_ID;
   }
-  return RP_ID_FALLBACK;
+  return host;
 }
 
 /** Quick capability gate. Definitive PRF support requires an actual
