@@ -1,6 +1,6 @@
 {
   "name": "bitcoin-next-demo",
-  "version": "1.5.25",
+  "version": "1.5.26",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3456",

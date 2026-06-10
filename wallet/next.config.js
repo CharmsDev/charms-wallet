@@ -4,6 +4,15 @@ const nextConfig = {
         ignoreDuringBuilds: true,
     },
 
+    // The Next.js app router skips folders prefixed with `.`, so we host
+    // the WebAuthn Related Origins document under a regular name and
+    // expose it at the spec-mandated `/.well-known/webauthn` path.
+    async rewrites() {
+        return [
+            { source: '/.well-known/webauthn', destination: '/webauthn-well-known' },
+        ];
+    },
+
     images: {
         remotePatterns: [
             { protocol: 'https', hostname: 'bro.charms.dev' },
