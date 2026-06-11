@@ -19,13 +19,16 @@ export default function AddressControls({
             <div className="flex items-center flex-wrap gap-2 sm:gap-3">
                 {!isCardano && (
                     <>
-                        {/* SegWit / Taproot tabs */}
+                        {/* SegWit (primary) / Taproot tabs */}
                         <div className="flex items-center gap-1 bg-gray-800 rounded-full p-1">
                             <button
                                 onClick={() => onBitcoinAddressTabChange('segwit')}
-                                className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap ${bitcoinAddressTab === 'segwit' ? 'bg-bitcoin-500 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+                                className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap inline-flex items-center gap-1.5 ${bitcoinAddressTab === 'segwit' ? 'bg-bitcoin-500 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
                             >
                                 Native SegWit
+                                <span className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${bitcoinAddressTab === 'segwit' ? 'bg-white/20 text-white' : 'bg-bitcoin-500/20 text-bitcoin-400'}`}>
+                                    Main
+                                </span>
                             </button>
                             <button
                                 onClick={() => onBitcoinAddressTabChange('taproot')}

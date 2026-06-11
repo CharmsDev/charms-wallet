@@ -31,7 +31,11 @@ export default function AddressManager() {
     const [addressError, setAddressError] = useState('');
     const [privateKeys, setPrivateKeys] = useState({});
     const [addressType, setAddressType] = useState('payment'); // 'payment' or 'staking' for Cardano
-    const [bitcoinAddressTab, setBitcoinAddressTab] = useState('taproot'); // 'segwit' or 'taproot'
+    // Native SegWit (bc1q) is the wallet's primary BTC receive address —
+    // it's the one shown on the dashboard and the funding source for
+    // charm transfers. Default to it; the user can switch to Taproot
+    // (bc1p) to see the BIP86 derivation tree.
+    const [bitcoinAddressTab, setBitcoinAddressTab] = useState('segwit'); // 'segwit' or 'taproot'
 
     // Load addresses when component mounts
     useEffect(() => {
