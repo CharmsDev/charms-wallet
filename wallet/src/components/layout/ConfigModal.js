@@ -1,29 +1,38 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import config from '@/config';
 import packageJson from '../../../package.json';
 import { SPELL_VERSION, EXPLORER_API, PROVER_URL_MAINNET, PROVER_URL_TESTNET } from '@/services/charm-transfer/constants';
+import { getWalletType } from '@/services/auth';
 
+// What data the wallet reads/writes and which external endpoint serves
+// each request. Kept shallow on purpose — we don't expose what providers
+// the Explorer/Blockfrost use downstream, because that changes and would
+// leave the modal lying when it does.
 const DATA_SOURCES = [
-    // Bitcoin
-    { data: 'BTC UTXOs',       source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/utxos/<addr>' },
-    { data: 'BTC Balance',     source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/balance/<addr>' },
-    { data: 'BTC Charms',      source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/charms/<addr>' },
-    { data: 'BTC Transactions',source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/wallet/transactions/<addr>' },
-    { data: 'BTC Fee Estimates',source: 'Explorer API',                         badge: 'explorer', endpoint: '/v1/wallet/fee-estimate' },
-    { data: 'BTC Broadcast TX',source: 'Explorer → Mempool',                   badge: 'multi',    endpoint: '/v1/wallet/broadcast (failover)' },
-    { data: 'BTC TX Lookup',   source: 'Explorer → Mempool',                   badge: 'multi',    endpoint: '/v1/wallet/tx/<txid> (failover)' },
-    { data: 'Charm Metadata',  source: 'Explorer API',                          badge: 'explorer', endpoint: '/v1/assets/reference-nft/<identityHash>' },
-    { data: 'Spell Proving',   source: 'Charms Prover',                        badge: 'prover',   endpoint: '/spells/prove (POST)' },
-    { data: 'BTC Price',       source: 'CoinGecko',                            badge: 'external', endpoint: '/api/v3/simple/price' },
-    // Cardano
-    { data: 'ADA UTXOs',       source: 'Blockfrost',                            badge: 'cardano',  endpoint: '/addresses/<addr>/utxos' },
-    { data: 'ADA Balance',     source: 'Blockfrost',                            badge: 'cardano',  endpoint: '/addresses/<addr>' },
-    { data: 'ADA Assets',      source: 'Blockfrost',                            badge: 'cardano',  endpoint: '/assets/<unit>' },
-    { data: 'ADA Transactions',source: 'Blockfrost',                            badge: 'cardano',  endpoint: '/addresses/<addr>/transactions' },
-    { data: 'ADA Submit TX',   source: 'Blockfrost',                            badge: 'cardano',  endpoint: '/tx/submit (POST CBOR)' },
-    { data: 'ADA Protocol',    source: 'Blockfrost',                            badge: 'cardano',  endpoint: '/epochs/latest/parameters' },
+    // Bitcoin — wallet talks to Explorer API; mempool.space is the only
+    // failover the wallet itself dials directly.
+    { data: 'BTC UTXOs',         source: 'Explorer API',         badge: 'explorer', endpoint: '/v1/wallet/utxos/<addr>' },
+    { data: 'BTC Balance',       source: 'Explorer API',         badge: 'explorer', endpoint: '/v1/wallet/balance/batch' },
+    { data: 'BTC Charms',        source: 'Explorer API',         badge: 'explorer', endpoint: '/v1/wallet/charms/<addr>' },
+    { data: 'BTC Transactions',  source: 'Explorer API',         badge: 'explorer', endpoint: '/v1/wallet/transactions/batch' },
+    { data: 'BTC Fee Estimates', source: 'mempool.space',        badge: 'external', endpoint: '/v1/fees/recommended' },
+    { data: 'BTC Broadcast TX',  source: 'Explorer → mempool.space (failover)', badge: 'multi',    endpoint: '/v1/wallet/broadcast' },
+    { data: 'BTC TX Lookup',     source: 'Explorer → mempool.space (failover)', badge: 'multi',    endpoint: '/v1/transactions/<txid>' },
+    { data: 'Charm Metadata',    source: 'Explorer API',         badge: 'explorer', endpoint: '/v1/assets/reference-nft/<identityHash>' },
+    { data: 'Spell Proving',     source: 'Charms Prover',        badge: 'prover',   endpoint: '/spells/prove (POST)' },
+    { data: 'BTC Price',         source: 'CoinGecko',            badge: 'external', endpoint: '/api/v3/simple/price' },
+    // Cardano — Blockfrost primary, Koios fallback (the wallet calls Koios
+    // directly via its public proxy when Blockfrost fails).
+    { data: 'ADA UTXOs',         source: 'Blockfrost → Koios (failover)', badge: 'multi',   endpoint: '/addresses/<addr>/utxos' },
+    { data: 'ADA Balance',       source: 'Blockfrost → Koios (failover)', badge: 'multi',   endpoint: '/addresses/<addr>' },
+    { data: 'ADA Assets',        source: 'Blockfrost',          badge: 'cardano',  endpoint: '/assets/<unit>' },
+    { data: 'ADA Transactions',  source: 'Blockfrost → Koios (failover)', badge: 'multi',   endpoint: '/addresses/<addr>/transactions' },
+    { data: 'ADA Submit TX',     source: 'Blockfrost',          badge: 'cardano',  endpoint: '/tx/submit (POST CBOR)' },
+    { data: 'ADA Protocol',      source: 'Blockfrost → Koios (failover)', badge: 'multi',   endpoint: '/epochs/latest/parameters' },
+    // Auth
+    { data: 'WebAuthn Origins',  source: 'Wallet (self)',       badge: 'self',     endpoint: '/.well-known/webauthn' },
 ];
 
 export default function ConfigModal({ isOpen, onClose }) {
@@ -32,6 +41,13 @@ export default function ConfigModal({ isOpen, onClose }) {
         if (typeof window === 'undefined') return '';
         try { return localStorage.getItem('wallet:prover:override') || ''; } catch { return ''; }
     });
+    const [walletType, setWalletType] = useState(null); // 'prf' | 'password' | null
+    useEffect(() => {
+        if (!isOpen) return;
+        let alive = true;
+        getWalletType().then(t => { if (alive) setWalletType(t); }).catch(() => {});
+        return () => { alive = false; };
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -83,7 +99,25 @@ export default function ConfigModal({ isOpen, onClose }) {
         prover:   'bg-purple-500/15 text-purple-400',
         external: 'bg-yellow-500/15 text-yellow-400',
         cardano:  'bg-cardano-500/15 text-cardano-400',
+        self:     'bg-pink-500/15 text-pink-400',
     };
+
+    // Security — derived from the v3 auth blob shape.
+    const securityLabel = walletType === 'prf'
+        ? 'Passkey (WebAuthn PRF)'
+        : walletType === 'password'
+        ? 'Password (PBKDF2 + AES-GCM 256)'
+        : walletType === null
+        ? 'Loading…'
+        : 'None (legacy plaintext)';
+    const securityClass = walletType === 'prf' ? 'text-emerald-400'
+        : walletType === 'password' ? 'text-blue-400'
+        : 'text-red-400';
+    const atRest = walletType === 'prf'
+        ? 'Nothing at rest (seed derived on demand)'
+        : walletType === 'password'
+        ? 'Encrypted blob in local storage'
+        : '—';
 
     return (
         <div
@@ -91,7 +125,7 @@ export default function ConfigModal({ isOpen, onClose }) {
             onClick={onClose}
         >
             <div
-                className="bg-dark-900 border border-dark-700 rounded-2xl w-full max-w-[720px] max-h-[90vh] overflow-y-auto shadow-2xl"
+                className="bg-dark-900 border border-dark-700 rounded-2xl w-full max-w-[1100px] max-h-[90vh] overflow-y-auto shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
@@ -127,29 +161,13 @@ export default function ConfigModal({ isOpen, onClose }) {
                 {/* Content */}
                 <div className="p-6">
                     {activeTab === 'config' && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                            {/* Left column */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {/* Column 1 — identity */}
                             <div className="space-y-5">
-                                {/* General */}
                                 <Section title="General">
-                                    <Row
-                                        icon={<TagIcon />}
-                                        label="Wallet Version"
-                                        value={`v${packageJson.version}`}
-                                        highlight
-                                    />
-                                    <Row
-                                        icon={<TagIcon />}
-                                        label="Charms Version"
-                                        value="v14.0.0"
-                                        highlight
-                                    />
-                                    <Row
-                                        icon={<ShieldIcon />}
-                                        label="Spell Version"
-                                        value={`${SPELL_VERSION}`}
-                                        className="text-purple-400"
-                                    />
+                                    <Row icon={<TagIcon />} label="Wallet Version" value={`v${packageJson.version}`} highlight />
+                                    <Row icon={<TagIcon />} label="Charms Version" value="v14.0.0" highlight />
+                                    <Row icon={<ShieldIcon />} label="Spell Version" value={`${SPELL_VERSION}`} className="text-purple-400" />
                                     <Row
                                         icon={<NetworkIcon />}
                                         label="Network"
@@ -158,14 +176,32 @@ export default function ConfigModal({ isOpen, onClose }) {
                                     />
                                 </Section>
 
-                                {/* ZK Prover */}
-                                <Section title="ZK Prover">
+                                <Section title="Security">
                                     <Row
-                                        icon={<ServerIcon />}
-                                        label="Prover URL"
-                                        value={truncate(proverUrl)}
+                                        icon={<ShieldIcon />}
+                                        label="Authentication"
+                                        value={securityLabel}
+                                        className={securityClass}
+                                    />
+                                    <Row
+                                        icon={<DatabaseIcon />}
+                                        label="Mnemonic at rest"
+                                        value={atRest}
+                                        className="text-dark-200"
+                                    />
+                                    <Row
+                                        icon={<GlobeIcon />}
+                                        label="WebAuthn RP id"
+                                        value={typeof window !== 'undefined' ? 'wallet.charms.dev' : '—'}
                                         mono
                                     />
+                                </Section>
+                            </div>
+
+                            {/* Column 2 — compute */}
+                            <div className="space-y-5">
+                                <Section title="ZK Prover">
+                                    <Row icon={<ServerIcon />} label="Prover URL" value={truncate(proverUrl)} mono />
                                     <Row
                                         icon={<ShieldIcon />}
                                         label="Proof Mode"
@@ -188,34 +224,21 @@ export default function ConfigModal({ isOpen, onClose }) {
                                     />
                                 </Section>
 
-                                {/* Build Environment */}
+                                <Section title="Bitcoin Data">
+                                    <Row icon={<DatabaseIcon />} label="Explorer API (primary)" value={truncate(explorerApiUrl)} mono />
+                                    <Row icon={<GlobeIcon />} label="mempool.space (failover)" value={truncate(mempoolUrl)} mono />
+                                </Section>
+
                                 <Section title="Build Environment">
                                     <Row icon={<ServerIcon />} label="Prover (env)" value={truncate(envVars.proverMainnet, 28)} mono />
                                     <Row icon={<DatabaseIcon />} label="Explorer (env)" value={truncate(envVars.explorerApi, 28)} mono />
                                     <Row icon={<NetworkIcon />} label="BTC Network (env)" value={envVars.btcNetwork} />
                                     <Row icon={<NetworkIcon />} label="ADA Network (env)" value={envVars.cardanoNetwork} />
                                 </Section>
-
-                                {/* Bitcoin Data Sources */}
-                                <Section title="Bitcoin Data">
-                                    <Row
-                                        icon={<DatabaseIcon />}
-                                        label="Explorer API (primary)"
-                                        value={truncate(explorerApiUrl)}
-                                        mono
-                                    />
-                                    <Row
-                                        icon={<GlobeIcon />}
-                                        label="Mempool.space (failover)"
-                                        value={truncate(mempoolUrl)}
-                                        mono
-                                    />
-                                </Section>
                             </div>
 
-                            {/* Right column */}
+                            {/* Column 3 — external services */}
                             <div className="space-y-5">
-                                {/* Charms APIs */}
                                 <Section title="APIs">
                                     <Row
                                         icon={<GlobeIcon />}
@@ -224,15 +247,9 @@ export default function ConfigModal({ isOpen, onClose }) {
                                         mono
                                         className={walletApiUrl === '—' ? 'text-dark-500 italic' : undefined}
                                     />
-                                    <Row
-                                        icon={<GlobeIcon />}
-                                        label="CoinGecko (BTC price)"
-                                        value="https://api.coingecko.com"
-                                        mono
-                                    />
+                                    <Row icon={<GlobeIcon />} label="CoinGecko (BTC price)" value="https://api.coingecko.com" mono />
                                 </Section>
 
-                                {/* Cardano */}
                                 <Section title="Cardano">
                                     <Row
                                         icon={<NetworkIcon />}
@@ -240,12 +257,7 @@ export default function ConfigModal({ isOpen, onClose }) {
                                         value={cardanoNetwork.toUpperCase()}
                                         className={cardanoNetwork === 'mainnet' ? 'text-emerald-400' : 'text-yellow-400'}
                                     />
-                                    <Row
-                                        icon={<DatabaseIcon />}
-                                        label="Blockfrost API"
-                                        value={truncate(blockfrostUrl)}
-                                        mono
-                                    />
+                                    <Row icon={<DatabaseIcon />} label="Blockfrost API" value={truncate(blockfrostUrl)} mono />
                                     <Row
                                         icon={<ShieldIcon />}
                                         label="Blockfrost Project"
@@ -254,20 +266,23 @@ export default function ConfigModal({ isOpen, onClose }) {
                                     />
                                 </Section>
 
-                                {/* Provider Architecture */}
                                 <Section title="Provider Architecture">
                                     <div className="space-y-2 text-xs text-dark-300">
                                         <div className="flex items-center gap-2">
                                             <span className="inline-block w-2 h-2 rounded-full bg-blue-400" />
-                                            <span><strong className="text-dark-100">Bitcoin:</strong> Explorer API → Mempool.space</span>
+                                            <span><strong className="text-dark-100">Bitcoin:</strong> Explorer API → mempool.space</span>
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className="inline-block w-2 h-2 rounded-full bg-cardano-400" />
-                                            <span><strong className="text-dark-100">Cardano:</strong> Blockfrost API</span>
+                                            <span><strong className="text-dark-100">Cardano:</strong> Blockfrost → Koios</span>
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className="inline-block w-2 h-2 rounded-full bg-purple-400" />
-                                            <span><strong className="text-dark-100">Beaming:</strong> Charms Prover (handles proofs + Cardano signing)</span>
+                                            <span><strong className="text-dark-100">Beaming:</strong> Charms Prover (proofs + Cardano signing)</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="inline-block w-2 h-2 rounded-full bg-pink-400" />
+                                            <span><strong className="text-dark-100">Auth:</strong> Local-only, RP id <code className="text-pink-300">wallet.charms.dev</code></span>
                                         </div>
                                     </div>
                                 </Section>
