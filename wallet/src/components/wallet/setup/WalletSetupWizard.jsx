@@ -4,65 +4,107 @@
  * WalletSetupWizard — orchestrates onboarding via a small explicit
  * state machine. Each step is a separate file under ./steps/.
  *
- * Branches (post-G003 simplification):
+ * Entry branches (deterministic on local state — `isEnrolled()`):
  *
- *   welcome
- *     ├── passkey  → prf-access (try restore via discoverable creds;
- *     │              if user cancels / no creds, prompt: try again /
- *     │              create new) → optionalBackup → init (Type 1)
- *     │
- *     └── import   → importSeed → passwordSet → forcedBackup
- *                                              → init (Type 2)
+ *   isEnrolled === true              → unlock (caso A)
+ *     → restorePrfWallet's mnemonic captured in walletStore → markUnlocked
  *
- * Migration path (legacy plaintext user) bypasses welcome and lands
- * directly on passwordSet with `presetSeed` + `isMigration=true`.
+ *   isEnrolled === false             → create (caso B)
+ *     → createPrfWallet → backup → init (Type 1)
+ *     opt-in branches:
+ *       - "Restore from another device"  → prf-access (discovery + QR)
+ *       - "Import seed phrase"           → importSeed → passwordSet → forcedBackup
+ *                                          → init (Type 2)
+ *
+ * Migration path (legacy plaintext user) bypasses the entry branch
+ * and lands directly on passwordSet with `presetSeed` + `isMigration=true`.
  *
  * No step is skippable. The state machine only advances on explicit
  * success callbacks.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWallet } from '@/stores/walletStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { clearSeedPhrase } from '@/services/storage';
 import {
   isPrfSupported,
+  isEnrolled,
   createPasswordWallet,
 } from '@/services/auth';
 
-import WelcomeStep from './steps/WelcomeStep';
+import UnlockStep from './steps/UnlockStep';
+import CreateStep from './steps/CreateStep';
 import PrfAccessStep from './steps/PrfAccessStep';
 import MnemonicBackupStep from './steps/MnemonicBackupStep';
 import PasswordSetStep from './steps/PasswordSetStep';
 import ImportSeedStep from './steps/ImportSeedStep';
 import InitWalletStep from './steps/InitWalletStep';
+import SetupShell from './steps/SetupShell';
 
 const S = {
-  WELCOME: 'welcome',
-  PRF_ACCESS: 'prf-access',     // one-button passkey path: discover-or-create
-  PASSWORD_SET: 'password-set',
+  CHECKING:    'checking',     // resolving isEnrolled() on mount
+  UNLOCK:      'unlock',       // caso A: blob present, biometric only
+  CREATE:      'create',       // caso B: no blob, fresh passkey
+  PRF_ACCESS:  'prf-access',   // opt-in restore from another device (discoverable get)
+  PASSWORD_SET:'password-set',
   IMPORT_SEED: 'import-seed',
-  BACKUP: 'backup',
-  INIT: 'init',
+  BACKUP:      'backup',
+  INIT:        'init',
 };
 
 export default function WalletSetupWizard({ presetSeed = null, presetType = null, extraAction = null, isMigration = false }) {
-  const { initializeWalletComplete } = useWallet();
+  const { initializeWalletComplete, setSeedPhrase } = useWallet();
   const { markUnlocked } = useAuth();
 
   const prfSupported = isPrfSupported();
 
-  // Wizard state — explicit, no implicit shortcuts.
-  const [step, setStep] = useState(presetSeed ? S.PASSWORD_SET : S.WELCOME);
+  // Initial step: migration short-circuits to PASSWORD_SET. Everything
+  // else starts in CHECKING and resolves to UNLOCK or CREATE based on
+  // the local blob.
+  const [step, setStep] = useState(presetSeed ? S.PASSWORD_SET : S.CHECKING);
   const [walletType, setWalletType] = useState(presetType);   // 'prf' | 'password'
   const [mnemonic, setMnemonic] = useState(presetSeed);
   const [isImport, setIsImport] = useState(!!presetSeed);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
+  // Resolve the entry branch from local storage.
+  useEffect(() => {
+    if (step !== S.CHECKING) return;
+    let alive = true;
+    isEnrolled()
+      .then((enrolled) => {
+        if (!alive) return;
+        setStep(enrolled ? S.UNLOCK : S.CREATE);
+      })
+      .catch(() => { if (alive) setStep(S.CREATE); });
+    return () => { alive = false; };
+  }, [step]);
+
   // --- transitions ---
 
-  const goPasskey = () => {
+  // Caso A unlock — got mnemonic from existing passkey. Skip backup
+  // (the user already has a wallet and presumably backed up at create
+  // time) and skip init (addresses survived from last session via
+  // storage). Just hand the seed to walletStore and unlock.
+  const onUnlocked = async (m) => {
+    try {
+      setSeedPhrase?.(m);
+      await markUnlocked();
+    } catch (e) {
+      setError(e.message || 'Failed to finalize unlock');
+    }
+  };
+
+  const onCreatedPrf = (m) => {
+    setIsImport(false);
+    setWalletType('prf');
+    setMnemonic(m);
+    setStep(S.BACKUP);
+  };
+
+  const goRestore = () => {
     setIsImport(false);
     setWalletType('prf');
     setStep(S.PRF_ACCESS);
@@ -84,9 +126,6 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
     setBusy(true);
     try {
       await createPasswordWallet({ mnemonic, password: pwd });
-      // CRITICAL: with the encrypted blob now committed, wipe any
-      // residual plaintext seed in storage (matters for legacy
-      // migration; no-op for fresh import).
       await clearSeedPhrase();
       setStep(S.BACKUP);
     } catch (e) {
@@ -97,24 +136,13 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
   };
 
   const onImportSubmitted = (m) => {
-    setWalletType('password');     // imports always go Type 2
+    setWalletType('password');
     setMnemonic(m);
     setStep(S.PASSWORD_SET);
   };
 
-  // Backup acknowledged. Two distinct paths:
-  //
-  // (a) Migration — the wallet already existed in this device. Its
-  //     addresses, UTXOs and caches survive intact in localStorage;
-  //     the only thing that changed is the seed went from plaintext
-  //     to encrypted. We skip the Init step entirely: markUnlocked()
-  //     flips auth state, MigrationGate stops blocking, the dashboard
-  //     mounts with the seed already in RAM. NO re-derivation, NO
-  //     re-sync, NO password re-prompt.
-  //
-  // (b) Fresh create / import — no addresses exist yet, so we run
-  //     initializeWalletComplete() to derive and sync, then
-  //     markUnlocked.
+  // Backup acknowledged. Migration short-circuits init (addresses
+  // already exist); fresh wallets run initializeWalletComplete.
   const onBackupAck = async () => {
     if (step === S.INIT) return;
     if (isMigration) {
@@ -135,7 +163,7 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
     try {
       await initializeWalletComplete(seed, true, { alreadyPersisted: true });
       await markUnlocked();
-      setMnemonic(null);   // release wizard copy; walletStore owns it now
+      setMnemonic(null);
     } catch (e) {
       setError(e.message || 'Wallet initialization failed');
     }
@@ -143,22 +171,43 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
 
   // --- render ---
 
-  if (step === S.WELCOME) {
+  if (step === S.CHECKING) {
     return (
-      <WelcomeStep
-        onPasskey={goPasskey}
+      <SetupShell>
+        <p className="text-sm text-dark-300 text-center">Loading…</p>
+      </SetupShell>
+    );
+  }
+
+  if (step === S.UNLOCK) {
+    return (
+      <UnlockStep
+        onDone={onUnlocked}
+        onRestore={goRestore}
         onImport={goImport}
-        prfSupported={prfSupported}
-        extraAction={extraAction}
       />
     );
   }
+
+  if (step === S.CREATE) {
+    return (
+      <CreateStep
+        prfSupported={prfSupported}
+        onDone={onCreatedPrf}
+        onRestore={goRestore}
+        onImport={goImport}
+      />
+    );
+  }
+
   if (step === S.PRF_ACCESS) {
-    return <PrfAccessStep onDone={onPrfDone} onBack={() => setStep(S.WELCOME)} />;
+    return <PrfAccessStep onDone={onPrfDone} onBack={() => setStep(walletType === 'prf' ? S.UNLOCK : S.CREATE)} />;
   }
+
   if (step === S.IMPORT_SEED) {
-    return <ImportSeedStep onSubmit={onImportSubmitted} onBack={() => setStep(S.WELCOME)} />;
+    return <ImportSeedStep onSubmit={onImportSubmitted} onBack={() => setStep(S.CREATE)} />;
   }
+
   if (step === S.PASSWORD_SET) {
     return (
       <PasswordSetStep
@@ -170,9 +219,11 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
       />
     );
   }
+
   if (step === S.BACKUP) {
-    const required = walletType === 'password';  // Type 1 = optional, Type 2 = mandatory
+    const required = walletType === 'password';  // Type 1 optional, Type 2 mandatory
     return <MnemonicBackupStep mnemonic={mnemonic} required={required} onContinue={onBackupAck} />;
   }
+
   return <InitWalletStep error={error} />;
 }
