@@ -13,8 +13,9 @@
  *     → createPrfWallet → backup → init (Type 1)
  *     opt-in branches:
  *       - "Restore from another device"  → prf-access (discovery + QR)
- *       - "Import seed phrase"           → importSeed → passwordSet → forcedBackup
- *                                          → init (Type 2)
+ *       - "Import seed phrase"           → importSeed → passwordSet → init
+ *                                          (Type 2, no backup screen — user
+ *                                          already has the seed)
  *
  * Migration path (legacy plaintext user) bypasses the entry branch
  * and lands directly on passwordSet with `presetSeed` + `isMigration=true`.
@@ -127,7 +128,16 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
     try {
       await createPasswordWallet({ mnemonic, password: pwd });
       await clearSeedPhrase();
-      setStep(S.BACKUP);
+      // Import flow (user already has the seed): skip the backup
+      // reminder and go straight to wallet init. Migration still
+      // routes through BACKUP because it doubles as the migration
+      // ack screen.
+      if (isImport && !isMigration) {
+        setStep(S.INIT);
+        runInit(mnemonic);
+      } else {
+        setStep(S.BACKUP);
+      }
     } catch (e) {
       setError(e.message || 'Encryption failed');
     } finally {
