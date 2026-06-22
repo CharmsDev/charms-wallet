@@ -7,12 +7,25 @@
  * Entry branches (deterministic on local state — `isEnrolled()`):
  *
  *   isEnrolled === true              → unlock (caso A)
- *     → restorePrfWallet's mnemonic captured in walletStore → markUnlocked
+ *     → unlockPrfWallet via UnlockStep → mnemonic into walletStore → markUnlocked
  *
- *   isEnrolled === false             → create (caso B)
- *     → createPrfWallet → backup → init (Type 1)
- *     opt-in branches:
- *       - "Restore from another device"  → prf-access (discovery + QR)
+ *   isEnrolled === false && PRF      → prf-access (caso B, default)
+ *     → PrfAccessStep tries restorePrfWallet() first (discover an existing
+ *       passkey synced via iCloud / Google PM). If found → same mnemonic
+ *       across all the user's devices. If genuinely no passkey exists
+ *       anywhere → explicit confirm prompt → createPrfWallet → backup → init.
+ *
+ *     Why restore-first: a Disconnect on this or any sibling app (alchemy,
+ *     PWA) wipes the LOCAL blob but never the passkey in the OS keychain.
+ *     Going straight to create() in that case would mint a fresh passkey
+ *     and silently produce a different wallet — the canonical "I just lost
+ *     my funds" bug. Discover-first prevents that.
+ *
+ *   isEnrolled === false && no PRF   → create (caso C, fallback)
+ *     → CreateStep — passkey unsupported on this browser, surfaces import
+ *       or password paths only.
+ *
+ *     opt-in branches (from any of the entry steps):
  *       - "Import seed phrase"           → importSeed → passwordSet → init
  *                                          (Type 2, no backup screen — user
  *                                          already has the seed)
@@ -71,17 +84,25 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
   const [error, setError] = useState(null);
 
   // Resolve the entry branch from local storage.
+  //
+  // PRF-capable + no blob → PRF_ACCESS so we try to discover an existing
+  // passkey first (iCloud / Google PM) before assuming a fresh enrolment.
+  // Without this step the user gets a different wallet on every Disconnect
+  // → reconnect cycle. Non-PRF browsers fall through to CREATE, which has
+  // its own UI to route them to import/password.
   useEffect(() => {
     if (step !== S.CHECKING) return;
     let alive = true;
     isEnrolled()
       .then((enrolled) => {
         if (!alive) return;
-        setStep(enrolled ? S.UNLOCK : S.CREATE);
+        if (enrolled) setStep(S.UNLOCK);
+        else if (prfSupported) setStep(S.PRF_ACCESS);
+        else setStep(S.CREATE);
       })
-      .catch(() => { if (alive) setStep(S.CREATE); });
+      .catch(() => { if (alive) setStep(prfSupported ? S.PRF_ACCESS : S.CREATE); });
     return () => { alive = false; };
-  }, [step]);
+  }, [step, prfSupported]);
 
   // --- transitions ---
 
