@@ -41,6 +41,14 @@ function toCharmObj(utxo, balanceEntry) {
         ? String(displayAmount)
         : displayAmount.toFixed(8).replace(/\.?0+$/, '');
 
+    // API exposes name + imageUrl + description on the balance entry
+    // (introduced for FIRE; older tokens like BRO may have an empty
+    // `symbol`). Prefer real `name` over empty `symbol` so newly-minted
+    // assets don't render as "Unknown Token".
+    const apiName  = balanceEntry?.name || balanceEntry?.symbol || '';
+    const apiImage = balanceEntry?.imageUrl || balanceEntry?.image_url || null;
+    const apiDesc  = balanceEntry?.description || '';
+
     return {
         txid: utxo.txid,
         outputIndex: utxo.vout,
@@ -50,15 +58,16 @@ function toCharmObj(utxo, balanceEntry) {
         displayAmount: displayAmountStr,
         decimals,
         type: known?.type || balanceEntry?.assetType || balanceEntry?.asset_type || 'token',
-        name: known?.name || balanceEntry?.symbol || 'Unknown Token',
-        ticker: known?.ticker || balanceEntry?.symbol || 'TOKEN',
-        image: known?.image || null,
-        description: '',
+        name: known?.name || apiName || 'Unknown Token',
+        ticker: known?.ticker || balanceEntry?.symbol || apiName || 'TOKEN',
+        image: known?.image || apiImage,
+        description: apiDesc,
         isBroToken: !!known,
         metadata: {
-            name: known?.name || balanceEntry?.symbol || 'Unknown Token',
-            ticker: known?.ticker || balanceEntry?.symbol || 'TOKEN',
-            image: known?.image || null,
+            name: known?.name || apiName || 'Unknown Token',
+            ticker: known?.ticker || balanceEntry?.symbol || apiName || 'TOKEN',
+            image: known?.image || apiImage,
+            description: apiDesc,
         },
     };
 }
@@ -104,23 +113,36 @@ function adaptBalanceUtxo(u, address, currentHeight) {
 function aggregateBalanceBatch(data, currentHeight, skipCharms) {
     const utxos = [];
     const charmMap = {};
+    const perAddrCharms = {};
     for (const [addr, result] of Object.entries(data?.results || {})) {
         if (result?.error) continue;
         for (const u of (result.btc?.utxos || [])) {
             utxos.push(adaptBalanceUtxo(u, addr, currentHeight));
         }
         if (skipCharms) continue;
-        for (const b of (result.charms?.balances || [])) {
+        const balances = result.charms?.balances || [];
+        perAddrCharms[addr] = balances.length;
+        for (const b of balances) {
             const key = b.appId || b.app_id;
             if (!charmMap[key]) {
                 charmMap[key] = {
                     appId: key,
                     assetType: b.assetType || b.asset_type || 'token',
                     symbol: b.symbol || '',
+                    name: b.name || '',
+                    imageUrl: b.imageUrl || b.image_url || null,
+                    description: b.description || '',
                     confirmed: 0, unconfirmed: 0, total: 0,
                     utxos: [],
                 };
             }
+            // First entry won — keep filling name/image/desc if later
+            // entries for the same appId carry them and the first didn't.
+            if (!charmMap[key].name && b.name) charmMap[key].name = b.name;
+            if (!charmMap[key].imageUrl && (b.imageUrl || b.image_url)) {
+                charmMap[key].imageUrl = b.imageUrl || b.image_url;
+            }
+            if (!charmMap[key].description && b.description) charmMap[key].description = b.description;
             charmMap[key].confirmed += b.confirmed || 0;
             charmMap[key].unconfirmed += b.unconfirmed || 0;
             charmMap[key].total += b.total || 0;
@@ -130,7 +152,7 @@ function aggregateBalanceBatch(data, currentHeight, skipCharms) {
             })));
         }
     }
-    return { utxos, charmBalances: Object.values(charmMap) };
+    return { utxos, charmBalances: Object.values(charmMap), perAddrCharms };
 }
 
 /**
@@ -146,7 +168,22 @@ async function fetchFromExplorerAPI(explorerService, addressList, network, skipC
         explorerService.getBatchBalance(addressList, network),
         explorerService.getTip(network).catch(() => ({ height: null })),
     ]);
-    const { utxos, charmBalances } = aggregateBalanceBatch(batchData, tip?.height || null, skipCharms);
+    const { utxos, charmBalances, perAddrCharms } = aggregateBalanceBatch(batchData, tip?.height || null, skipCharms);
+
+    // Diagnostic: when charm sync runs, print how many entries the API
+    // returned per address. Silent zero-hit responses used to be
+    // indistinguishable from "sync never ran"; this surfaces the gap.
+    if (!skipCharms) {
+        const respKeys = Object.keys(batchData?.results || {});
+        const nonZero = Object.entries(perAddrCharms || {})
+            .filter(([, n]) => n > 0)
+            .map(([a, n]) => `${a.slice(0, 12)}…=${n}`);
+        console.log(
+            `[sync] charm scan: addresses_sent=${addressList.length} addresses_in_response=${respKeys.length}` +
+            ` total_balance_entries=${charmBalances.length}` +
+            (nonZero.length ? ` hits=[${nonZero.join(', ')}]` : ' hits=none')
+        );
+    }
 
     // Normalize charms — used for isCharmUtxo check below
     const charms = [];
@@ -154,7 +191,10 @@ async function fetchFromExplorerAPI(explorerService, addressList, network, skipC
     if (!skipCharms && Array.isArray(charmBalances)) {
         if (charmBalances.length > 0) {
             const summary = charmBalances
-                .map(b => `${b.symbol || b.appId?.slice(2, 10)}=${b.total}(${(b.utxos || []).length})`)
+                .map(b => {
+                    const id = b.name || b.symbol || b.appId?.slice(2, 10) || '?';
+                    return `${id}=${b.total}(${(b.utxos || []).length})`;
+                })
                 .join(' ');
             console.log(`[sync] charms ${summary}`);
         }
@@ -185,8 +225,8 @@ async function fetchFromExplorerAPI(explorerService, addressList, network, skipC
 
     const tokenBalances = (Array.isArray(charmBalances) ? charmBalances : []).map(b => ({
         appId: b.appId,
-        name: KNOWN_TOKENS[b.appId]?.name || b.symbol || 'Unknown',
-        ticker: KNOWN_TOKENS[b.appId]?.ticker || b.symbol || 'TOKEN',
+        name: KNOWN_TOKENS[b.appId]?.name || b.name || b.symbol || 'Unknown',
+        ticker: KNOWN_TOKENS[b.appId]?.ticker || b.symbol || b.name || 'TOKEN',
         amount: b.total || 0,
     }));
 
@@ -306,6 +346,12 @@ export async function syncWalletExplorer(options = {}) {
             .map(a => a.address);
 
         console.log(`[sync] start net=${network} addrs=${addressList.length} fullScan=${fullScan}`);
+        // Surface the address set so cross-app charm visibility issues
+        // (e.g. a P2WPKH receive index that's missing from the sync)
+        // can be diagnosed from the console without exporting storage.
+        const p2wpkhCount = addressList.filter(a => /^(bc1q|tb1q|bcrt1q)/.test(a)).length;
+        const p2trCount   = addressList.filter(a => /^(bc1p|tb1p|bcrt1p)/.test(a)).length;
+        console.log(`[sync] addr mix p2wpkh=${p2wpkhCount} p2tr=${p2trCount} sample=${addressList.slice(0, 3).join(',')}`);
 
         // ============================================
         // Explorer indexed API (the only data source)
