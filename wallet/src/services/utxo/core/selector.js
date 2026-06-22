@@ -91,6 +91,30 @@ export class UTXOSelector {
 
         const sortedUtxos = [...candidateUtxos].sort((a, b) => b.value - a.value);
 
+        // Max short-circuit: if the caller is asking for an amount within
+        // 10 sats of "all inputs minus a 1-output fee", treat as Max and
+        // return a no-change selection BEFORE the regular loop runs.
+        // The loop bootstraps with a 2-output fee assumption, so a true
+        // Max amount would always trip the insufficient-funds throw below
+        // even though a single-output tx fits perfectly. That mismatch is
+        // exactly the "Need 405085 sats, only found 405000 sats" failure
+        // surfaced from clicking the Max button.
+        {
+            const totalSpendable = sortedUtxos.reduce((sum, u) => sum + u.value, 0);
+            const feeForMax = this.calculateMixedFee(sortedUtxos, 1, feeRate);
+            const maxPossible = totalSpendable - feeForMax;
+            if (Math.abs(amountInSats - maxPossible) <= 10) {
+                return {
+                    selectedUtxos: sortedUtxos,
+                    totalSelected: totalSpendable,
+                    estimatedFee: feeForMax,
+                    change: 0,
+                    sufficientFunds: true,
+                    isMaxTransaction: true,
+                };
+            }
+        }
+
         const selectedUtxos = [];
         let totalSelected = 0;
         // Bootstrap with one average input so the initial target is realistic;
@@ -139,28 +163,9 @@ export class UTXOSelector {
             throw new Error(`Insufficient verified UTXOs. Need ${targetAmount} sats, only found ${totalSelected} sats in valid UTXOs.`);
         }
 
-        // Calculate change
-        let change = totalSelected - amountInSats - estimatedFee;
-        
-        // Detect if this is a Max amount transaction (change < 200 sats indicates Max usage)
-        const isMaxAmount = change < 200;
-        // Check if this is a max amount transaction (amount + fee equals total spendable)
-        const totalSpendable = sortedUtxos.reduce((sum, utxo) => sum + utxo.value, 0);
-        const estimatedFeeForMax = this.calculateMixedFee(sortedUtxos, 1, feeRate); // Assume 1 output for max
-        const maxPossible = totalSpendable - estimatedFeeForMax;
-        const isMaxTransaction = Math.abs(amountInSats - maxPossible) <= 10; // Allow small tolerance
-        
-        
-        if (isMaxTransaction) {
-            // For max transactions, use all UTXOs and no change
-            return {
-                selectedUtxos: sortedUtxos,
-                totalValue: totalSpendable,
-                fee: estimatedFeeForMax,
-                change: 0,
-                isMaxTransaction: true
-            };
-        }
+        // Calculate change. The Max-amount case is already handled by the
+        // short-circuit at the top of this function.
+        const change = totalSelected - amountInSats - estimatedFee;
 
         return {
             selectedUtxos,

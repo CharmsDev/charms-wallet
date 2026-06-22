@@ -115,8 +115,11 @@ export function useTransactionFlow(formState, onClose) {
             let selectionResult;
             
             if (isMaxTransaction) {
-                // For Max transactions: use ALL UTXOs, calculate exact fee for 1 output
-                const exactFee = selector.calculateMixedFee(allUtxos, 1, currentFeeRate);
+                // For Max transactions: use ALL UTXOs, calculate exact fee
+                // based on the actual destination address type (taproot
+                // outputs are 43 vbytes, segwit 31, legacy 34 — counting
+                // them all as 34 underfunded the broadcast).
+                const exactFee = selector.calculateMixedFee(allUtxos, [formState.destinationAddress], currentFeeRate);
                 const adjustedAmount = totalAvailable - exactFee;
                 
                 selectionResult = {

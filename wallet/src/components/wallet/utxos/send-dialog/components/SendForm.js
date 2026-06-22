@@ -31,16 +31,16 @@ export default function SendForm({ formState, onSend, onCancel }) {
 
     const handleMaxAmount = async () => {
         setIsCalculatingMax(true);
-        
+
         try {
             // Get current fee rate (halfHour × 1.1, same criterion as charms-cast)
             const { getNetworkFeeRate } = await import('@/services/shared/fee-rate');
             const feeRate = await getNetworkFeeRate(activeNetwork);
             setCurrentFeeRate(feeRate);
-            
+
             // CRITICAL: getSpendableUtxos filters out charms, ordinals, runes - NEVER use raw utxos for max calculation
             const spendableUtxos = utxoCalculations.getSpendableUtxos(utxos, charms);
-            
+
             if (Object.keys(spendableUtxos).length === 0) {
                 setAmount('0');
                 return;
@@ -49,25 +49,29 @@ export default function SendForm({ formState, onSend, onCancel }) {
             // Use UTXOSelector for optimal UTXO selection
             const { UTXOSelector } = await import('@/services/utxo/core/selector');
             const selector = new UTXOSelector();
-            const allUtxos = Object.entries(spendableUtxos).flatMap(([address, addressUtxos]) => 
+            const allUtxos = Object.entries(spendableUtxos).flatMap(([address, addressUtxos]) =>
                 addressUtxos.map(utxo => ({ ...utxo, address }))
             );
-            
+
             // Sort UTXOs by value (largest first) for optimal selection
             const sortedUtxos = [...allUtxos].sort((a, b) => b.value - a.value);
-            
+
             // For Max: Use ALL available UTXOs and calculate exact fee
             const allSelectedUtxos = sortedUtxos;
             const totalValue = allSelectedUtxos.reduce((sum, utxo) => sum + utxo.value, 0);
-            
-            // Calculate fee for transaction with 1 output (no change for Max)
-            const exactFee = selector.calculateMixedFee(allSelectedUtxos, 1, feeRate);
-            
+
+            // Calculate fee assuming the actual destination output type.
+            // If the user hasn't pasted a destination yet, fall back to a
+            // worst-case taproot output (43 vbytes) so Max never produces
+            // an under-funded amount.
+            const outputs = destinationAddress ? [destinationAddress] : 1;
+            const exactFee = selector.calculateMixedFee(allSelectedUtxos, outputs, feeRate);
+
             // Max amount = total value - exact fee (no change)
             const maxAmount = totalValue - exactFee;
-            
+
             setAmount(maxAmount.toString());
-            
+
         } catch (error) {
             setAmount('0');
         } finally {
