@@ -5,6 +5,7 @@ import TransferCharmWizard from './transfer/TransferCharmWizard';
 import BeamDialog from '@/components/beam/BeamDialog';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useBalance, charmKey } from '@/services/balance';
+import { resolveImageUrl } from '@/utils/media';
 
 /**
  * Card component for displaying grouped Charm Tokens by APP ID
@@ -32,7 +33,7 @@ export default function CharmTokenCard({ groupedToken }) {
             {/* Image section */}
             <div className="w-full h-48 bg-dark-800 overflow-hidden">
                 <img
-                    src={groupedToken.image && !imageError ? groupedToken.image : placeholderImage}
+                    src={groupedToken.image && !imageError ? resolveImageUrl(groupedToken.image) : placeholderImage}
                     alt={groupedToken.name}
                     className="w-full h-full object-cover"
                     onError={() => setImageError(true)}

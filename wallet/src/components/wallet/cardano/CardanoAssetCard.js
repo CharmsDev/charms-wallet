@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { useCardano } from '@/stores/cardanoStore';
 import { cardanoAssetUrl } from '@/utils/cardanoExplorer';
+import { resolveImageUrl } from '@/utils/media';
 
 const CIP67_TOKEN_LABEL = '0014df10';
 const EBTC_POLICY_ID = '552b22f4989ea698fabbf6314b70d2e5edb49c1fdbdeb6096e8c84b6';
@@ -41,7 +42,7 @@ export default function CardanoAssetCard({ asset, onBeamBack, onRedeem, onTransf
       <div className="w-full h-36 bg-dark-800 overflow-hidden flex items-center justify-center">
         {asset.image && !imageError ? (
           <img
-            src={asset.image.startsWith('ipfs://') ? `https://ipfs.io/ipfs/${asset.image.slice(7)}` : asset.image}
+            src={resolveImageUrl(asset.image)}
             alt={displayName}
             className="w-full h-full object-cover"
             onError={() => setImageError(true)}

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useCharms } from '@/stores/charmsStore';
 import TransferCharmWizard from './transfer/TransferCharmWizard';
+import { resolveImageUrl } from '@/utils/media';
 
 /**
  * Card component for displaying individual Charm NFTs
@@ -19,7 +20,7 @@ export default function CharmNFTCard({ nft }) {
 
     const name = nft.name || nft.metadata?.name || getCharmDisplayName(nft);
     const description = nft.description || nft.metadata?.description || '';
-    const image = !imageError && (nft.image || nft.metadata?.image);
+    const image = !imageError && resolveImageUrl(nft.image || nft.metadata?.image);
     const url = nft.url || nft.metadata?.url || null;
     const placeholderImage = "https://charms.dev/_astro/logo-charms-dark.Ceshk2t3.png";
 
