@@ -77,11 +77,9 @@ yarn-error.log*
 .DS_Store
 
 # ====== MeshKore Standard contract ======
-# Only public/ (cluster identity + join README) is committed. Everything
-# else (tasks, docs, logs, credentials, runtime, archive) stays local.
-# See https://meshkore.com/standard §2.2
-.meshkore/*
-!.meshkore/public/
+# The entire .meshkore/ tree stays local — nothing under it is committed
+# (operator decision: keep coordination/runtime state out of the repo).
+.meshkore/
 
 # Editor boot block (loaded by Claude Code from the repo root; kept local
 # so the rules don't reach the public repo).
@@ -106,3 +104,6 @@ secrets/
 api/Dockerfile
 api/fly.toml
 wallet/wrangler.toml
+# Cloudflare Wrangler local deploy cache — regenerated per deploy.
+.wrangler/
+**/.wrangler/
