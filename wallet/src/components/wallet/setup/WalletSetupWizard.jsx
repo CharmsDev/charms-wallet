@@ -223,6 +223,7 @@ export default function WalletSetupWizard({ presetSeed = null, presetType = null
   if (step === S.CREATE) {
     return (
       <CreateStep
+        extraAction={extraAction}
         prfSupported={prfSupported}
         onDone={onCreatedPrf}
         onRestore={goRestore}

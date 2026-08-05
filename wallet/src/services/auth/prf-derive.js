@@ -52,6 +52,16 @@ export function isPrfSupported() {
     return false;
   }
   if (!window.crypto?.subtle) return false;
+  // Extension popups run on a chrome-extension:// origin. WebAuthn there
+  // can only use the extension id as rpId, never the canonical
+  // wallet.charms.dev one, and Related Origin Requests does not cover the
+  // chrome-extension scheme. A passkey enrolled in the popup would be a
+  // different credential from the web wallet's, silently producing a
+  // different wallet. Report unsupported so the wizard routes the popup
+  // to the transfer / import paths instead of offering a broken button.
+  if (typeof location !== 'undefined' && location.protocol === 'chrome-extension:') {
+    return false;
+  }
   return true;
 }
 
