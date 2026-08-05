@@ -1,15 +1,19 @@
 /**
  * useExtensionWalletSync Hook (Extension-only)
- * 
- * Drop-in replacement for useWalletSync that uses the external
- * prover verify API for charm extraction instead of WASM.
- * 
- * This hook has the same interface as the core useWalletSync
- * so it can be swapped in ExtensionDashboard without other changes.
+ *
+ * Thin popup-facing wrapper over the wallet's own sync service. It only
+ * owns the progress/error UI state the popup renders; all fetching and
+ * persistence is the shared `syncWalletExplorer`.
+ *
+ * The extension used to carry its own `extension-wallet-sync.js`, which
+ * drifted onto the deprecated utxos/batch + charms/batch endpoints and
+ * therefore never saw the charm metadata (name, imageUrl, description)
+ * that only balance/batch returns. Using the wallet service directly
+ * removes the drift by construction.
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { syncWalletExtension } from '../services/extension-wallet-sync';
+import { syncWalletExplorer } from '@/services/wallet/sync/explorer-wallet-sync';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useCharmsStore } from '@/stores/charms';
 import { useBlockchain } from '@/stores/blockchainStore';
@@ -38,7 +42,7 @@ export function useExtensionWalletSync() {
         setSyncProgress({ phase: 'utxos', current: 0, total: 0 });
 
         try {
-            const result = await syncWalletExtension({
+            const result = await syncWalletExplorer({
                 blockchain: activeBlockchain,
                 network: activeNetwork,
                 fullScan: true,
@@ -53,9 +57,6 @@ export function useExtensionWalletSync() {
                 onPhase1Complete: () => {
                     // BTC balance is now updated in the store — switch phase indicator
                     setSyncPhase('charms');
-                },
-                onCharmProgress: (current, total) => {
-                    setSyncProgress({ phase: 'charms', current, total });
                 },
                 onCharmFound: addCharm,
                 updateUTXOStore: refreshUTXOs
@@ -88,7 +89,7 @@ export function useExtensionWalletSync() {
         setSyncError(null);
 
         try {
-            const result = await syncWalletExtension({
+            const result = await syncWalletExplorer({
                 blockchain: activeBlockchain,
                 network: activeNetwork,
                 fullScan: true,
@@ -99,9 +100,6 @@ export function useExtensionWalletSync() {
                         current: progress.processed || 0,
                         total: progress.total || 0
                     });
-                },
-                onCharmProgress: (current, total) => {
-                    setSyncProgress({ phase: 'charms', current, total });
                 },
                 onCharmFound: addCharm,
                 updateUTXOStore: refreshUTXOs
@@ -133,7 +131,7 @@ export function useExtensionWalletSync() {
         setSyncError(null);
 
         try {
-            const result = await syncWalletExtension({
+            const result = await syncWalletExplorer({
                 blockchain: activeBlockchain,
                 network: activeNetwork,
                 fullScan: true,
