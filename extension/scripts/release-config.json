@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "budgets": {
+    "popup_initial_kb_gzipped": 400,
+    "cardano_csl_lazy_kb_gzipped": 1500,
+    "beam_lazy_kb_gzipped": 200,
+    "ebtc_wasm_kb_gzipped": 100
+  },
+  "expected_wasm_files": ["ebtc.wasm", "bro-token.wasm", "toad-token.wasm"],
+  "wasm_source": "../wallet/public/wasm",
+  "wasm_dist_path": "wasm/",
+  "expected_dist_files": [
+    "manifest.json",
+    "popup.html",
+    "background.js",
+    "content-script.js",
+    "inpage.js",
+    "offscreen.html",
+    "approve.html",
+    "approve-sign.html",
+    "icons/icon16.png",
+    "icons/icon48.png",
+    "icons/icon128.png"
+  ],
+  "supported_browsers": ["chrome", "brave", "edge"],
+  "required_permissions": ["storage", "alarms", "offscreen"],
+  "required_hosts": [
+    "*.koios.rest",
+    "*.blockfrost.io",
+    "charms-explorer-api.fly.dev",
+    "mempool.space",
+    "charms.dev"
+  ],
+  "_hosts_note": "*.charms.dev covers prover.charms.dev, scrolls-v14.charms.dev, and other subdomains. We require the parent host."
+}

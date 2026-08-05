@@ -72,10 +72,29 @@ function copyStaticFiles(isDev = false) {
         copyFileSync(logoSrc, resolve(distDir, 'logo.png'));
       }
 
-      // Copy toad-token.wasm for BRO token transfers
+      // Copy toad-token.wasm for BRO token transfers (legacy path, kept
+      // until E015 retires it).
       const tokenWasmSrc = resolve(__dirname, 'toad-token.wasm');
       if (existsSync(tokenWasmSrc)) {
         copyFileSync(tokenWasmSrc, resolve(distDir, 'toad-token.wasm'));
+      }
+
+      // Mirror wallet's public/wasm/ into dist/wasm/ so that
+      // @/services/beam/chains/wasm-loader.js (which fetches
+      // '/wasm/<name>.wasm') resolves identically in the extension build.
+      // Source of truth: wallet/public/wasm/. The CI guard
+      // (extension-ci.yml) catches drift on SHA when E020 ships the
+      // wasm-sha check.
+      const walletWasmDir = resolve(__dirname, '../wallet/public/wasm');
+      const distWasmDir = resolve(distDir, 'wasm');
+      if (existsSync(walletWasmDir)) {
+        if (!existsSync(distWasmDir)) mkdirSync(distWasmDir, { recursive: true });
+        for (const name of ['ebtc.wasm', 'bro-token.wasm', 'toad-token.wasm']) {
+          const src = resolve(walletWasmDir, name);
+          if (existsSync(src)) {
+            copyFileSync(src, resolve(distWasmDir, name));
+          }
+        }
       }
     }
   };
@@ -113,7 +132,13 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       wasm(),
-      topLevelAwait(),
+      // topLevelAwait() removed — its rust binding crashes with
+      // "Failed to convert rust String into napi string" when one of
+      // the bundled modules exceeds an internal length limit (likely
+      // @emurgo/cardano-serialization-lib-asmjs after E012 added it).
+      // ESNext target supports top-level await natively in modern Chrome
+      // (extension uses MV3 + esnext), so the plugin is no longer strictly
+      // required. If a runtime regression surfaces, revisit.
       react({
         include: /\.(jsx|tsx|js|ts)$/,
         babel: {
@@ -149,6 +174,20 @@ export default defineConfig(({ mode }) => {
           entryFileNames: 'assets/[name].js',
           chunkFileNames: 'assets/[name]-[hash].js',
           assetFileNames: 'assets/[name]-[hash][extname]',
+          // Manual chunk split: separate CSL into one chunk per variant
+          // and isolate cbor-x. cardano-serialization-lib is loaded via
+          // dynamic import() in @/lib/cardano/cardanoWasm, so the chunk
+          // ships separately from popup.js.
+          //
+          // Note: we don't bundle CSL into popup directly; vite-plugin-
+          // top-level-await chokes on the multi-MB asmjs string (rust
+          // napi limit). The dynamic-import boundary in cardanoWasm.js
+          // keeps it manageable.
+          manualChunks(id) {
+            if (id.includes('cardano-serialization-lib-asmjs')) return 'csl-asmjs';
+            if (id.includes('cardano-serialization-lib-browser')) return 'csl-browser';
+            if (id.includes('cbor-x')) return 'cbor';
+          },
         },
       },
       target: 'esnext',

@@ -1,3 +1,5 @@
+import ChainToggle from './ChainToggle';
+
 export default function DashboardHeader({ activeNetwork, networkLabel, isSyncing, syncPhase, lastSynced, onSync }) {
   return (
     <header className="glass-effect flex items-center justify-between px-4 py-3 border-b border-dark-700">
@@ -7,6 +9,7 @@ export default function DashboardHeader({ activeNetwork, networkLabel, isSyncing
       </div>
 
       <div className="flex items-center gap-2">
+        <ChainToggle />
         <div className={`flex items-center gap-1 px-2 py-1 rounded-full border ${
           activeNetwork === 'mainnet'
             ? 'bg-orange-900/30 border-orange-600/50'

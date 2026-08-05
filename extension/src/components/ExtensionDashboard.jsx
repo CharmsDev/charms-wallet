@@ -7,6 +7,7 @@ import { useExtensionWalletSync } from '../hooks/useExtensionWalletSync';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useDashboardSync } from '../hooks/useDashboardSync';
 import { useNetworkSwitch } from '../hooks/useNetworkSwitch';
+import { useCardanoBootstrap } from '../hooks/useCardanoBootstrap';
 import { ensureP2wpkhAddress } from '../services/lazy-p2wpkh';
 import DashboardHeader from './ui/DashboardHeader';
 import BottomNav from './ui/BottomNav';
@@ -20,6 +21,10 @@ export default function ExtensionDashboard() {
   const { addresses, loadAddresses } = useAddresses();
   const { activeNetwork, saveNetwork, getAvailableNetworks } = useNetwork();
   const { activeBlockchain } = useBlockchain();
+
+  // Initialise the Cardano store lazily on first switch to ADA — derives
+  // address 0 if needed, then refreshes provider data. No-op on Bitcoin.
+  useCardanoBootstrap();
   const { syncFullWallet, syncUTXOs, isSyncing, syncPhase } = useExtensionWalletSync();
   const { loadUTXOs } = useUTXOs();
   const [activeScreen, setActiveScreen] = useState('home');

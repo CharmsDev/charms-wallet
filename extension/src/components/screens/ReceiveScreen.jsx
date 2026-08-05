@@ -3,6 +3,7 @@ import { useAddresses } from '@/stores/addressesStore';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useReceiveAddress } from '../../hooks/useReceiveAddress';
 import { useBlockchain } from '@/stores/blockchainStore';
+import { useCardano } from '@/stores/cardanoStore';
 
 function BackButton({ onClick }) {
   return (
@@ -17,12 +18,23 @@ function BackButton({ onClick }) {
 
 export default function ReceiveScreen({ trigger }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [cardanoCopied, setCardanoCopied] = useState(false);
   const { addresses, addAddress } = useAddresses();
   const { activeNetwork } = useNetwork();
-  const { activeBlockchain } = useBlockchain();
+  const { activeBlockchain, isCardano } = useBlockchain();
+  const cardanoAddresses = useCardano(s => s.addresses);
 
   const { receiveAddress, receiveIndex, isGenerating, copied, open, generateNext, copyAddress } =
     useReceiveAddress({ activeBlockchain, activeNetwork, addresses, addAddress });
+
+  const cardanoAddr = cardanoAddresses?.[0]?.address || '';
+  const copyCardanoAddr = () => {
+    if (!cardanoAddr) return;
+    navigator.clipboard.writeText(cardanoAddr).then(() => {
+      setCardanoCopied(true);
+      setTimeout(() => setCardanoCopied(false), 2000);
+    });
+  };
 
   const handleOpen = async () => {
     setIsOpen(true);
@@ -49,51 +61,99 @@ export default function ReceiveScreen({ trigger }) {
             </div>
 
             <h2 className="text-lg font-bold text-white mb-1">Your Receive Address</h2>
-            <p className="text-xs text-dark-400 text-center mb-5 px-4 leading-relaxed">
-              Send <span className="text-bitcoin-500 font-medium">Bitcoin</span>,{' '}
-              <span className="text-purple-400 font-medium">Charms</span>,{' '}
-              <span className="text-purple-400 font-medium">$BRO tokens</span>{' '}
-              or any other asset to this address.
-            </p>
+            {isCardano?.() ? (
+              <p className="text-xs text-dark-400 text-center mb-5 px-4 leading-relaxed">
+                Send <span className="text-cardano-400 font-medium">ADA</span>{' '}
+                or any <span className="text-cardano-400 font-medium">CNT</span> to this
+                Cardano address.
+              </p>
+            ) : (
+              <p className="text-xs text-dark-400 text-center mb-5 px-4 leading-relaxed">
+                Send <span className="text-bitcoin-500 font-medium">Bitcoin</span>,{' '}
+                <span className="text-purple-400 font-medium">Charms</span>,{' '}
+                <span className="text-purple-400 font-medium">$BRO tokens</span>{' '}
+                or any other asset to this address.
+              </p>
+            )}
 
-            <div className="w-full card p-4 mb-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-primary-500" />
-                  <span className="text-xs font-medium text-primary-400">Taproot (P2TR)</span>
+            {isCardano?.() ? (
+              <>
+                <div className="w-full card p-4 mb-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-cardano-500" />
+                      <span className="text-xs font-medium text-cardano-400">Cardano payment</span>
+                    </div>
+                    <span className="text-xs text-dark-500">BIP-1852 #0</span>
+                  </div>
+                  {cardanoAddr ? (
+                    <p
+                      onClick={copyCardanoAddr}
+                      className="text-sm font-mono text-white break-all leading-relaxed cursor-pointer hover:text-cardano-300 transition-colors"
+                    >
+                      {cardanoAddr}
+                    </p>
+                  ) : (
+                    <div className="flex items-center justify-center py-4">
+                      <div className="w-5 h-5 border-2 border-cardano-500 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
                 </div>
-                <span className="text-xs text-dark-500">BIP-86 #{receiveIndex}</span>
-              </div>
-              {isGenerating ? (
-                <div className="flex items-center justify-center py-4">
-                  <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+
+                <button
+                  onClick={copyCardanoAddr}
+                  disabled={!cardanoAddr}
+                  className={`w-full py-3 rounded-xl text-sm font-semibold transition-all mb-3 ${
+                    cardanoCopied
+                      ? 'bg-green-600/20 border border-green-500/50 text-green-400'
+                      : 'bg-gradient-to-r from-cardano-500 to-blue-500 text-white hover:shadow-lg hover:shadow-cardano-500/25'
+                  } disabled:opacity-50`}
+                >
+                  {cardanoCopied ? '✓ Copied to clipboard!' : 'Copy Address'}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="w-full card p-4 mb-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-primary-500" />
+                      <span className="text-xs font-medium text-primary-400">Taproot (P2TR)</span>
+                    </div>
+                    <span className="text-xs text-dark-500">BIP-86 #{receiveIndex}</span>
+                  </div>
+                  {isGenerating ? (
+                    <div className="flex items-center justify-center py-4">
+                      <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : (
+                    <p onClick={copyAddress} className="text-sm font-mono text-white break-all leading-relaxed cursor-pointer hover:text-primary-300 transition-colors">
+                      {receiveAddress}
+                    </p>
+                  )}
                 </div>
-              ) : (
-                <p onClick={copyAddress} className="text-sm font-mono text-white break-all leading-relaxed cursor-pointer hover:text-primary-300 transition-colors">
-                  {receiveAddress}
-                </p>
-              )}
-            </div>
 
-            <button
-              onClick={copyAddress}
-              disabled={isGenerating || !receiveAddress}
-              className={`w-full py-3 rounded-xl text-sm font-semibold transition-all mb-3 ${
-                copied
-                  ? 'bg-green-600/20 border border-green-500/50 text-green-400'
-                  : 'bg-gradient-to-r from-primary-500 to-blue-500 text-white hover:shadow-lg hover:shadow-primary-500/25'
-              } disabled:opacity-50`}
-            >
-              {copied ? '✓ Copied to clipboard!' : 'Copy Address'}
-            </button>
+                <button
+                  onClick={copyAddress}
+                  disabled={isGenerating || !receiveAddress}
+                  className={`w-full py-3 rounded-xl text-sm font-semibold transition-all mb-3 ${
+                    copied
+                      ? 'bg-green-600/20 border border-green-500/50 text-green-400'
+                      : 'bg-gradient-to-r from-primary-500 to-blue-500 text-white hover:shadow-lg hover:shadow-primary-500/25'
+                  } disabled:opacity-50`}
+                >
+                  {copied ? '✓ Copied to clipboard!' : 'Copy Address'}
+                </button>
 
-            <button
-              onClick={generateNext}
-              disabled={isGenerating}
-              className="w-full py-3 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-dark-300 hover:bg-dark-700 hover:text-white transition-all disabled:opacity-50 mb-6"
-            >
-              {isGenerating ? 'Generating...' : 'Generate New Address'}
-            </button>
+                <button
+                  onClick={generateNext}
+                  disabled={isGenerating}
+                  className="w-full py-3 rounded-xl text-sm font-medium bg-dark-800 border border-dark-600 text-dark-300 hover:bg-dark-700 hover:text-white transition-all disabled:opacity-50 mb-6"
+                >
+                  {isGenerating ? 'Generating...' : 'Generate New Address'}
+                </button>
+              </>
+            )}
 
             <div className="w-full card p-3 bg-dark-800/50">
               <p className="text-xs text-dark-400 leading-relaxed">

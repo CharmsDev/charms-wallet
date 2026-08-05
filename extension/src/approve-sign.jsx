@@ -13,6 +13,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
+import {
+  SYSTEM_KEYS,
+  EXT_KEYS,
+  netKey,
+  DATA_TYPES,
+} from '@/services/storage-keys';
 import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
 import { ECPairFactory } from 'ecpair';
@@ -435,13 +441,16 @@ async function signMessageWithKeys(message, seedPhrase, networkName, addresses) 
 // React UI Component
 // ============================================================
 
-// Storage keys (must match background.js / storage-keys.js)
-const EXT_PENDING_SIGN = 'ext:pending_sign';
+// Storage keys imported via the @/ alias — single source of truth in
+// wallet/src/services/storage-keys.js. PENDING_PROOF + PROVING_STATUS are
+// extension-only (offscreen prover); kept as local string literals here
+// because the wallet has no equivalent.
+const EXT_PENDING_SIGN  = EXT_KEYS.PENDING_SIGN;
 const EXT_PENDING_PROOF = 'ext:pending_proof';
-const EXT_SIGN_RESPONSE = 'ext:sign_response';
-const SK_SEED_PHRASE = 'wallet:seed_phrase';
-const SK_ACTIVE_NETWORK = 'wallet:active_network';
-const addrKey = (bc, net) => `wallet:${bc}:${net}:addresses`;
+const EXT_SIGN_RESPONSE = EXT_KEYS.SIGN_RESPONSE;
+const SK_SEED_PHRASE    = SYSTEM_KEYS.SEED_PHRASE;
+const SK_ACTIVE_NETWORK = SYSTEM_KEYS.ACTIVE_NETWORK;
+const addrKey = (bc, net) => netKey(bc, net, DATA_TYPES.ADDRESSES);
 
 function shortenAddr(addr) {
   if (!addr || addr.length < 12) return addr;

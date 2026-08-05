@@ -11,10 +11,14 @@ import { NetworkProvider } from '@/contexts/NetworkContext';
 import { NavigationProvider } from '@/contexts/NavigationContext';
 import { UTXOProvider } from '@/stores/utxoStore';
 import { CharmsProvider } from '@/stores/charmsStore';
+import { BeamOperationsProvider } from '@/contexts/BeamOperationsContext';
+import { AuthProvider } from '@/contexts/AuthContext';
 
 // Import wallet components
-import WalletCreation from '@/components/wallet/setup/WalletCreation';
+import WalletSetupWizard from '@/components/wallet/setup/WalletSetupWizard';
 import WalletInitialization from '@/components/wallet/setup/WalletInitialization';
+import UnlockGate from '@/components/system/UnlockGate';
+import MigrationGate from '@/components/system/MigrationGate';
 
 // Extension-specific dashboard (simplified for popup)
 import ExtensionDashboard from './components/ExtensionDashboard';
@@ -54,20 +58,34 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Main extension app with all providers
+// Main extension app with all providers.
+//
+// Provider order mirrors the web wallet's layout.js: WalletProvider
+// owns the seed state, AuthProvider sits inside so useWallet() resolves
+// for hydration on unlock, UnlockGate blocks the rest of the tree when
+// status='locked', and MigrationGate forces legacy plaintext users to
+// adopt a passkey or password before reaching the dashboard.
 export function ExtensionApp() {
   return (
     <ErrorBoundary>
       <WalletProvider>
-        <NetworkProvider>
-          <NavigationProvider>
-            <UTXOProvider>
-              <CharmsProvider>
-                <ExtensionContent />
-              </CharmsProvider>
-            </UTXOProvider>
-          </NavigationProvider>
-        </NetworkProvider>
+        <AuthProvider>
+          <UnlockGate>
+            <MigrationGate>
+              <NetworkProvider>
+                <NavigationProvider>
+                  <UTXOProvider>
+                    <CharmsProvider>
+                      <BeamOperationsProvider>
+                        <ExtensionContent />
+                      </BeamOperationsProvider>
+                    </CharmsProvider>
+                  </UTXOProvider>
+                </NavigationProvider>
+              </NetworkProvider>
+            </MigrationGate>
+          </UnlockGate>
+        </AuthProvider>
       </WalletProvider>
     </ErrorBoundary>
   );
@@ -78,12 +96,10 @@ function ExtensionContent() {
   const {
     hasWallet,
     seedPhrase,
-    isLoading,
     isCheckingWallet,
     isInitializing,
     initializationStep,
     initializationProgress,
-    initializeWalletComplete
   } = useWallet();
 
   const [waitingForTransfer, setWaitingForTransfer] = useState(false);
@@ -110,23 +126,12 @@ function ExtensionContent() {
     return () => clearInterval(interval);
   }, [waitingForTransfer]);
 
-  const handleCreateWallet = async () => {
-    try {
-      await initializeWalletComplete(null, false, 'bitcoin', 'mainnet');
-    } catch (err) {
-      console.error('Failed to create wallet:', err);
-    }
-  };
-
-  const handleImportWallet = async (inputSeedPhrase) => {
-    try {
-      await initializeWalletComplete(inputSeedPhrase, true, 'bitcoin', 'mainnet');
-    } catch (err) {
-      console.error('Failed to import wallet:', err);
-    }
-  };
-
+  // Open the web wallet's transfer flow in a new tab and start polling
+  // chrome.storage.local for the seed-phrase arrival. The web side
+  // writes the plaintext seed there via a IMPORT_FROM_WEB handler.
   const handleTransferFromWeb = () => {
+    const token = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    window.open(`https://wallet.charms.dev/?transfer=${token}`, '_blank');
     setWaitingForTransfer(true);
   };
 
@@ -176,15 +181,17 @@ function ExtensionContent() {
     );
   }
 
-  // No wallet - show creation screen
+  // No wallet — drive setup through the unified wizard (passkey-first,
+  // password fallback). The extension also offers a "Transfer from Web
+  // Wallet" path, surfaced as an extra option on the choose step.
   if (!hasWallet || !seedPhrase) {
     return (
       <div className="h-full overflow-auto">
-        <WalletCreation
-          isLoading={isLoading}
-          onCreateWallet={handleCreateWallet}
-          onImportWallet={handleImportWallet}
-          onTransferFromWeb={handleTransferFromWeb}
+        <WalletSetupWizard
+          extraAction={{
+            label: 'Transfer from Charms Web Wallet',
+            onClick: handleTransferFromWeb,
+          }}
         />
       </div>
     );

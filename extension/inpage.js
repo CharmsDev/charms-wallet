@@ -16,12 +16,18 @@
   let requestId = 0;
   const pendingRequests = new Map();
 
-  // Event listeners for wallet events
+  // Event listeners for wallet events.
+  // Existing BTC events stay; E019 adds 'beam:*' for cross-chain ops.
   const eventListeners = {
     accountsChanged: [],
     networkChanged: [],
     connect: [],
-    disconnect: []
+    disconnect: [],
+    // E019 — emitted by background when a beam initiated via
+    // window.charmsWallet.beam.* changes phase / completes / errors.
+    'beam:phase':    [],
+    'beam:complete': [],
+    'beam:error':    [],
   };
 
   /**
@@ -212,7 +218,63 @@
       if (event && eventListeners[event]) {
         eventListeners[event] = [];
       }
-    }
+    },
+
+    // ─── E019 — Cardano namespace (additive, no breaking changes) ──────
+    //
+    // Read-only methods route through background.js to chrome.storage
+    // (wallet:net:cardano:<net>:* keys). State-modifying methods are
+    // stubbed and throw 'not_yet_implemented' until the signing surface
+    // for Cardano lands (E017b runner migration + approve-sign CSL host).
+    cardano: {
+      requestAccounts: async function() {
+        return sendMessage('cardano.requestAccounts');
+      },
+      getAccounts: async function() {
+        return sendMessage('cardano.getAccounts');
+      },
+      getBalance: async function() {
+        return sendMessage('cardano.getBalance');
+      },
+      getAssets: async function() {
+        return sendMessage('cardano.getAssets');
+      },
+      // STUBS — will route to approve-sign with mode=cardano in a
+      // follow-up task once CSL hosting + per-tx CBOR display land.
+      signTx:   async function(cborHex, opts = {}) {
+        return sendMessage('cardano.signTx', { cborHex, opts });
+      },
+      submitTx: async function(cborHex) {
+        return sendMessage('cardano.submitTx', { cborHex });
+      },
+      sendAda:  async function({ to, lovelace }) {
+        return sendMessage('cardano.sendAda', { to, lovelace });
+      },
+      sendCnt:  async function({ to, unit, quantity }) {
+        return sendMessage('cardano.sendCnt', { to, unit, quantity });
+      },
+    },
+
+    // ─── E019 — Beam namespace ──────────────────────────────────────────
+    //
+    // Read-only (getState, list) routes through background and reads
+    // wallet's charms_beam_operations storage key. The trigger methods
+    // (out, back, ebtcMint, ebtcRedeem) need an approval popup +
+    // executor invocation — stubbed today, full wiring lands together
+    // with E017b runner migration so DApp-initiated beams use the
+    // same SW path as popup-initiated ones.
+    beam: {
+      getState: async function(beamId) {
+        return sendMessage('beam.getState', { beamId });
+      },
+      list: async function() {
+        return sendMessage('beam.list');
+      },
+      out:        async function(payload) { return sendMessage('beam.out',        payload); },
+      back:       async function(payload) { return sendMessage('beam.back',       payload); },
+      ebtcMint:   async function(payload) { return sendMessage('beam.ebtcMint',   payload); },
+      ebtcRedeem: async function(payload) { return sendMessage('beam.ebtcRedeem', payload); },
+    },
   };
 
   // Expose the provider

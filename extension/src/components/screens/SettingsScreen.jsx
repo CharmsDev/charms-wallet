@@ -1,15 +1,20 @@
 import { useState, useCallback } from 'react';
-import { getSeedPhrase, clearAllWalletData } from '@/services/storage';
+import { clearAllWalletData } from '@/services/storage';
+import { useWallet } from '@/stores/walletStore';
+import { useAuth } from '@/contexts/AuthContext';
+import AuthMethodSettings from '@/components/wallet/setup/AuthMethodSettings';
 
 function SeedPhraseSection() {
+  const { seedPhrase } = useWallet();
   const [visible, setVisible] = useState(false);
   const [words, setWords] = useState([]);
   const [copied, setCopied] = useState(false);
 
-  const reveal = useCallback(async () => {
-    const sp = await getSeedPhrase();
-    if (sp) { setWords(sp.trim().split(/\s+/)); setVisible(true); }
-  }, []);
+  // Post-migration the seed lives in RAM (walletStore), not storage.
+  // Reveal reads from the unlocked session, not chrome.storage.
+  const reveal = useCallback(() => {
+    if (seedPhrase) { setWords(seedPhrase.trim().split(/\s+/)); setVisible(true); }
+  }, [seedPhrase]);
 
   const copy = useCallback(() => {
     navigator.clipboard.writeText(words.join(' '));
@@ -154,11 +159,61 @@ function ResetSection() {
   );
 }
 
+function LockSection() {
+  const { lockNow, walletType } = useAuth();
+  if (!walletType) return null;      // wallet not encrypted (shouldn't happen post-migration)
+  return (
+    <button
+      onClick={lockNow}
+      className="w-full card p-4 flex items-center justify-between hover:border-primary-500/50 transition-colors"
+    >
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-dark-700 flex items-center justify-center">
+          <span className="text-sm">🔒</span>
+        </div>
+        <span className="text-sm text-white">Lock wallet</span>
+      </div>
+      <span className="text-dark-500">→</span>
+    </button>
+  );
+}
+
+function EncryptionSection() {
+  const [open, setOpen] = useState(false);
+  if (open) {
+    return (
+      <div className="card p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-white">Encryption</span>
+          <button onClick={() => setOpen(false)} className="text-xs text-dark-400 underline">Close</button>
+        </div>
+        <AuthMethodSettings />
+      </div>
+    );
+  }
+  return (
+    <button
+      onClick={() => setOpen(true)}
+      className="w-full card p-4 flex items-center justify-between hover:border-primary-500/50 transition-colors"
+    >
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-dark-700 flex items-center justify-center">
+          <span className="text-sm">🛡️</span>
+        </div>
+        <span className="text-sm text-white">Encryption</span>
+      </div>
+      <span className="text-dark-500">→</span>
+    </button>
+  );
+}
+
 export default function SettingsScreen({ activeNetwork, getAvailableNetworks, isSwitchingNetwork, isSyncing, onNetworkSwitch }) {
   return (
     <div className="p-4">
       <h2 className="text-lg font-bold gradient-text mb-4">Settings</h2>
       <div className="space-y-2">
+        <LockSection />
+        <EncryptionSection />
         <SeedPhraseSection />
         <NetworkSection
           activeNetwork={activeNetwork}

@@ -1,6 +1,6 @@
 {
   "name": "charms-wallet-extension",
-  "version": "0.8.8",
+  "version": "0.8.9",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,10 +10,19 @@
     "build:dev": "vite build --mode development",
     "manifest:dev": "cp manifest.dev.json dist/manifest.json && echo 'dist/manifest.json → DEV (localhost enabled)'",
     "manifest:prod": "cp manifest.json dist/manifest.json && echo 'dist/manifest.json → PROD (production only)'",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:manifest": "node scripts/verify-prod-manifest.js manifest.json",
+    "check:dist": "node scripts/verify-dist.js dist",
+    "check:wasm": "node scripts/check-wasm-sha.js",
+    "check:version": "node scripts/check-version-sync.js",
+    "check:wallet-paths": "bash scripts/sync-from-wallet.sh",
+    "check:tier2": "bash scripts/check-tier2-headers.sh",
+    "check:all": "npm run check:wallet-paths && npm run check:tier2 && npm run check:manifest && npm run check:version && npm run check:wasm"
   },
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^1.2.0",
+    "@emurgo/cardano-serialization-lib-asmjs": "^14.1.1",
+    "@emurgo/cardano-serialization-lib-browser": "^14.1.1",
     "@magiceden-oss/runestone-lib": "^1.0.2",
     "@noble/hashes": "^1.7.1",
     "@noble/secp256k1": "^2.2.3",

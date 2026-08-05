@@ -1,14 +1,24 @@
 // Charms Wallet Background Service Worker
-// Handles extension lifecycle, wallet provider API, and CORS-free requests
+// Handles extension lifecycle, wallet provider API, and CORS-free requests.
+//
+// NOTE on storage keys: background.js is NOT a vite-bundled entry today
+// (vite.config.js copies it verbatim), so it cannot `import` from
+// `@/services/storage-keys`. The inlined constants below MUST stay
+// byte-identical to those declared in `wallet/src/services/storage-keys.js`.
+// Drift breaks cross-tool data sharing (extension <-> web wallet). E017 may
+// promote background.js to a vite entry; until then the duplication is
+// intentional and audited by `scripts/sync-from-wallet.sh` (path presence).
 
 console.log('Charms Wallet background service worker loaded');
 
-// ─── Storage Keys (must match wallet/src/services/storage-keys.js) ───
+// ─── Storage Keys — mirror of wallet/src/services/storage-keys.js ────
 const SK = {
-  SEED_PHRASE:        'wallet:seed_phrase',
-  ACTIVE_BLOCKCHAIN:  'wallet:active_blockchain',
-  ACTIVE_NETWORK:     'wallet:active_network',
-  BALANCE:            'wallet:balance',
+  VERSION:           'wallet:meta:version',
+  CREATED:           'wallet:meta:created',
+  SEED_PHRASE:       'wallet:seed_phrase',
+  ACTIVE_BLOCKCHAIN: 'wallet:active_blockchain',
+  ACTIVE_NETWORK:    'wallet:active_network',
+  UI_PREFS:          'wallet:prefs:ui',
 };
 const EXT = {
   CONNECTED_SITES:     'ext:connected_sites',
@@ -16,15 +26,31 @@ const EXT = {
   CONNECTION_RESPONSE: 'ext:connection_response',
   PENDING_SIGN:        'ext:pending_sign',
   SIGN_RESPONSE:       'ext:sign_response',
-  // Offscreen prover
   PENDING_PROOF:       'ext:pending_proof',
   PROVING_STATUS:      'ext:proving_status',
 };
+const DATA_TYPES = {
+  ADDRESSES:    'addresses',
+  UTXOS:        'utxos',
+  TRANSACTIONS: 'transactions',
+  CHARMS:       'charms',
+  ASSETS:       'assets',
+  ASSET_META:   'asset_meta',
+  BALANCE:      'balance',
+  SYNC_META:    'sync_meta',
+  INFO:         'info',
+};
+function netKey(blockchain, network, dataType) {
+  return `wallet:net:${blockchain}:${network}:${dataType}`;
+}
 function addressesKey(blockchain, network) {
-  return `wallet:${blockchain}:${network}:addresses`;
+  return netKey(blockchain, network, DATA_TYPES.ADDRESSES);
 }
 function utxosKey(blockchain, network) {
-  return `wallet:${blockchain}:${network}:utxos`;
+  return netKey(blockchain, network, DATA_TYPES.UTXOS);
+}
+function balanceKey(blockchain, network) {
+  return netKey(blockchain, network, DATA_TYPES.BALANCE);
 }
 
 
@@ -199,6 +225,17 @@ async function getWalletData() {
       resolve(data);
     });
   });
+}
+
+/**
+ * Safely parse a value from storage that may be either a JSON string or
+ * an already-parsed object/array. Returns the parsed form on success or
+ * the fallback on any failure.
+ */
+function safeParse(raw, fallback = null) {
+  if (raw == null) return fallback;
+  if (typeof raw !== 'string') return raw;
+  try { return JSON.parse(raw); } catch { return fallback; }
 }
 
 /**
@@ -562,6 +599,72 @@ async function handleWalletProviderRequest(request, sender) {
         return { error: 'Transaction broadcasting not yet implemented' };
       }
 
+      // ─── E019 — Cardano namespace (read-only routes today) ────────
+      //
+      // Read methods route through chrome.storage on the canonical
+      // wallet:net:cardano:<net>:* keys (written by @/stores/cardanoStore
+      // in popup contexts). State-modifying methods are stubbed; the
+      // signing surface (CSL in approve-sign) lands together with
+      // E017b runner migration.
+      case 'cardano.requestAccounts':
+      case 'cardano.getAccounts': {
+        const isConnected = await isSiteConnected(origin);
+        if (method === 'cardano.getAccounts' && !isConnected) return { result: [] };
+        if (method === 'cardano.requestAccounts' && !isConnected) {
+          return { error: 'Site not connected. Call requestAccounts (BTC) first; Cardano shares the same connection.' };
+        }
+        const walletData = await getWalletData();
+        const adaNet = walletData[SK.ACTIVE_NETWORK] === 'mainnet' ? 'mainnet' : 'preprod';
+        const addrs = parseAddresses(walletData[netKey('cardano', adaNet, DATA_TYPES.ADDRESSES)]);
+        return { result: addrs.map(a => a?.address || a) };
+      }
+
+      case 'cardano.getBalance': {
+        if (!(await isSiteConnected(origin))) return { error: 'Site not connected.' };
+        const walletData = await getWalletData();
+        const adaNet = walletData[SK.ACTIVE_NETWORK] === 'mainnet' ? 'mainnet' : 'preprod';
+        const utxosRaw = walletData[netKey('cardano', adaNet, DATA_TYPES.UTXOS)] || [];
+        const utxos = typeof utxosRaw === 'string' ? safeParse(utxosRaw) : utxosRaw;
+        const lovelace = (utxos || []).reduce((s, u) => s + BigInt(u.lovelace || '0'), 0n);
+        return { result: { lovelace: lovelace.toString(), ada: Number(lovelace) / 1_000_000 } };
+      }
+
+      case 'cardano.getAssets': {
+        if (!(await isSiteConnected(origin))) return { error: 'Site not connected.' };
+        const walletData = await getWalletData();
+        const adaNet = walletData[SK.ACTIVE_NETWORK] === 'mainnet' ? 'mainnet' : 'preprod';
+        const assetsRaw = walletData[netKey('cardano', adaNet, DATA_TYPES.ASSETS)] || [];
+        const assets = typeof assetsRaw === 'string' ? safeParse(assetsRaw) : assetsRaw;
+        return { result: assets || [] };
+      }
+
+      case 'cardano.signTx':
+      case 'cardano.submitTx':
+      case 'cardano.sendAda':
+      case 'cardano.sendCnt':
+        return { error: 'not_yet_implemented', detail: 'Cardano signing lands with E017b (runner migration + approve-sign CSL host).' };
+
+      // ─── E019 — Beam namespace ────────────────────────────────────
+      case 'beam.list':
+      case 'beam.getState': {
+        const raw = await new Promise(resolve =>
+          chrome.storage.local.get(['charms_beam_operations'], r =>
+            resolve(r['charms_beam_operations'] ?? null))
+        );
+        const all = raw ? (typeof raw === 'string' ? safeParse(raw) : raw) : {};
+        if (method === 'beam.getState') {
+          const id = params?.beamId;
+          return { result: id ? all?.[id] || null : null };
+        }
+        return { result: Object.values(all || {}) };
+      }
+
+      case 'beam.out':
+      case 'beam.back':
+      case 'beam.ebtcMint':
+      case 'beam.ebtcRedeem':
+        return { error: 'not_yet_implemented', detail: 'DApp-initiated beams land with E017b (SW-driven executors + approve-beam popup).' };
+
       default:
         return { error: `Unknown method: ${method}` };
     }
@@ -766,3 +869,124 @@ chrome.runtime.onConnect.addListener((port) => {
     });
   }
 });
+
+// ─── Beam keep-alive (E017 — partial) ──────────────────────────────────────
+//
+// Beams run for 60–90 min and the popup may close at any time. Today's
+// executor still lives in the popup React context (BeamOperationsContext
+// + executeBeamOut / executeEbtcBeam / etc), so the actual signing /
+// proving / broadcasting only progresses while the popup is open. This
+// block makes the service worker re-wake periodically while a beam is
+// "active" in storage so:
+//   1. The popup-side runner can rely on chrome.storage onChange events
+//      reaching it (the SW must be alive to dispatch them).
+//   2. When E017's full migration moves the runner into the SW, the
+//      keep-alive scaffolding is already in place.
+//
+// Source of truth for "active beam exists": the wallet's beam
+// persistence layer (services/beam/core/persistence.js) writes to
+// chrome.storage.local key `charms_beam_operations`. We scan it for any
+// entry whose phase ≠ 'complete' and ≠ 'error'.
+
+const BEAM_ALARM_NAME = 'beam:keepalive';
+const BEAM_STORAGE_KEY = 'charms_beam_operations';
+const BEAM_ALARM_INTERVAL_MIN = 4.5; // ms idle limit is 5 min — ping just under that
+
+async function hasActiveBeam() {
+  try {
+    const raw = await new Promise(resolve =>
+      chrome.storage.local.get([BEAM_STORAGE_KEY], r => resolve(r[BEAM_STORAGE_KEY] ?? null))
+    );
+    if (!raw) return false;
+    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!obj || typeof obj !== 'object') return false;
+    return Object.values(obj).some(op => {
+      const phase = op?.phase;
+      return phase && phase !== 'complete' && phase !== 'error';
+    });
+  } catch { return false; }
+}
+
+async function scheduleBeamKeepalive() {
+  if (!(await hasActiveBeam())) return;
+  try {
+    await chrome.alarms.create(BEAM_ALARM_NAME, {
+      delayInMinutes: BEAM_ALARM_INTERVAL_MIN,
+      periodInMinutes: BEAM_ALARM_INTERVAL_MIN,
+    });
+  } catch (e) { console.warn('[beam-keepalive] schedule failed:', e?.message); }
+}
+
+async function cancelBeamKeepalive() {
+  try { await chrome.alarms.clear(BEAM_ALARM_NAME); } catch {}
+}
+
+// Re-evaluate whenever beam state changes (popup writes via persistence).
+// Also broadcasts beam:phase / beam:complete / beam:error events to all
+// open tabs so DApps subscribed via window.charmsWallet.on('beam:*', cb)
+// receive lifecycle updates. The diff between oldValue and newValue
+// drives the per-op event emission (E019).
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area !== 'local' || !(BEAM_STORAGE_KEY in changes)) return;
+  if (await hasActiveBeam()) {
+    await scheduleBeamKeepalive();
+  } else {
+    await cancelBeamKeepalive();
+  }
+  await broadcastBeamDiff(changes[BEAM_STORAGE_KEY]);
+});
+
+/** Forward beam lifecycle events to every tab so any inpage.js listener
+ *  in a connected DApp receives them. Diff-based — only fires when a
+ *  phase actually changes or completion/error transitions. */
+async function broadcastBeamDiff(change) {
+  if (!change) return;
+  const oldMap = change.oldValue
+    ? (typeof change.oldValue === 'string' ? safeParse(change.oldValue, {}) : change.oldValue) || {}
+    : {};
+  const newMap = change.newValue
+    ? (typeof change.newValue === 'string' ? safeParse(change.newValue, {}) : change.newValue) || {}
+    : {};
+
+  const events = [];
+  for (const [id, op] of Object.entries(newMap)) {
+    const prev = oldMap[id];
+    const phase = op?.phase;
+    if (!phase) continue;
+    if (phase === 'complete' && (!prev || prev.phase !== 'complete')) {
+      events.push({ event: 'beam:complete', data: { id, op } });
+    } else if (phase === 'error' && (!prev || prev.phase !== 'error')) {
+      events.push({ event: 'beam:error', data: { id, op, error: op?.error } });
+    } else if (!prev || prev.phase !== phase) {
+      events.push({ event: 'beam:phase', data: { id, phase, statusMessage: op?.statusMessage } });
+    }
+  }
+  if (!events.length) return;
+
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (!tab.id) continue;
+      for (const evt of events) {
+        chrome.tabs.sendMessage(tab.id, { type: 'CHARMS_WALLET_EVENT', ...evt }).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.warn('[beam-events] broadcast failed:', e?.message);
+  }
+}
+
+// On alarm fire: keep SW alive, reschedule if still active. The next
+// fire is automatic via `periodInMinutes`, but we re-check active status
+// so a completed beam doesn't keep waking us forever.
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== BEAM_ALARM_NAME) return;
+  if (!(await hasActiveBeam())) {
+    await cancelBeamKeepalive();
+  }
+});
+
+// On SW startup, re-arm if a beam was active before the worker was
+// killed (browser restart, idle eviction).
+chrome.runtime.onStartup?.addListener(() => { scheduleBeamKeepalive(); });
+chrome.runtime.onInstalled.addListener(() => { scheduleBeamKeepalive(); });

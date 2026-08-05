@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { StorageAdapter } from '../shared/storage-adapter';
-import { GLOBAL_KEYS } from '@/services/storage-keys';
+import { SYSTEM_KEYS } from '@/services/storage-keys';
 
 export function useNetworkSwitch({
   activeNetwork,
@@ -18,7 +18,7 @@ export function useNetworkSwitch({
     setIsSwitchingNetwork(true);
     try {
       saveNetwork(newNetwork);
-      await StorageAdapter.set(GLOBAL_KEYS.ACTIVE_NETWORK, newNetwork);
+      await StorageAdapter.set(SYSTEM_KEYS.ACTIVE_NETWORK, newNetwork);
       await loadAddresses(activeBlockchain, newNetwork);
       await loadUTXOs(activeBlockchain, newNetwork);
       const ts = await StorageAdapter.get(`last_synced_${activeBlockchain}_${newNetwork}`);

@@ -17,11 +17,14 @@
     },
     "default_title": "Charms Wallet (dev)"
   },
-  "permissions": ["storage", "offscreen", "notifications"],
+  "permissions": ["storage", "offscreen", "notifications", "alarms"],
   "host_permissions": [
     "https://mempool.space/*",
     "https://charms.sh/*",
     "https://*.charms.dev/*",
+    "https://charms-explorer-api.fly.dev/*",
+    "https://*.koios.rest/*",
+    "https://*.blockfrost.io/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
   ],

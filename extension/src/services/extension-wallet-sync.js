@@ -205,9 +205,25 @@ async function applyResults(balanceResult, charms, tokenBalances, blockchain, ne
 // ============================================
 // Fallback path (mempool.space + prover)
 // ============================================
+//
+// NOTE: wallet/src/services/shared/fallback-provider.js was removed in
+// the wallet refactor (single Explorer-based path now). The body below
+// is preserved for reference but the import would 404; we throw a
+// clean error if anyone hits the fallback path. Real fix: rewire this
+// function to use @/services/shared/mempool-service directly.
 
 async function runFallback(addressList, network, skipCharms, blockchain, onPhase1Complete, onCharmFound, onCharmProgress, result, _ts) {
-    const { fallbackProvider } = await import('@/services/shared/fallback-provider');
+    const err = new Error(
+        '[ExtWalletSync] Fallback unavailable — wallet retired services/shared/fallback-provider. ' +
+        'Explorer API is the only path today; if Explorer is down, sync will degrade until E017b ' +
+        'reimplements fallback via mempool-service directly.'
+    );
+    err.code = 'FALLBACK_REMOVED';
+    throw err;
+
+    // Dead code below — kept for reference until the rewire lands.
+    // eslint-disable-next-line no-unreachable
+    const { fallbackProvider } = await import('@/services/shared/mempool-service');
 
     // Balance from mempool — this should always work
     const fbBalance = await fallbackProvider.getBalance(addressList, network);
