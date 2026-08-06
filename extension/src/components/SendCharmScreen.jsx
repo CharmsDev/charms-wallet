@@ -9,12 +9,13 @@
  * 3. "Send" → prover (5-10 min ZK proof) → sign → broadcast via Explorer API
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCharms } from '@/stores/charmsStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { resolveImageUrl } from '@/utils/media';
 import { useUTXOs } from '@/stores/utxoStore';
+import { useWallet } from '@/stores/walletStore';
 import { useExtensionWalletSync } from '../hooks/useExtensionWalletSync';
 
 const TOKEN_DECIMALS = 100_000_000; // BRO has 8 decimals
@@ -51,6 +52,13 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
   const { addresses } = useAddresses();
   const { isSyncing, syncFullWallet } = useExtensionWalletSync();
   const { utxos: btcUtxosByAddress } = useUTXOs();
+
+  // G003: the mnemonic lives in RAM from unlock onwards, never at rest.
+  // Captured in a ref because proving takes minutes and handleConfirm
+  // would otherwise close over the value as of its last render.
+  const { seedPhrase } = useWallet();
+  const seedRef = useRef(seedPhrase);
+  useEffect(() => { seedRef.current = seedPhrase; }, [seedPhrase]);
 
   // Build address lookup: address string → { index, isChange }
   const addrLookup = useMemo(() => {
@@ -324,15 +332,15 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
     setError('');
 
     try {
-      // [RJJ-AUTOSIGN] — auto-sign path: reads seed phrase from storage and signs directly.
-      // Keep for future use when automatic signing is enabled after prover completes.
-      const stored = await chrome.storage.local.get(['wallet:seed_phrase']);
-      const seedPhrase = stored['wallet:seed_phrase'];
-      if (!seedPhrase) throw new Error('Seed phrase not found in wallet storage');
+      // Seed comes from walletStore (RAM). Reading it back from
+      // chrome.storage.local, as this did, only ever worked for a legacy
+      // plaintext wallet: under G003 a Type 1 wallet stores nothing and a
+      // Type 2 one stores ciphertext, so the lookup returned undefined and
+      // every charm transfer died here with 'Seed phrase not found'.
+      const seedPhrase = seedRef.current;
+      if (!seedPhrase) throw new Error('Wallet locked. Please unlock and retry.');
 
-      const { signAndBroadcastTransfer } = await import(
-        '../services/charm-transfer/executor.js'
-      );
+      const { signAndBroadcastTransfer } = await import('@/services/charm-transfer');
 
       const result = await signAndBroadcastTransfer({
         spellTxHex: proverResult.spellTxHex,

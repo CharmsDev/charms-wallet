@@ -587,7 +587,7 @@ function SignApproval() {
       if (!seedPhrase) throw new Error('Seed phrase not found in wallet');
       const network = pendingProof.meta?.network || storageData[SK_ACTIVE_NETWORK] || 'mainnet';
 
-      const { signAndBroadcastTransfer } = await import('./services/charm-transfer/executor.js');
+      const { signAndBroadcastTransfer } = await import('@/services/charm-transfer');
       const prevTxMap = new Map(pendingProof.prevTxMapEntries || []);
       const result = await signAndBroadcastTransfer({
         spellTxHex: pendingProof.spellTxHex,

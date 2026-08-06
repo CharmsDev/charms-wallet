@@ -82,10 +82,24 @@ services/shared/fee-rate.js
 services/shared/explorer-wallet-service.js
 services/shared/bitcoin-api-router.js
 services/shared/mempool-service.js
+services/charm-transfer/index.js
 services/charm-transfer/constants.js
+services/charm-transfer/executor.js
 services/charm-transfer/broadcaster.js
 services/charm-transfer/tx-fetcher.js
 services/charm-transfer/tx-signer.js
+services/wallet/sync/explorer-wallet-sync.js
+utils/media.js
+services/auth/index.js
+services/auth/blob.js
+services/auth/prf-derive.js
+services/auth/wallet-password.js
+contexts/AuthContext.js
+components/system/UnlockGate.jsx
+components/system/MigrationGate.jsx
+components/wallet/setup/WalletSetupWizard.jsx
+components/wallet/setup/WalletInitialization.jsx
+components/wallet/setup/AuthMethodSettings.jsx
 "
 
 if [ "$MODE" = "--list" ]; then

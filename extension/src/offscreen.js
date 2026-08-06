@@ -26,7 +26,7 @@ async function runProver(params) {
   };
 
   try {
-    const { proveCharmTransfer } = await import('./services/charm-transfer/executor.js');
+    const { proveCharmTransfer } = await import('@/services/charm-transfer');
 
     const result = await proveCharmTransfer({
       ...params,
