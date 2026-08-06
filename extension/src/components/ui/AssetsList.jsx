@@ -1,42 +1,66 @@
+import { useState } from 'react';
+import { resolveImageUrl } from '@/utils/media';
+
 const BRO_IMAGE = 'https://bro.charms.dev/assets/bro-token-DsXLIv23.jpg';
 
+// Field names follow the charms store contract: groupTokensByAppId()
+// returns { appId, name, ticker, image, description, totalAmount,
+// tokenUtxos } and getNFTs() returns charm objects with image/name.
+// This file used to read `image_url` and `app_id`, which never exist on
+// those objects, so every token fell through to the letter avatar and
+// the id line rendered "undefined...".
 function TokenRow({ token, isSyncing }) {
+  const [imgError, setImgError] = useState(false);
   const isBro = token.ticker === '$BRO' || token.ticker === 'BRO';
+  const image = !imgError && resolveImageUrl(token.image);
+  const label = token.name || token.ticker || 'Token';
+
   return (
     <div className="card p-3 flex items-center justify-between">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center bg-dark-700">
-          {token.image_url ? (
-            <img src={token.image_url} alt={token.ticker || 'Token'} className="w-full h-full object-cover" />
+        <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center bg-dark-700 flex-shrink-0">
+          {image ? (
+            <img
+              src={image}
+              alt={label}
+              className="w-full h-full object-cover"
+              onError={() => setImgError(true)}
+            />
           ) : isBro ? (
             <img src={BRO_IMAGE} alt="BRO" className="w-full h-full object-cover" />
           ) : (
-            <span className="text-sm font-bold text-white">{(token.ticker || 'T')[0]}</span>
+            <span className="text-sm font-bold text-white">{label[0]}</span>
           )}
         </div>
-        <div>
-          <div className="text-sm font-medium text-white">{token.ticker || 'Token'}</div>
-          <div className="text-xs text-dark-500">{token.app_id?.slice(0, 20)}...</div>
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-white truncate">{label}</div>
+          <div className="text-xs text-dark-500 truncate">
+            {token.ticker && token.ticker !== label ? token.ticker : `${token.appId?.slice(0, 20) || ''}...`}
+          </div>
         </div>
       </div>
-      <div className="text-sm font-bold text-white">
-        {isSyncing ? '--' : Number(token.totalAmount || 0).toFixed(4)}
+      <div className="text-sm font-bold text-white flex-shrink-0 pl-2">
+        {isSyncing ? '--' : Number(token.totalAmount || 0).toLocaleString()}
       </div>
     </div>
   );
 }
 
 function NFTRow({ nft }) {
+  const [imgError, setImgError] = useState(false);
+  const image = !imgError && resolveImageUrl(nft.image || nft.metadata?.image);
+  const label = nft.name || nft.metadata?.name || 'NFT';
+
   return (
     <div className="card p-3 flex items-center gap-3">
-      <div className="w-10 h-10 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center overflow-hidden">
-        {nft.image_url
-          ? <img src={nft.image_url} alt="" className="w-full h-full object-cover" />
+      <div className="w-10 h-10 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center overflow-hidden flex-shrink-0">
+        {image
+          ? <img src={image} alt={label} className="w-full h-full object-cover" onError={() => setImgError(true)} />
           : <span className="text-sm font-bold text-white">N</span>
         }
       </div>
-      <div>
-        <div className="text-sm font-medium text-white">{nft.name || 'NFT'}</div>
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-white truncate">{label}</div>
         <div className="text-xs text-dark-500">NFT</div>
       </div>
     </div>

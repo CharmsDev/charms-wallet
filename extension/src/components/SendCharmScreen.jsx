@@ -13,6 +13,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCharms } from '@/stores/charmsStore';
 import { useAddresses } from '@/stores/addressesStore';
+import { resolveImageUrl } from '@/utils/media';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useExtensionWalletSync } from '../hooks/useExtensionWalletSync';
 
@@ -85,6 +86,9 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
         map[appId] = {
           appId,
           symbol: charm.ticker || charm.name || '?',
+          // Carried so the picker can show the real asset image rather
+          // than only recognising BRO. ipfs:// is resolved at render.
+          image: charm.image || charm.metadata?.image || null,
           totalRaw: 0,
           utxos: [],
         };
@@ -433,11 +437,13 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
                       }`}
                     >
                       <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-dark-700">
-                        {tok.symbol === '$BRO' || tok.symbol === 'BRO' ? (
+                        {resolveImageUrl(tok.image) ? (
+                          <img src={resolveImageUrl(tok.image)} alt={tok.symbol} className="w-full h-full object-cover" />
+                        ) : tok.symbol === '$BRO' || tok.symbol === 'BRO' ? (
                           <img src={BRO_IMAGE} alt="BRO" className="w-full h-full object-cover" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-sm font-bold text-white">
-                            {tok.symbol[0]}
+                            {(tok.symbol || '?')[0]}
                           </div>
                         )}
                       </div>
