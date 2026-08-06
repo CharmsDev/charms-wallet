@@ -21,7 +21,10 @@ const formatSats = (n) => {
 
 const QUICK_AMOUNTS = [3000, 10000, 50000, 100000];
 const MAX_FEE_SATS = 5000;
-const MIN_FEE_RATE = 3; // Minimum sat/vB to ensure timely confirmation
+// No local fee-rate constant on purpose. getNetworkFeeRate() in
+// @/services/shared/fee-rate is the single source of truth and owns the
+// floor; a shadow MIN_FEE_RATE here is exactly the anti-pattern that
+// module documents as a regression.
 
 // ─── Component ───────────────────────────────────────────────────────
 export default function SendScreen({ onClose, syncUTXOs }) {
@@ -72,10 +75,8 @@ export default function SendScreen({ onClose, syncUTXOs }) {
     setIsCalculatingMax(true);
     setError('');
     try {
-      const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
-      const feeEstimates = await bitcoinApiRouter.getFeeEstimates(activeNetwork);
-      if (!feeEstimates.success) throw new Error('Failed to fetch fee estimates');
-      const currentFeeRate = Math.max(feeEstimates.fees.halfHour, MIN_FEE_RATE);
+      const { getNetworkFeeRate } = await import('@/services/shared/fee-rate');
+      const currentFeeRate = await getNetworkFeeRate(activeNetwork);
       setFeeRate(currentFeeRate);
 
       const { utxoCalculations } = await import('@/services/utxo/utils/calculations');
@@ -89,7 +90,11 @@ export default function SendScreen({ onClose, syncUTXOs }) {
       const { UTXOSelector } = await import('@/services/utxo/core/selector');
       const selector = new UTXOSelector();
       const totalValue = allUtxos.reduce((sum, u) => sum + u.value, 0);
-      const exactFee = selector.calculateMixedFee(allUtxos, 1, currentFeeRate);
+      // Size the single output from the actual destination when we have
+      // one; taproot outputs are 43 vbytes against segwit's 31, and
+      // counting them all the same underfunded the broadcast.
+      const outputs = (destinationAddress || '').trim() ? [destinationAddress.trim()] : 1;
+      const exactFee = selector.calculateMixedFee(allUtxos, outputs, currentFeeRate);
       const maxAmount = totalValue - exactFee;
       setAmount(maxAmount > 0 ? maxAmount.toString() : '0');
     } catch (err) {
@@ -98,7 +103,7 @@ export default function SendScreen({ onClose, syncUTXOs }) {
     } finally {
       setIsCalculatingMax(false);
     }
-  }, [utxos, charms, activeNetwork]);
+  }, [utxos, charms, activeNetwork, destinationAddress]);
 
   // ── Prepare transaction (UTXO selection → sign → show confirmation) ──
   const handlePrepare = useCallback(async () => {
@@ -108,11 +113,9 @@ export default function SendScreen({ onClose, syncUTXOs }) {
     setStatusMessage('Fetching network fee rates...');
 
     try {
-      // 1. Fee estimation
-      const { bitcoinApiRouter } = await import('@/services/shared/bitcoin-api-router');
-      const feeEstimates = await bitcoinApiRouter.getFeeEstimates(activeNetwork);
-      if (!feeEstimates.success) throw new Error('Failed to fetch fee estimates');
-      const currentFeeRate = Math.max(feeEstimates.fees.halfHour, MIN_FEE_RATE);
+      // 1. Fee estimation — single source of truth
+      const { getNetworkFeeRate } = await import('@/services/shared/fee-rate');
+      const currentFeeRate = await getNetworkFeeRate(activeNetwork);
       setFeeRate(currentFeeRate);
 
       // 2. Refresh UTXOs from Explorer API before selecting — never trust cache alone
@@ -148,7 +151,9 @@ export default function SendScreen({ onClose, syncUTXOs }) {
 
       let selectionResult;
       if (isMaxTransaction) {
-        const exactFee = selector.calculateMixedFee(allUtxos, 1, currentFeeRate);
+        // Same per-output sizing as the Max button so the amount the user
+        // saw is the amount the broadcast can actually afford.
+        const exactFee = selector.calculateMixedFee(allUtxos, [destinationAddress.trim()], currentFeeRate);
         const adjustedAmount = totalAvailable - exactFee;
         selectionResult = {
           selectedUtxos: allUtxos,
