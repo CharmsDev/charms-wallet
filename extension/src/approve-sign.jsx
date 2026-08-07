@@ -457,6 +457,50 @@ function shortenAddr(addr) {
   return `${addr.slice(0, 8)}…${addr.slice(-6)}`;
 }
 
+/**
+ * Resolve the mnemonic for a signing ceremony (G003).
+ *
+ * This document is opened fresh for every request, so it never shares the
+ * popup's in-RAM seed and has to establish the secret on its own:
+ *
+ *   Type 2 (password)  decrypt the stored blob with the password the user
+ *                      types here. This is the supported extension path.
+ *   Type 1 (PRF)       not possible. Deriving it needs WebAuthn against
+ *                      rpId wallet.charms.dev, and a chrome-extension://
+ *                      origin can only scope credentials to the extension
+ *                      id. Fail with an explicit message instead of the
+ *                      old generic 'Seed phrase not found in wallet'.
+ *   no blob            legacy plaintext wallet, or one transferred from
+ *                      the web wallet. Read the key as before.
+ *
+ * @returns {Promise<string>} the mnemonic; callers must not persist it
+ */
+async function resolveSigningSeed(password) {
+  const { getWalletType, unlockPasswordWallet } = await import('@/services/auth');
+  const walletType = await getWalletType();
+
+  if (walletType === 'password') {
+    if (!password) {
+      const err = new Error('Password required to sign.');
+      err.code = 'PASSWORD_REQUIRED';
+      throw err;
+    }
+    return await unlockPasswordWallet({ password });
+  }
+
+  if (walletType === 'prf') {
+    throw new Error(
+      'This wallet is secured by a passkey, which cannot be used from the ' +
+      'extension. Sign this request at wallet.charms.dev instead.'
+    );
+  }
+
+  const stored = await chrome.storage.local.get([SK_SEED_PHRASE]);
+  const seedPhrase = stored[SK_SEED_PHRASE];
+  if (!seedPhrase) throw new Error('No wallet found in this extension.');
+  return seedPhrase;
+}
+
 function SignApproval() {
   // PSBT / message signing state
   const [request, setRequest] = useState(null);
@@ -471,6 +515,24 @@ function SignApproval() {
   const [signing, setSigning] = useState(false);
   const [error, setError] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
+
+  // G003 Type 2 unlock. `needsPassword` is set when a signing attempt
+  // reports PASSWORD_REQUIRED, which turns the field on without having to
+  // probe storage on mount.
+  const [walletType, setWalletType] = useState(null);
+  const [password, setPassword] = useState('');
+  const [needsPassword, setNeedsPassword] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { getWalletType } = await import('@/services/auth');
+        const t = await getWalletType();
+        setWalletType(t);
+        if (t === 'password') setNeedsPassword(true);
+      } catch (_) { /* legacy wallet — plaintext path handles it */ }
+    })();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -533,9 +595,8 @@ function SignApproval() {
     try {
       const mainnetKey = addrKey('bitcoin', 'mainnet');
       const testnetKey = addrKey('bitcoin', 'testnet4');
-      const storageData = await chrome.storage.local.get([SK_SEED_PHRASE, SK_ACTIVE_NETWORK, mainnetKey, testnetKey]);
-      const seedPhrase = storageData[SK_SEED_PHRASE];
-      if (!seedPhrase) throw new Error('Seed phrase not found in wallet');
+      const storageData = await chrome.storage.local.get([SK_ACTIVE_NETWORK, mainnetKey, testnetKey]);
+      const seedPhrase = await resolveSigningSeed(password);
       const networkName = storageData[SK_ACTIVE_NETWORK] || 'mainnet';
       let addresses = safeParse(storageData[addrKey('bitcoin', networkName)]);
       if (addresses.length === 0) {
@@ -571,7 +632,14 @@ function SignApproval() {
       window.close();
     } catch (err) {
       console.error('[approve-sign] Signing error:', err);
-      setError(err.message);
+      // A Type 2 wallet reaching here without a password just needs the
+      // field revealed, not an error shouted at the user.
+      if (err.code === 'PASSWORD_REQUIRED') {
+        setNeedsPassword(true);
+        setError('Enter your wallet password to sign.');
+      } else {
+        setError(err.message);
+      }
       setSigning(false);
     }
   };
@@ -582,9 +650,8 @@ function SignApproval() {
     setSigning(true);
     setError(null);
     try {
-      const storageData = await chrome.storage.local.get([SK_SEED_PHRASE, SK_ACTIVE_NETWORK]);
-      const seedPhrase = storageData[SK_SEED_PHRASE];
-      if (!seedPhrase) throw new Error('Seed phrase not found in wallet');
+      const storageData = await chrome.storage.local.get([SK_ACTIVE_NETWORK]);
+      const seedPhrase = await resolveSigningSeed(password);
       const network = pendingProof.meta?.network || storageData[SK_ACTIVE_NETWORK] || 'mainnet';
 
       const { signAndBroadcastTransfer } = await import('@/services/charm-transfer');
@@ -602,7 +669,12 @@ function SignApproval() {
       setTxid(result.txid);
     } catch (err) {
       console.error('[approve-sign] Charm sign error:', err);
-      setError(err.message);
+      if (err.code === 'PASSWORD_REQUIRED') {
+        setNeedsPassword(true);
+        setError('Enter your wallet password to sign.');
+      } else {
+        setError(err.message);
+      }
       setSigning(false);
     }
   };
@@ -694,9 +766,25 @@ function SignApproval() {
 
         {error && <div style={styles.error}>{error}</div>}
 
+        {needsPassword && (
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Wallet password"
+            autoFocus
+            style={styles.passwordInput}
+            disabled={signing}
+          />
+        )}
+
         <div style={styles.buttons}>
           <button style={styles.btnCancel} onClick={handleCancelCharm} disabled={signing}>Cancel</button>
-          <button style={signing ? styles.btnSignDisabled : styles.btnSign} onClick={handleSignCharm} disabled={signing}>
+          <button
+            style={signing || (needsPassword && !password) ? styles.btnSignDisabled : styles.btnSign}
+            onClick={handleSignCharm}
+            disabled={signing || (needsPassword && !password)}
+          >
             {signing ? 'Signing…' : 'Confirm & Sign'}
           </button>
         </div>
@@ -826,9 +914,25 @@ function SignApproval() {
 
       {error && <div style={styles.error}>{error}</div>}
 
+      {needsPassword && (
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Wallet password"
+          autoFocus
+          style={styles.passwordInput}
+          disabled={signing}
+        />
+      )}
+
       <div style={styles.buttons}>
         <button style={styles.btnCancel} onClick={handleCancelPsbt} disabled={signing}>Cancel</button>
-        <button style={signing ? styles.btnSignDisabled : styles.btnSign} onClick={handleSignPsbt} disabled={signing}>
+        <button
+          style={signing || (needsPassword && !password) ? styles.btnSignDisabled : styles.btnSign}
+          onClick={handleSignPsbt}
+          disabled={signing || (needsPassword && !password)}
+        >
           {signing ? 'Signing...' : 'Sign'}
         </button>
       </div>
@@ -886,6 +990,11 @@ const styles = {
   },
   loading: { textAlign: 'center', color: '#888', padding: 40 },
   buttons: { display: 'flex', gap: 12 },
+  passwordInput: {
+    width: '100%', padding: '12px 14px', marginBottom: 12, boxSizing: 'border-box',
+    borderRadius: 10, border: '1px solid rgba(255,255,255,0.18)', fontSize: 15,
+    background: 'rgba(0,0,0,0.35)', color: 'white', outline: 'none',
+  },
   btnCancel: {
     flex: 1, padding: 12, border: 'none', borderRadius: 10, fontSize: 16, fontWeight: 600,
     cursor: 'pointer', background: 'rgba(255,255,255,0.1)', color: 'white',

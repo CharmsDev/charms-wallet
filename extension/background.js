@@ -16,6 +16,9 @@ const SK = {
   VERSION:           'wallet:meta:version',
   CREATED:           'wallet:meta:created',
   SEED_PHRASE:       'wallet:seed_phrase',
+  // G003 auth blob. Present for both wallet types; the plaintext
+  // SEED_PHRASE above only exists for legacy or web-transferred wallets.
+  AUTH:              'wallet:auth',
   ACTIVE_BLOCKCHAIN: 'wallet:active_blockchain',
   ACTIVE_NETWORK:    'wallet:active_network',
   UI_PREFS:          'wallet:prefs:ui',
@@ -812,10 +815,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   
-  // Check if a wallet exists (seed phrase present)
+  // Check if a wallet exists. A G003 wallet is identified by its auth
+  // blob; only legacy or web-transferred wallets keep a plaintext seed,
+  // so testing SEED_PHRASE alone reported hasWallet=false for every
+  // wallet created since G003.
   if (request.type === 'CHECK_WALLET_STATUS') {
-    chrome.storage.local.get([SK.SEED_PHRASE], (data) => {
-      sendResponse({ hasWallet: !!data[SK.SEED_PHRASE] });
+    chrome.storage.local.get([SK.AUTH, SK.SEED_PHRASE], (data) => {
+      sendResponse({ hasWallet: !!(data[SK.AUTH] || data[SK.SEED_PHRASE]) });
     });
     return true;
   }
