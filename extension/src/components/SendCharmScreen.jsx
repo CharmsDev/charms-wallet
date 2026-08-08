@@ -16,6 +16,8 @@ import { useAddresses } from '@/stores/addressesStore';
 import { resolveImageUrl } from '@/utils/media';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useWallet } from '@/stores/walletStore';
+import { balanceService, charmKey } from '@/services/balance';
+import { applyBroadcastedTx } from '@/services/wallet/post-broadcast';
 import { useExtensionWalletSync } from '../hooks/useExtensionWalletSync';
 
 const TOKEN_DECIMALS = 100_000_000; // BRO has 8 decimals
@@ -59,6 +61,13 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
   const { seedPhrase } = useWallet();
   const seedRef = useRef(seedPhrase);
   useEffect(() => { seedRef.current = seedPhrase; }, [seedPhrase]);
+
+  // In-flight BalanceService operation. Also rehydrated from the persisted
+  // pending proof, since proving outlives the popup.
+  const opRef = useRef({ opId: null, childOpIds: [], broadcasted: false });
+  // Charm context for post-broadcast bookkeeping. Set when proving starts
+  // and restored from the persisted proof, so it survives a popup reopen.
+  const metaRef = useRef(null);
 
   // Build address lookup: address string → { index, isChange }
   const addrLookup = useMemo(() => {
@@ -206,6 +215,17 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
     if (meta.displayAmount)   setDisplayAmount(meta.displayAmount);
     if (meta.recipient)       setRecipient(meta.recipient);
     if (meta.symbol)          setConfirmedSymbol(meta.symbol);
+    // Recover the pending ids and charm context registered before proving,
+    // so a popup that was closed for the whole proof still resolves its
+    // own BalanceService entries on confirm instead of orphaning them.
+    if (meta.opId) {
+      opRef.current = {
+        opId: meta.opId,
+        childOpIds: meta.childOpIds || [],
+        broadcasted: false,
+      };
+    }
+    metaRef.current = meta;
     setStep(STEP.CONFIRM);
   }, []);
 
@@ -237,6 +257,15 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
       } else if (message.type === 'PROOF_READY') {
         restoreConfirmState(message);
       } else if (message.type === 'PROOF_ERROR') {
+        // Proving died, so nothing will ever be broadcast for this op.
+        // Release the inputs instead of leaving them reserved forever.
+        const { opId, childOpIds, broadcasted } = opRef.current;
+        if (opId && !broadcasted) {
+          const reason = message.error || 'prover failed';
+          balanceService.markFailed(opId, reason).catch(() => {});
+          for (const c of childOpIds) { balanceService.markFailed(c, reason).catch(() => {}); }
+          opRef.current = { opId: null, childOpIds: [], broadcasted: false };
+        }
         setError(message.error || 'Prover failed');
         setStep(STEP.FORM);
       }
@@ -286,6 +315,65 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
       setInputSigningMapRef(inputSigningMap);
       setChangeAddrRef(changeAddr);
 
+      // Declare the intent to the BalanceService before proving starts.
+      // Proving runs for minutes in the offscreen document, so without a
+      // reservation the same charm and funding UTXOs stay selectable and a
+      // second transfer would double-spend them. Registering here also
+      // drops the displayed token balance immediately.
+      //
+      // loadFor first: PendingRepo persists its whole in-memory map, so
+      // writing to an unloaded repo would wipe the pendings already on
+      // disk. Idempotent.
+      const cKey = charmKey(selectedToken.appId);
+      const opId = `charm-transfer:${fundingUtxo.txid || fundingUtxo.utxoId}:${Date.now()}`;
+      const childOpIds = [];
+      const ownSet = new Set((addresses || []).map(a => a.address));
+      const isInternal = ownSet.has(recipient.trim());
+      const remainingTokens = charmInputs.reduce((s, i) => s + i.amount, 0) - rawAmount;
+
+      try {
+        await balanceService.loadFor('bitcoin', activeNetwork);
+        await balanceService.registerOutgoing({
+          opId,
+          assetKey: cKey,
+          network: activeNetwork,
+          amount: String(rawAmount),
+          label: 'Charm Transfer',
+          reserveUtxos: [
+            ...charmInputs.map(ci => {
+              const [txid, vout] = ci.utxoId.split(':');
+              return { txid, vout: parseInt(vout, 10) };
+            }),
+            (() => {
+              const [txid, vout] = fundingUtxo.utxoId.split(':');
+              return { txid, vout: parseInt(vout, 10) };
+            })(),
+          ],
+        });
+        // Token change returns to us, so register it as incoming or the
+        // balance would show a hole the size of the remainder.
+        if (remainingTokens > 0) {
+          const id = `${opId}:change`;
+          await balanceService.registerIncoming({
+            opId: id, assetKey: cKey, network: activeNetwork,
+            amount: String(remainingTokens), relatedOpId: opId, label: 'Charm change',
+          });
+          childOpIds.push(id);
+        }
+        if (isInternal) {
+          const id = `${opId}:self`;
+          await balanceService.registerIncoming({
+            opId: id, assetKey: cKey, network: activeNetwork,
+            amount: String(rawAmount), relatedOpId: opId, label: 'Charm self-transfer',
+          });
+          childOpIds.push(id);
+        }
+      } catch (e) {
+        console.error('[SendCharmScreen] BalanceService register failed:', e);
+      }
+
+      opRef.current = { opId, childOpIds, broadcasted: false };
+
       const proverParams = {
         tokenAppId:       selectedToken.appId,
         charmInputs:      charmInputs.map(ci => ({ utxoId: ci.utxoId, amount: ci.amount })),
@@ -296,14 +384,24 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
         network:          activeNetwork,
       };
 
-      // Metadata stored in ext:pending_proof so CONFIRM can be restored if popup reopens
+      // Metadata stored in ext:pending_proof so CONFIRM can be restored if
+      // popup reopens. opId/childOpIds ride along so the bookkeeping still
+      // resolves against the right pendings after a close/reopen cycle,
+      // and tokenAppId + amounts so post-broadcast can build charmContext.
       const meta = {
         inputSigningMap,
         displayAmount,
         symbol:    selectedToken.symbol,
         recipient: recipient.trim(),
         network:   activeNetwork,
+        opId,
+        childOpIds,
+        tokenAppId:     selectedToken.appId,
+        transferAmount: rawAmount,
+        charmName:      selectedToken.name || selectedToken.symbol,
+        charmTicker:    selectedToken.symbol,
       };
+      metaRef.current = meta;
 
       // Send to background — prover runs in offscreen document (popup can be closed safely)
       await new Promise((resolve, reject) => {
@@ -320,6 +418,16 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
       setStatusMessage('Generating ZK proof (5–10 min)… You can close this window.');
 
     } catch (err) {
+      // Registration happens before the prover is started, so a failure to
+      // start it would otherwise leave the inputs locked with no operation
+      // ever arriving to clear them.
+      const { opId, childOpIds, broadcasted } = opRef.current;
+      if (opId && !broadcasted) {
+        const reason = err.message || 'transfer setup failed';
+        try { await balanceService.markFailed(opId, reason); } catch (_) {}
+        for (const c of childOpIds) { try { await balanceService.markFailed(c, reason); } catch (_) {} }
+        opRef.current = { opId: null, childOpIds: [], broadcasted: false };
+      }
       setError(err.message || 'Transfer failed');
       setStep(STEP.FORM);
     }
@@ -357,17 +465,69 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
       chrome.runtime.sendMessage({ type: 'CLEAR_PENDING_PROOF' }).catch(() => {});
       setStep(STEP.SUCCESS);
 
+      // Single post-broadcast entry point: advances the pendings for the
+      // parent and children, drops the spent charm and funding UTXOs from
+      // the stores, and records the transfer in transactionStore so history
+      // shows it without waiting for the indexer.
+      //
+      // spellTxHex is the unsigned spell. The parser only reads the vin and
+      // vout shape, which witnesses do not change, so it classifies the
+      // same as the signed hex would. This mirrors what the wallet's
+      // charm-transfer runner does.
+      opRef.current.broadcasted = true;
+      const m = metaRef.current || {};
+      try {
+        await applyBroadcastedTx({
+          signedTxHex: proverResult.spellTxHex,
+          txid: result.txid,
+          network: activeNetwork,
+          opId: opRef.current.opId,
+          childOpIds: opRef.current.childOpIds,
+          ownAddresses: addresses || [],
+          txType: 'charm_transfer',
+          label: 'Charm Transfer',
+          charmContext: {
+            tokenAppId:       m.tokenAppId,
+            transferAmount:   m.transferAmount,
+            recipientAddress: m.recipient,
+            name:             m.charmName,
+            ticker:           m.charmTicker,
+          },
+          feePaid: proverResult.fee || 0,
+        });
+      } catch (e) {
+        console.error('[SendCharmScreen] applyBroadcastedTx failed:', e);
+      }
+
       if (syncAfterSend) {
         syncAfterSend().catch(() => {});
       }
     } catch (err) {
+      // Never broadcast, so free the reservation and close the pendings.
+      const { opId, childOpIds, broadcasted } = opRef.current;
+      if (opId && !broadcasted) {
+        const reason = err.message || 'charm transfer failed';
+        try { await balanceService.markFailed(opId, reason); } catch (_) {}
+        for (const c of childOpIds) { try { await balanceService.markFailed(c, reason); } catch (_) {} }
+        opRef.current = { opId: null, childOpIds: [], broadcasted: false };
+      }
       setError(err.message || 'Signing or broadcast failed');
       setConfirming(false);
     }
-  }, [proverResult, confirming, inputSigningMapRef, activeNetwork, syncAfterSend]);
+  }, [proverResult, confirming, inputSigningMapRef, activeNetwork, syncAfterSend, addresses]);
 
   // ── Cancel from confirmation screen ──
   const handleCancelConfirm = useCallback(() => {
+    // Discarding a proven-but-unsent transfer must release the charm and
+    // funding UTXOs, otherwise they stay reserved and the next attempt
+    // reports insufficient funds against its own locked inputs.
+    const { opId, childOpIds, broadcasted } = opRef.current;
+    if (opId && !broadcasted) {
+      balanceService.markFailed(opId, 'cancelled').catch(() => {});
+      for (const c of childOpIds) { balanceService.markFailed(c, 'cancelled').catch(() => {}); }
+      opRef.current = { opId: null, childOpIds: [], broadcasted: false };
+    }
+    metaRef.current = null;
     setProverResult(null);
     setInputSigningMapRef(null);
     setChangeAddrRef(null);

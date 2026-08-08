@@ -66,6 +66,26 @@ export function useExtensionWalletSync() {
                 throw new Error(result.error || 'Sync failed');
             }
 
+            // Transaction history sync is also what reconciles the
+            // BalanceService: it looks up each live pending by txid and
+            // walks it to confirmed once the indexer reports a block.
+            // Without this on the main refresh, a pending would only clear
+            // if the user happened to open the Activity tab, which is
+            // where the extension called it until now. The wallet's
+            // dashboard refresh does the same pair.
+            if (activeBlockchain !== 'cardano') {
+                try {
+                    const { syncTransactionHistory } = await import('@/services/wallet/sync/transactions-sync');
+                    await syncTransactionHistory({
+                        blockchain: activeBlockchain,
+                        network: activeNetwork,
+                        mode: 'incremental',
+                    });
+                } catch (e) {
+                    console.warn('[ExtSync] tx history sync failed (non-fatal):', e?.message || e);
+                }
+            }
+
             return result;
         } catch (error) {
             setSyncError(error.message);

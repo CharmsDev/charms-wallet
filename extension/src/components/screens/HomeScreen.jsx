@@ -8,6 +8,7 @@ import EbtcBeamDialog from '@/components/beam/EbtcBeamDialog';
 import AddressCard from '../ui/AddressCard';
 import BalanceCards from '../ui/BalanceCards';
 import AssetsList from '../ui/AssetsList';
+import InTransitList from '../ui/InTransitList';
 import SendScreen from '../SendScreen';
 import ReceiveScreen from './ReceiveScreen';
 import CardanoHomeContent from '../cardano/CardanoHomeContent';
@@ -21,14 +22,18 @@ export default function HomeScreen({ primaryAddress, isSyncing, syncPhase, syncU
   const [broCharmToBeam, setBroCharmToBeam] = useState(null);
   const [showEbtcBeam, setShowEbtcBeam] = useState(false);
 
+  // Every hook has to run before the Cardano branch returns. Bailing out
+  // above these useMemo calls changed the hook count between renders, so
+  // toggling the chain toggle threw "Rendered fewer hooks than expected"
+  // and blanked the popup.
+  const broBalance = useMemo(() => getTotalByAppId(getBroTokenAppId()), [charms, getTotalByAppId]);
+  const tokens = useMemo(() => groupTokensByAppId(), [charms, groupTokensByAppId]);
+  const nfts = useMemo(() => getNFTs(), [charms, getNFTs]);
+
   // Cardano variant — popup-sized dashboard backed by @/stores/cardanoStore.
   if (isCardano?.()) {
     return <CardanoHomeContent onViewAllAssets={onViewAllAssets} />;
   }
-
-  const broBalance = useMemo(() => getTotalByAppId(getBroTokenAppId()), [charms, getTotalByAppId]);
-  const tokens = useMemo(() => groupTokensByAppId(), [charms, groupTokensByAppId]);
-  const nfts = useMemo(() => getNFTs(), [charms, getNFTs]);
 
   // BRO beam-out — match wallet's UserDashboard.handleBeamBro() pattern.
   // Constructs the charm payload shape that @/components/beam/BeamDialog
@@ -58,6 +63,9 @@ export default function HomeScreen({ primaryAddress, isSyncing, syncPhase, syncU
         isSyncing={isSyncing}
         syncPhase={syncPhase}
       />
+
+      {/* Everything in flight, straight from the BalanceService. */}
+      <InTransitList />
 
       <div className="flex gap-3">
         <button onClick={() => setShowSend(true)} className="btn btn-bitcoin flex-1 py-3">

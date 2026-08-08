@@ -89,6 +89,12 @@ services/charm-transfer/broadcaster.js
 services/charm-transfer/tx-fetcher.js
 services/charm-transfer/tx-signer.js
 services/wallet/sync/explorer-wallet-sync.js
+services/wallet/post-broadcast.js
+services/balance/index.js
+services/balance/balance-service.js
+services/balance/asset-key.js
+services/balance/pending-repo.js
+services/balance/use-balance.js
 utils/media.js
 services/auth/index.js
 services/auth/blob.js

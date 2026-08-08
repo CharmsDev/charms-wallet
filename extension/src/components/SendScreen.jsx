@@ -1,7 +1,11 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCharms } from '@/stores/charmsStore';
+import { useAddresses } from '@/stores/addressesStore';
+import { useWallet } from '@/stores/walletStore';
+import { balanceService, BTC_KEY } from '@/services/balance';
+import { applyBroadcastedTx } from '@/services/wallet/post-broadcast';
 import { formatBTC } from '@/utils/formatters';
 import SendCharmScreen from './SendCharmScreen';
 
@@ -31,6 +35,18 @@ export default function SendScreen({ onClose, syncUTXOs }) {
   const { utxos, totalBalance, updateAfterTransaction } = useUTXOs();
   const { activeBlockchain, activeNetwork } = useNetwork();
   const { charms } = useCharms();
+  const { addresses } = useAddresses();
+
+  // G003: seed lives in RAM after unlock, captured in a ref so the
+  // prepare/broadcast sequence always reads the current value.
+  const { seedPhrase } = useWallet();
+  const seedRef = useRef(seedPhrase);
+  useEffect(() => { seedRef.current = seedPhrase; }, [seedPhrase]);
+
+  // In-flight BalanceService operation. Held in a ref so cancel and the
+  // failure paths can release the reservation without threading ids
+  // through every callback.
+  const opRef = useRef({ opId: null, childOpIds: [], broadcasted: false });
 
   // ── Asset selector (BTC / BRO — BRO disabled for now) ──
   const [selectedAsset, setSelectedAsset] = useState('btc');
@@ -191,12 +207,18 @@ export default function SendScreen({ onClose, syncUTXOs }) {
       const { BitcoinTransactionOrchestrator } = await import('@/services/bitcoin/transaction-orchestrator');
       const orchestrator = new BitcoinTransactionOrchestrator(activeNetwork);
 
+      // G003: the orchestrator no longer reads the seed from storage, it
+      // has to be handed in. Omitting it made every send fail with
+      // 'Wallet locked. Please unlock and retry.'
+      if (!seedRef.current) throw new Error('Wallet locked. Please unlock and retry.');
+
       const result = await orchestrator.processTransaction(
         destinationAddress,
         selectionResult.adjustedAmount || amountInSats,
         selectionResult.selectedUtxos,
         currentFeeRate,
-        updateAfterTransaction
+        updateAfterTransaction,
+        seedRef.current,
       );
 
       if (!result.success) throw new Error(result.error || 'Transaction signing failed');
@@ -226,11 +248,65 @@ export default function SendScreen({ onClose, syncUTXOs }) {
       setTxData(precalculated);
       setStep(STEP.CONFIRM);
 
+      // Declare the intent to the BalanceService. registerOutgoing
+      // reserves the selected inputs and opens a pending entry, so the
+      // displayed balance drops the moment the user reaches Confirm
+      // rather than after the indexer catches up. The amount is the net
+      // outflow the user perceives, so it includes the fee.
+      const adjusted = selectionResult.adjustedAmount || amountInSats;
+      const outflow = adjusted + (result.estimatedFee || selectionResult.estimatedFee || 0);
+      const change = result.change || 0;
+      const isInternal = new Set((addresses || []).map(a => a.address)).has(destinationAddress);
+      const first = selectionResult.selectedUtxos[0] || {};
+      const opId = `send-btc:${first.txid || 'x'}:${first.vout ?? 0}:${Date.now()}`;
+      const childOpIds = [];
+
+      try {
+        // Hydrate before the first write. PendingRepo._persist serialises
+        // its whole in-memory map, so creating an entry on an unloaded
+        // repo would overwrite every pending already on disk. The webapp
+        // gets this for free because useBalance hydrates on the dashboard;
+        // the popup has to be explicit. The call is idempotent.
+        await balanceService.loadFor('bitcoin', activeNetwork);
+
+        await balanceService.registerOutgoing({
+          opId,
+          assetKey: BTC_KEY,
+          network: activeNetwork,
+          amount: String(outflow),
+          label: 'Send BTC',
+          reserveUtxos: selectionResult.selectedUtxos.map(u => ({ txid: u.txid, vout: u.vout })),
+        });
+        // Change returns to a wallet address, so register it as incoming
+        // or the balance would show a temporary hole the size of it.
+        if (change > 0) {
+          const id = `${opId}:change`;
+          await balanceService.registerIncoming({
+            opId: id, assetKey: BTC_KEY, network: activeNetwork,
+            amount: String(change), relatedOpId: opId, label: 'Send BTC change',
+          });
+          childOpIds.push(id);
+        }
+        // Sending to ourselves: the destination comes back too.
+        if (isInternal) {
+          const id = `${opId}:self`;
+          await balanceService.registerIncoming({
+            opId: id, assetKey: BTC_KEY, network: activeNetwork,
+            amount: String(adjusted), relatedOpId: opId, label: 'Send BTC self',
+          });
+          childOpIds.push(id);
+        }
+      } catch (e) {
+        console.error('[SendScreen] BalanceService register failed:', e);
+      }
+
+      opRef.current = { opId, childOpIds, broadcasted: false };
+
     } catch (err) {
       setError(err.message || 'Transaction preparation failed');
       setStep(STEP.FORM);
     }
-  }, [canSubmit, amount, destinationAddress, utxos, charms, activeNetwork, updateAfterTransaction]);
+  }, [canSubmit, amount, destinationAddress, utxos, charms, activeNetwork, updateAfterTransaction, addresses]);
 
   // ── Broadcast ──
   const handleBroadcast = useCallback(async () => {
@@ -270,31 +346,33 @@ export default function SendScreen({ onClose, syncUTXOs }) {
 
       if (!broadcastResult.success) throw new Error(broadcastResult.error || 'Broadcast failed');
 
-      // 3. Update UTXO state immediately — add new outputs as pending UTXOs
+      // 3. Post-broadcast bookkeeping — one entry point.
+      // This replaces the hand-rolled pass that decoded vout, rebuilt a
+      // newUtxos map and called updateAfterTransaction. applyBroadcastedTx
+      // parses the signed tx itself, advances the BalanceService pendings
+      // for the parent and every child, drops the spent inputs from the
+      // stores, and records the row in transactionStore so history shows
+      // the tx without waiting for the indexer.
       setStatusMessage('Updating wallet...');
-      const newUtxos = {};
-      if (txData.decodedTx?.vout) {
-        const { getAddresses } = await import('@/services/storage');
-        const walletAddresses = await getAddresses('bitcoin', activeNetwork);
-        const walletAddrSet = new Set(walletAddresses.map(a => a.address));
-
-        txData.decodedTx.vout.forEach((out, vout) => {
-          const addr = out.scriptPubKey?.address;
-          if (addr && walletAddrSet.has(addr)) {
-            if (!newUtxos[addr]) newUtxos[addr] = [];
-            newUtxos[addr].push({
-              txid: broadcastResult.txid,
-              vout,
-              value: Math.round(out.value * 1e8),
-              status: { confirmed: false },
-            });
-          }
-        });
-      }
-      await updateAfterTransaction(txData.selectedUtxos, newUtxos, 'bitcoin', activeNetwork);
-
       setTxId(broadcastResult.txid);
       setStep(STEP.SUCCESS);
+
+      opRef.current.broadcasted = true;
+      try {
+        await applyBroadcastedTx({
+          signedTxHex: txData.txHex,
+          txid: broadcastResult.txid,
+          network: activeNetwork,
+          opId: opRef.current.opId,
+          childOpIds: opRef.current.childOpIds,
+          ownAddresses: addresses || [],
+          txType: 'sent',
+          label: 'Send BTC',
+          feePaid: txData.estimatedFee || 0,
+        });
+      } catch (e) {
+        console.error('[SendScreen] applyBroadcastedTx failed:', e);
+      }
 
       // 4. Background BTC-only refresh from QuickNode (source of truth)
       if (syncUTXOs) {
@@ -302,6 +380,17 @@ export default function SendScreen({ onClose, syncUTXOs }) {
       }
 
     } catch (err) {
+      // The tx never went out, so release the reservation and close the
+      // pendings. Leaving them live would keep the balance understated
+      // and the inputs locked out of the next attempt.
+      const { opId, childOpIds, broadcasted } = opRef.current;
+      if (opId && !broadcasted) {
+        const reason = err.message || 'broadcast failed';
+        try { await balanceService.markFailed(opId, reason); } catch (_) {}
+        for (const c of childOpIds) { try { await balanceService.markFailed(c, reason); } catch (_) {} }
+        opRef.current = { opId: null, childOpIds: [], broadcasted: false };
+      }
+
       if (err.message?.includes('bad-txns-inputs-missingorspent') && txData?.selectedUtxos) {
         await updateAfterTransaction(txData.selectedUtxos, {}, 'bitcoin', activeNetwork);
         setError('UTXOs were spent by another transaction. Wallet refreshed.');
@@ -310,11 +399,19 @@ export default function SendScreen({ onClose, syncUTXOs }) {
       }
       setStep(STEP.CONFIRM);
     }
-  }, [txData, activeNetwork, activeBlockchain, updateAfterTransaction, syncUTXOs]);
+  }, [txData, activeNetwork, activeBlockchain, updateAfterTransaction, syncUTXOs, addresses]);
 
   // ── Cancel (returns to form, except during/after broadcast) ──
   const handleCancel = useCallback(() => {
     if (step === STEP.BROADCASTING || step === STEP.SUCCESS) return;
+    // Backing out of a prepared-but-unsent tx must free the inputs so a
+    // retry can spend them again straight away.
+    const { opId, childOpIds, broadcasted } = opRef.current;
+    if (opId && !broadcasted) {
+      balanceService.markFailed(opId, 'cancelled').catch(() => {});
+      for (const c of childOpIds) { balanceService.markFailed(c, 'cancelled').catch(() => {}); }
+      opRef.current = { opId: null, childOpIds: [], broadcasted: false };
+    }
     setTxData(null);
     setError('');
     setStep(STEP.FORM);
