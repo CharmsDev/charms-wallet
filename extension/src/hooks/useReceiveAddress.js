@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from 'react';
-import { getSeedPhrase } from '@/services/storage';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { generateTaprootAddress } from '@/utils/addressUtils';
+import { useWallet } from '@/stores/walletStore';
 import { StorageAdapter } from '../shared/storage-adapter';
 
 const MAINNET_NETWORK_OBJ = {
@@ -17,6 +17,15 @@ export function useReceiveAddress({ activeBlockchain, activeNetwork, addresses, 
   const [receiveIndex, setReceiveIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState('');
+
+  // G003: derivation reads the mnemonic from RAM. getSeedPhrase() only ever
+  // returns something for a legacy plaintext wallet, so on any current
+  // wallet this hook used to throw 'No seed phrase' and the Receive sheet
+  // came up blank.
+  const { seedPhrase } = useWallet();
+  const seedRef = useRef(seedPhrase);
+  useEffect(() => { seedRef.current = seedPhrase; }, [seedPhrase]);
 
   const indexKey = useMemo(
     () => `last_receive_index_${activeBlockchain}_${activeNetwork}`,
@@ -39,9 +48,10 @@ export function useReceiveAddress({ activeBlockchain, activeNetwork, addresses, 
   const open = useCallback(async () => {
     setIsGenerating(true);
     setCopied(false);
+    setError('');
     try {
-      const seedPhrase = await getSeedPhrase();
-      if (!seedPhrase) throw new Error('No seed phrase');
+      const seedPhrase = seedRef.current;
+      if (!seedPhrase) throw new Error('Wallet locked. Please unlock and retry.');
       const stored = await StorageAdapter.get(indexKey);
       const idx = stored != null ? Number(stored) : 0;
       setReceiveIndex(idx);
@@ -50,6 +60,7 @@ export function useReceiveAddress({ activeBlockchain, activeNetwork, addresses, 
       await ensureAddressSaved(addr, idx);
     } catch (err) {
       console.error('[ReceiveAddress] open error:', err);
+      setError(err.message || 'Could not derive a receive address.');
     } finally {
       setIsGenerating(false);
     }
@@ -59,9 +70,10 @@ export function useReceiveAddress({ activeBlockchain, activeNetwork, addresses, 
     if (isGenerating) return;
     setIsGenerating(true);
     setCopied(false);
+    setError('');
     try {
-      const seedPhrase = await getSeedPhrase();
-      if (!seedPhrase) throw new Error('No seed phrase');
+      const seedPhrase = seedRef.current;
+      if (!seedPhrase) throw new Error('Wallet locked. Please unlock and retry.');
       const nextIdx = receiveIndex + 1;
       const addr = await generateTaprootAddress(seedPhrase, nextIdx, false, networkObj);
       await StorageAdapter.set(indexKey, nextIdx);
@@ -70,6 +82,7 @@ export function useReceiveAddress({ activeBlockchain, activeNetwork, addresses, 
       await ensureAddressSaved(addr, nextIdx);
     } catch (err) {
       console.error('[ReceiveAddress] generateNext error:', err);
+      setError(err.message || 'Could not derive a receive address.');
     } finally {
       setIsGenerating(false);
     }
@@ -82,5 +95,5 @@ export function useReceiveAddress({ activeBlockchain, activeNetwork, addresses, 
     setTimeout(() => setCopied(false), 2500);
   }, [receiveAddress]);
 
-  return { receiveAddress, receiveIndex, isGenerating, copied, open, generateNext, copyAddress };
+  return { receiveAddress, receiveIndex, isGenerating, copied, error, open, generateNext, copyAddress };
 }

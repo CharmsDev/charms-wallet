@@ -24,7 +24,7 @@ export default function ReceiveScreen({ trigger }) {
   const { activeBlockchain, isCardano } = useBlockchain();
   const cardanoAddresses = useCardano(s => s.addresses);
 
-  const { receiveAddress, receiveIndex, isGenerating, copied, open, generateNext, copyAddress } =
+  const { receiveAddress, receiveIndex, isGenerating, copied, error, open, generateNext, copyAddress } =
     useReceiveAddress({ activeBlockchain, activeNetwork, addresses, addAddress });
 
   const cardanoAddr = cardanoAddresses?.[0]?.address || '';
@@ -126,6 +126,8 @@ export default function ReceiveScreen({ trigger }) {
                     <div className="flex items-center justify-center py-4">
                       <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
                     </div>
+                  ) : error ? (
+                    <p className="text-xs text-red-400 leading-relaxed">{error}</p>
                   ) : (
                     <p onClick={copyAddress} className="text-sm font-mono text-white break-all leading-relaxed cursor-pointer hover:text-primary-300 transition-colors">
                       {receiveAddress}
