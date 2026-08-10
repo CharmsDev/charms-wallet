@@ -247,7 +247,9 @@ async function getWalletData() {
       utxosKey('bitcoin', 'testnet4'),
       utxosKey('bitcoin', 'mainnet'),
       SK.ACTIVE_NETWORK,
-      SK.SEED_PHRASE
+      // No seed here on purpose. Every caller wants addresses, UTXOs or
+      // the network, and pulling the mnemonic into the service worker for
+      // nobody to read is a secret in memory for no reason.
     ], (data) => {
       resolve(data);
     });

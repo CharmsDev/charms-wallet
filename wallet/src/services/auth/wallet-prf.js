@@ -114,6 +114,17 @@ export async function unlockPrfWallet() {
     throw new Error('No passkey wallet enrolled on this device.');
   }
 
+  // Same origin constraint isPrfSupported() describes: a chrome-extension://
+  // document cannot run a ceremony for rpId wallet.charms.dev, so the seed
+  // is simply not derivable here. Say that instead of letting WebAuthn fail
+  // with something that reads like a broken passkey. Signing from the
+  // extension goes through /extension-sign, which runs on the real origin.
+  if (typeof location !== 'undefined' && location.protocol === 'chrome-extension:') {
+    const err = new Error('A passkey wallet can only be unlocked at wallet.charms.dev.');
+    err.code = 'PRF_WRONG_ORIGIN';
+    throw err;
+  }
+
   const prfBytes = await derivePrf({
     credentialId: b64urlDecode(blob.credentialId),
     prfSalt: b64decode(blob.prfSalt),
