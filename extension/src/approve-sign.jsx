@@ -135,7 +135,9 @@ async function signViaPasskeyDelegation(payload, { onStatus } = {}) {
 
   // Poll rather than message-listen: this popup can be closed and reopened
   // while the user is in the other tab, and storage survives that.
-  const TIMEOUT_MS = 5 * 60 * 1000;
+  // Under the five minutes background.js allows a passkey wallet, so the
+  // user sees this message rather than a bare rejection from the dApp.
+  const TIMEOUT_MS = 4 * 60 * 1000;
   const started = Date.now();
   try {
     while (Date.now() - started < TIMEOUT_MS) {
@@ -153,6 +155,38 @@ async function signViaPasskeyDelegation(payload, { onStatus } = {}) {
     await chrome.storage.local.remove(EXT_SIGN_PENDING);
     try { await chrome.tabs.remove(tab.id); } catch (_) { /* user may have closed it */ }
   }
+}
+
+/**
+ * Narrow the wallet's addresses down to the ones a message request should
+ * be signed with, most preferred first.
+ *
+ * An explicit signingAddress wins. Otherwise we stay inside the set the
+ * site is actually connected to, P2WPKH first because that is the
+ * signature the DEX cancel flow verifies. Either filter falls back to the
+ * full list rather than to nothing, so a stale connection record cannot
+ * leave the request unsignable.
+ */
+function pickMessageAddresses(request, addresses) {
+  const addrOf = (a) => a?.address || a;
+
+  if (request.signingAddress) {
+    const filtered = addresses.filter(a => addrOf(a) === request.signingAddress);
+    return filtered.length > 0 ? filtered : addresses;
+  }
+
+  if (request.connectedAddresses?.length > 0) {
+    const connected = new Set(request.connectedAddresses);
+    const filtered = addresses.filter(a => connected.has(addrOf(a)));
+    if (filtered.length > 0) {
+      return [
+        ...filtered.filter(a => isP2wpkhAddress(addrOf(a))),
+        ...filtered.filter(a => !isP2wpkhAddress(addrOf(a))),
+      ];
+    }
+  }
+
+  return addresses;
 }
 
 function SignApproval() {
@@ -250,7 +284,6 @@ function SignApproval() {
       const mainnetKey = addrKey('bitcoin', 'mainnet');
       const testnetKey = addrKey('bitcoin', 'testnet4');
       const storageData = await chrome.storage.local.get([SK_ACTIVE_NETWORK, mainnetKey, testnetKey]);
-      const seedPhrase = await resolveSigningSeed(password);
       const networkName = storageData[SK_ACTIVE_NETWORK] || 'mainnet';
       let addresses = safeParse(storageData[addrKey('bitcoin', networkName)]);
       if (addresses.length === 0) {
@@ -259,29 +292,47 @@ function SignApproval() {
       }
       if (addresses.length === 0) throw new Error('No wallet addresses found');
 
-      if (request.type === 'signMessage') {
-        let signingAddresses = addresses;
-        if (request.signingAddress) {
-          // Explicit address from caller — look up by address string
-          const filtered = addresses.filter(a => (a?.address || a) === request.signingAddress);
-          if (filtered.length > 0) signingAddresses = filtered;
-        } else if (request.connectedAddresses?.length > 0) {
-          // Fallback: filter to site's connected addresses, P2WPKH first
-          const connectedSet = new Set(request.connectedAddresses);
-          const filtered = addresses.filter(a => connectedSet.has(a?.address || a));
-          if (filtered.length > 0) {
-            signingAddresses = [
-              ...filtered.filter(a => isP2wpkhAddress(a?.address || a)),
-              ...filtered.filter(a => !isP2wpkhAddress(a?.address || a)),
-            ];
-          }
-        }
-        const signature = await signMessageWithKeys(request.message, seedPhrase, networkName, signingAddresses);
-        await chrome.storage.local.set({ [EXT_SIGN_RESPONSE]: { approved: true, requestId: request.id, signature } });
-      } else {
-        const signedPsbtHex = await signPsbtWithKeys(request.psbtHex, request.options, seedPhrase, networkName, addresses);
-        await chrome.storage.local.set({ [EXT_SIGN_RESPONSE]: { approved: true, requestId: request.id, signedPsbtHex } });
+      const isMessage = request.type === 'signMessage';
+      const signingAddresses = isMessage ? pickMessageAddresses(request, addresses) : addresses;
+
+      // Either half of this produces the same shape, so the response is
+      // written once below no matter which path got us there.
+      let response;
+      try {
+        const seedPhrase = await resolveSigningSeed(password);
+        response = isMessage
+          ? { signature: await signMessageWithKeys(request.message, seedPhrase, networkName, signingAddresses) }
+          : { signedPsbtHex: await signPsbtWithKeys(request.psbtHex, request.options, seedPhrase, networkName, addresses) };
+      } catch (e) {
+        if (e.code !== 'PASSKEY_DELEGATION_REQUIRED') throw e;
+        // Passkey wallet: the ceremony and the signing both happen in a
+        // wallet.charms.dev tab, and only the signature comes back.
+        setError('Approve in the wallet tab that just opened…');
+        response = await signViaPasskeyDelegation(
+          isMessage
+            ? {
+                kind: 'signMessage',
+                network: networkName,
+                message: request.message,
+                addresses: signingAddresses,
+                origin: request.origin,
+              }
+            : {
+                kind: 'signPsbt',
+                network: networkName,
+                psbtHex: request.psbtHex,
+                options: request.options,
+                addresses,
+                origin: request.origin,
+              },
+          { onStatus: setError },
+        );
+        setError(null);
       }
+
+      await chrome.storage.local.set({
+        [EXT_SIGN_RESPONSE]: { approved: true, requestId: request.id, ...response },
+      });
       await chrome.storage.local.remove(EXT_PENDING_SIGN);
       window.close();
     } catch (err) {
@@ -291,14 +342,6 @@ function SignApproval() {
       if (err.code === 'PASSWORD_REQUIRED') {
         setNeedsPassword(true);
         setError('Enter your wallet password to sign.');
-      } else if (err.code === 'PASSKEY_DELEGATION_REQUIRED') {
-        // The PSBT and message signers still live in this file rather than
-        // wallet/src, so the wallet tab has nothing to call yet. Say so
-        // plainly instead of surfacing the internal delegation error.
-        setError(
-          'This wallet is secured by a passkey. Signing dApp requests from ' +
-          'the extension is not available yet — approve it at wallet.charms.dev.'
-        );
       } else {
         setError(err.message);
       }

@@ -174,6 +174,25 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 /**
+ * How long to give the user to approve a signature.
+ *
+ * A password wallet signs inside the popup, so two minutes is plenty. A
+ * passkey wallet hands the ceremony to a wallet.charms.dev tab, which
+ * means a tab switch and a biometric prompt on top of the reading. The
+ * delegation gives up at four minutes, so this has to outlast it or the
+ * dApp is told the user rejected while they are still approving.
+ */
+async function getSignTimeout() {
+  try {
+    const data = await chrome.storage.local.get([SK.AUTH]);
+    const raw = data[SK.AUTH];
+    const blob = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (blob?.type === 'prf') return 300000;
+  } catch (_) { /* unreadable blob is not a passkey wallet's problem */ }
+  return 120000;
+}
+
+/**
  * Wait for user response to sign request
  */
 async function waitForSignResponse(requestId, timeout = 120000) {
@@ -496,7 +515,7 @@ async function handleWalletProviderRequest(request, sender) {
           focused: true
         });
 
-        const signResult = await waitForSignResponse(signRequestId, 120000);
+        const signResult = await waitForSignResponse(signRequestId, await getSignTimeout());
 
         if (!signResult || !signResult.approved) {
           return { error: signResult?.error || 'User rejected the signing request' };
@@ -541,7 +560,7 @@ async function handleWalletProviderRequest(request, sender) {
         });
 
         // Wait for user to approve and sign (up to 2 minutes)
-        const signResult = await waitForSignResponse(signRequestId, 120000);
+        const signResult = await waitForSignResponse(signRequestId, await getSignTimeout());
 
         if (!signResult || !signResult.approved) {
           const errorMsg = signResult?.error || 'User rejected the signing request';
@@ -590,7 +609,7 @@ async function handleWalletProviderRequest(request, sender) {
             focused: true
           });
 
-          const signResult = await waitForSignResponse(signRequestId, 120000);
+          const signResult = await waitForSignResponse(signRequestId, await getSignTimeout());
 
           if (!signResult || !signResult.approved) {
             return { error: signResult?.error || `User rejected signing PSBT ${i + 1}/${psbtHexs.length}` };

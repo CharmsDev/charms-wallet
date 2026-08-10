@@ -25,6 +25,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
+import * as bitcoin from 'bitcoinjs-lib';
 
 const STATE = {
   LOADING: 'loading',
@@ -165,26 +166,75 @@ export default function ExtensionSignPage() {
   );
 }
 
-function RequestSummary({ payload }) {
-  const rows = [];
-  if (payload.origin) rows.push(['Requested by', payload.origin]);
-  if (payload.kind === 'signMessage') rows.push(['Message', payload.message]);
-  if (payload.kind === 'signPsbt')    rows.push(['Transaction', 'PSBT ready to sign']);
-  if (payload.kind === 'charmSpell')  rows.push(['Transfer', 'Charm spell ready to sign']);
-  if (payload.network) rows.push(['Network', payload.network]);
+function Row({ label, value }) {
+  return (
+    <div className="text-sm">
+      <div className="text-dark-400 text-xs">{label}</div>
+      <div className="text-dark-100 break-all">{String(value).slice(0, 300)}</div>
+    </div>
+  );
+}
 
+function RequestSummary({ payload }) {
   return (
     <div className="space-y-2">
-      {rows.map(([k, v]) => (
-        <div key={k} className="text-sm">
-          <div className="text-dark-400 text-xs">{k}</div>
-          <div className="text-dark-100 break-all">{String(v).slice(0, 300)}</div>
-        </div>
-      ))}
+      {payload.origin && <Row label="Requested by" value={payload.origin} />}
+      {payload.network && <Row label="Network" value={payload.network} />}
+      {payload.kind === 'signMessage' && <Row label="Message" value={payload.message} />}
+      {payload.kind === 'charmSpell' && <Row label="Transfer" value="Charm spell ready to sign" />}
+      {payload.kind === 'signPsbt' && <PsbtSummary psbtHex={payload.psbtHex} />}
       <p className="text-xs text-dark-500 pt-1">
         Your seed phrase never leaves this page. Only the signature is sent
         back to the extension.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Show what the PSBT actually does. The user is approving here rather than
+ * in the extension popup, so this tab has to carry the same detail the
+ * popup would have shown, not just a "sign this" button.
+ */
+function PsbtSummary({ psbtHex }) {
+  const [info, setInfo] = useState(null);
+
+  useEffect(() => {
+    try {
+      const psbt = bitcoin.Psbt.fromHex(psbtHex);
+      const outputs = psbt.txOutputs.map((o) => ({
+        address: o.address || '(script)',
+        value: Number(o.value),
+      }));
+      setInfo({
+        inputCount: psbt.inputCount,
+        outputs,
+        total: outputs.reduce((sum, o) => sum + o.value, 0),
+      });
+    } catch {
+      // Unparseable here does not mean unsignable; the signer decides.
+      setInfo({ inputCount: null, outputs: [], total: null });
+    }
+  }, [psbtHex]);
+
+  if (!info || info.inputCount === null) {
+    return <Row label="Transaction" value="PSBT ready to sign" />;
+  }
+
+  return (
+    <div className="space-y-2">
+      <Row label="Transaction" value={`${info.inputCount} in, ${info.outputs.length} out`} />
+      <Row label="Total output" value={`${(info.total / 100_000_000).toFixed(8)} BTC`} />
+      {info.outputs.length > 0 && info.outputs.length <= 8 && (
+        <div className="border-t border-dark-800 pt-2 space-y-1">
+          {info.outputs.map((o, i) => (
+            <div key={i} className="flex justify-between gap-2 text-xs font-mono">
+              <span className="text-dark-400 truncate">{o.address}</span>
+              <span className="text-dark-200 shrink-0">{o.value.toLocaleString()} sats</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -210,16 +260,31 @@ async function signForExtension(payload, mnemonic) {
     return { txid: out.txid };
   }
 
-  if (kind === 'signPsbt' || kind === 'signMessage') {
-    // Deliberately not implemented in this pass. The PSBT and message
-    // signers currently live inside the extension's approve-sign module,
-    // not in wallet/src, so wiring them here would mean moving that code
-    // into the shared tree first. Charm transfers are the flow that is
-    // blocked outright for a passkey wallet, so they go first.
-    throw new Error(
-      'Signing this request type from the extension is not available yet. ' +
-      'Use the wallet at wallet.charms.dev directly.'
+  // The addresses arrive from the extension, but they are not taken on
+  // trust: deriveKeyMap only keeps an address whose key it can actually
+  // reproduce from this mnemonic, so an address we do not own yields no
+  // key rather than a signature.
+  if (kind === 'signPsbt') {
+    const { signPsbtWithKeys } = await import('@/services/signing');
+    const signedPsbtHex = await signPsbtWithKeys(
+      payload.psbtHex,
+      payload.options,
+      mnemonic,
+      network,
+      payload.addresses || [],
     );
+    return { signedPsbtHex };
+  }
+
+  if (kind === 'signMessage') {
+    const { signMessageWithKeys } = await import('@/services/signing');
+    const signature = await signMessageWithKeys(
+      payload.message,
+      mnemonic,
+      network,
+      payload.addresses || [],
+    );
+    return { signature };
   }
 
   throw new Error(`Unsupported request kind: ${kind}`);
