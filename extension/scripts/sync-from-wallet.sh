@@ -96,6 +96,13 @@ services/balance/asset-key.js
 services/balance/pending-repo.js
 services/balance/use-balance.js
 utils/media.js
+services/signing/index.js
+services/signing/ecc.js
+services/signing/network.js
+services/signing/key-map.js
+services/signing/psbt-inputs.js
+services/signing/psbt-signer.js
+services/signing/message-signer.js
 services/auth/index.js
 services/auth/blob.js
 services/auth/prf-derive.js

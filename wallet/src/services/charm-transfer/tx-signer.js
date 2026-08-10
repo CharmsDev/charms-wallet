@@ -8,30 +8,9 @@
  */
 
 import * as bitcoin from 'bitcoinjs-lib';
-import * as ecc from 'tiny-secp256k1';
-import { BIP32Factory } from 'bip32';
 import * as bip39 from 'bip39';
-
-bitcoin.initEccLib(ecc);
-const bip32 = BIP32Factory(ecc);
-
-const MAINNET = bitcoin.networks.bitcoin;
-const TESTNET = {
-  messagePrefix: '\x18Bitcoin Signed Message:\n',
-  bech32: 'tb',
-  bip32: { public: 0x043587cf, private: 0x04358394 },
-  pubKeyHash: 0x6f,
-  scriptHash: 0xc4,
-  wif: 0xef,
-};
-
-function getNetwork(networkName) {
-  return networkName === 'mainnet' ? MAINNET : TESTNET;
-}
-
-function getDerivationPath(networkName) {
-  return networkName === 'mainnet' ? "m/86'/0'/0'" : "m/86'/1'/0'";
-}
+import { bip32, ecc } from '../signing/ecc.js';
+import { getNetworkConfig as getNetwork, getBip86Path as getDerivationPath } from '../signing/network.js';
 
 /**
  * Tagged hash for Taproot tweak (BIP340/BIP341)
