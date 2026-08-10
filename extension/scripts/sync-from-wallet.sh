@@ -96,6 +96,7 @@ services/balance/asset-key.js
 services/balance/pending-repo.js
 services/balance/use-balance.js
 utils/media.js
+services/extension-link.js
 services/signing/index.js
 services/signing/ecc.js
 services/signing/network.js

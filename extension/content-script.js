@@ -65,27 +65,20 @@ window.addEventListener('message', (event) => {
     });
   }
 
-  // Handle legacy export requests (data migration)
-  if (event.data && event.data.type === 'CHARMS_WALLET_EXPORT') {
-    console.log('Charms Wallet Extension: Received export request from web');
-
-    chrome.runtime.sendMessage({
-      type: 'IMPORT_FROM_WEB',
-      data: event.data.payload
-    }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error('Charms Wallet Extension: Error sending to background', chrome.runtime.lastError);
-        window.postMessage({
-          type: 'CHARMS_WALLET_IMPORT_ERROR',
-          error: chrome.runtime.lastError.message
-        }, '*');
-        return;
-      }
-
-      console.log('Charms Wallet Extension: Import response', response);
+  // ── Wallet link ──────────────────────────────────────────────────────
+  //
+  // Replaces the old CHARMS_WALLET_EXPORT relay, which carried a
+  // plaintext seed the wallet no longer stores. /extension-link sends the
+  // auth blob and the address book instead; the service worker decides
+  // whether to accept them.
+  if (event.data && event.data.type === 'CHARMS_EXT_LINK_ADOPT') {
+    const { requestId, payload } = event.data;
+    chrome.runtime.sendMessage({ type: 'EXT_LINK_ADOPT', requestId, payload }, (response) => {
       window.postMessage({
-        type: 'CHARMS_WALLET_IMPORT_SUCCESS',
-        success: response.success
+        type: 'CHARMS_EXT_LINK_RESULT',
+        requestId,
+        ok: !chrome.runtime.lastError && !!response?.ok,
+        error: chrome.runtime.lastError ? chrome.runtime.lastError.message : response?.error,
       }, '*');
     });
   }

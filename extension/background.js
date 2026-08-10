@@ -34,6 +34,8 @@ const EXT = {
   // Passkey signing delegated to a wallet.charms.dev tab.
   SIGN_DELEGATE_PENDING: 'ext:sign_delegate_pending',
   SIGN_DELEGATE_RESULT:  'ext:sign_delegate_result',
+  // A link handshake the popup started and /extension-link answers.
+  LINK_PENDING:          'ext:link_pending',
 };
 const EXT_SIGN_PENDING = 'ext:sign_delegate_pending';
 const EXT_SIGN_RESULT  = 'ext:sign_delegate_result';
@@ -190,6 +192,68 @@ async function getSignTimeout() {
     if (blob?.type === 'prf') return 300000;
   } catch (_) { /* unreadable blob is not a passkey wallet's problem */ }
   return 120000;
+}
+
+// ─── Wallet link ──────────────────────────────────────────────────────
+//
+// Mirror of wallet/src/services/extension-link.js. Replaces the old
+// IMPORT_FROM_WEB, which demanded a plaintext seed that G003 no longer
+// stores, so it could never succeed for a current wallet.
+//
+// The seed key is refused explicitly rather than merely left off the
+// list: a whitelist that silently drops it would still let a caller
+// believe it had been accepted.
+function linkableKeys() {
+  return [
+    SK.AUTH,
+    SK.VERSION,
+    SK.CREATED,
+    SK.ACTIVE_BLOCKCHAIN,
+    SK.ACTIVE_NETWORK,
+    addressesKey('bitcoin', 'mainnet'),
+    addressesKey('bitcoin', 'testnet4'),
+  ];
+}
+
+async function adoptLinkedWallet(requestId, payload) {
+  const stored = await chrome.storage.local.get([EXT.LINK_PENDING, SK.AUTH]);
+
+  // The popup writes LINK_PENDING before opening the tab. Matching on it
+  // stops a tab left open from re-adopting over a wallet the user has
+  // since changed.
+  const pending = stored[EXT.LINK_PENDING];
+  if (!pending || pending.requestId !== requestId) {
+    return { error: 'No link in progress. Start it again from the extension.' };
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return { error: 'Nothing to link.' };
+  }
+  if (payload[SK.SEED_PHRASE]) {
+    return { error: 'Refused: a plaintext seed phrase must not be transferred.' };
+  }
+
+  let blob = null;
+  try {
+    const raw = payload[SK.AUTH];
+    blob = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch (_) { /* handled just below */ }
+  if (!blob || (blob.type !== 'prf' && blob.type !== 'password')) {
+    return { error: 'That wallet has no usable auth record.' };
+  }
+  if (stored[SK.AUTH]) {
+    return { error: 'This extension already holds a wallet. Remove it first.' };
+  }
+
+  const toWrite = {};
+  for (const key of linkableKeys()) {
+    if (payload[key] != null) toWrite[key] = payload[key];
+  }
+
+  await chrome.storage.local.set(toWrite);
+  await chrome.storage.local.remove(EXT.LINK_PENDING);
+  console.log('[link] adopted a', blob.type, 'wallet');
+  return { ok: true };
 }
 
 /**
@@ -889,40 +953,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  // Handle import from web wallet
-  if (request.type === 'IMPORT_FROM_WEB') {
-    console.log('Background: Received import request from web');
-    
-    try {
-      const data = request.data;
-      
-      // Validate data
-      if (!data || !data[SK.SEED_PHRASE]) {
-        sendResponse({ success: false, error: 'No seed phrase provided' });
-        return true;
-      }
-      
-      // Import all data to chrome.storage.local
-      chrome.storage.local.set(data, () => {
-        if (chrome.runtime.lastError) {
-          console.error('Background: Import failed', chrome.runtime.lastError);
-          sendResponse({ 
-            success: false, 
-            error: chrome.runtime.lastError.message 
-          });
-        } else {
-          console.log('Background: Import successful');
-          sendResponse({ 
-            success: true, 
-            message: 'Wallet data imported successfully' 
-          });
-        }
-      });
-    } catch (error) {
-      console.error('Background: Import error', error);
-      sendResponse({ success: false, error: error.message });
-    }
-    
+  // Adopt a wallet handed over by /extension-link.
+  if (request.type === 'EXT_LINK_ADOPT') {
+    adoptLinkedWallet(request.requestId, request.payload).then(sendResponse);
     return true;
   }
 });

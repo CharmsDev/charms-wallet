@@ -102,37 +102,40 @@ function ExtensionContent() {
     initializationProgress,
   } = useWallet();
 
-  const [waitingForTransfer, setWaitingForTransfer] = useState(false);
+  const [linking, setLinking] = useState(false);
 
-  // Listen for wallet data arriving via web wallet transfer
+  // Watch for the linked wallet landing in storage. The handshake happens
+  // in another tab, so poll rather than listen: this popup can be closed
+  // and reopened while the user is over there, and storage survives that.
   useEffect(() => {
-    if (!waitingForTransfer) return;
+    if (!linking) return;
 
-    // Poll chrome.storage for seed phrase arrival (set by IMPORT_FROM_WEB handler)
     const interval = setInterval(async () => {
       try {
         const data = await new Promise(resolve =>
-          chrome.storage.local.get(['wallet:seed_phrase'], resolve)
+          chrome.storage.local.get(['wallet:auth'], resolve)
         );
-        if (data['wallet:seed_phrase']) {
+        if (data['wallet:auth']) {
           clearInterval(interval);
-          setWaitingForTransfer(false);
-          // Reload to re-trigger wallet check and initialization
+          setLinking(false);
+          // Reload so the wallet check and the auth gates see the new blob
           window.location.reload();
         }
       } catch (_) {}
     }, 1500);
 
     return () => clearInterval(interval);
-  }, [waitingForTransfer]);
+  }, [linking]);
 
-  // Open the web wallet's transfer flow in a new tab and start polling
-  // chrome.storage.local for the seed-phrase arrival. The web side
-  // writes the plaintext seed there via a IMPORT_FROM_WEB handler.
-  const handleTransferFromWeb = () => {
-    const token = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-    window.open(`https://wallet.charms.dev/?transfer=${token}`, '_blank');
-    setWaitingForTransfer(true);
+  // Hand the wallet over from wallet.charms.dev. What crosses is the auth
+  // blob and the address book, never the mnemonic — the old plaintext
+  // transfer is gone. The request id parks here first so the service
+  // worker can refuse a stale tab.
+  const handleLinkWebWallet = async () => {
+    const requestId = `lnk-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    await chrome.storage.local.set({ 'ext:link_pending': { requestId, at: Date.now() } });
+    window.open(`https://wallet.charms.dev/extension-link?req=${encodeURIComponent(requestId)}`, '_blank');
+    setLinking(true);
   };
 
   // Loading state while checking for existing wallet
@@ -160,18 +163,18 @@ function ExtensionContent() {
     );
   }
 
-  // Waiting for transfer from web wallet
-  if (waitingForTransfer) {
+  // Waiting for the link to complete in the other tab
+  if (linking) {
     return (
       <div className="flex items-center justify-center h-full bg-dark-950">
         <div className="text-center px-6 space-y-4">
           <div className="w-12 h-12 border-4 border-bitcoin-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-white font-medium">Waiting for wallet transfer...</p>
+          <p className="text-white font-medium">Waiting for the wallet tab…</p>
           <p className="text-sm text-gray-400">
-            Go to <span className="text-bitcoin-400">wallet.charms.dev</span> and click "Transfer Wallet" in the banner at the top.
+            Approve the link on <span className="text-bitcoin-400">wallet.charms.dev</span>, in the tab that just opened.
           </p>
           <button
-            onClick={() => setWaitingForTransfer(false)}
+            onClick={() => setLinking(false)}
             className="text-sm text-gray-500 hover:text-gray-300 underline mt-4"
           >
             Cancel
@@ -181,16 +184,17 @@ function ExtensionContent() {
     );
   }
 
-  // No wallet — drive setup through the unified wizard (passkey-first,
-  // password fallback). The extension also offers a "Transfer from Web
-  // Wallet" path, surfaced as an extra option on the choose step.
+  // No wallet — drive setup through the unified wizard (password only
+  // here; a passkey cannot be enrolled on a chrome-extension:// origin).
+  // Linking an existing web wallet is surfaced as an extra option on the
+  // choose step, and is the path that keeps the seed where it is.
   if (!hasWallet || !seedPhrase) {
     return (
       <div className="h-full overflow-auto">
         <WalletSetupWizard
           extraAction={{
-            label: 'Transfer from Charms Web Wallet',
-            onClick: handleTransferFromWeb,
+            label: 'Link my Charms Web Wallet',
+            onClick: handleLinkWebWallet,
           }}
         />
       </div>
