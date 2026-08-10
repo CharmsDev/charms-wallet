@@ -16,6 +16,8 @@ import { useAddresses } from '@/stores/addressesStore';
 import { resolveImageUrl } from '@/utils/media';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useWallet } from '@/stores/walletStore';
+import { useAuth } from '@/contexts/AuthContext';
+import { signViaPasskeyDelegation } from '../services/passkey-delegation';
 import { balanceService, charmKey } from '@/services/balance';
 import { applyBroadcastedTx } from '@/services/wallet/post-broadcast';
 import { useExtensionWalletSync } from '../hooks/useExtensionWalletSync';
@@ -59,6 +61,7 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
   // Captured in a ref because proving takes minutes and handleConfirm
   // would otherwise close over the value as of its last render.
   const { seedPhrase } = useWallet();
+  const { watchOnly } = useAuth();
   const seedRef = useRef(seedPhrase);
   useEffect(() => { seedRef.current = seedPhrase; }, [seedPhrase]);
 
@@ -445,19 +448,34 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
       // plaintext wallet: under G003 a Type 1 wallet stores nothing and a
       // Type 2 one stores ciphertext, so the lookup returned undefined and
       // every charm transfer died here with 'Seed phrase not found'.
+      // A watch-only wallet has no seed here. The proof is already built,
+      // so only the signing crosses to a wallet.charms.dev tab, which
+      // broadcasts there and hands back the txid.
       const seedPhrase = seedRef.current;
-      if (!seedPhrase) throw new Error('Wallet locked. Please unlock and retry.');
+      if (!seedPhrase && !watchOnly) throw new Error('Wallet locked. Please unlock and retry.');
 
-      const { signAndBroadcastTransfer } = await import('@/services/charm-transfer');
-
-      const result = await signAndBroadcastTransfer({
-        spellTxHex: proverResult.spellTxHex,
-        prevTxMap: proverResult.prevTxMap,
-        inputSigningMap: inputSigningMapRef,
-        seedPhrase,
-        network: activeNetwork,
-        onStatus: () => {},
-      });
+      let result;
+      if (seedPhrase) {
+        const { signAndBroadcastTransfer } = await import('@/services/charm-transfer');
+        result = await signAndBroadcastTransfer({
+          spellTxHex: proverResult.spellTxHex,
+          prevTxMap: proverResult.prevTxMap,
+          inputSigningMap: inputSigningMapRef,
+          seedPhrase,
+          network: activeNetwork,
+          onStatus: () => {},
+        });
+      } else {
+        setError('Approve in the wallet tab that just opened…');
+        result = await signViaPasskeyDelegation({
+          kind: 'charmSpell',
+          network: activeNetwork,
+          spellTxHex: proverResult.spellTxHex,
+          prevTxMapEntries: Array.from(proverResult.prevTxMap?.entries?.() || []),
+          inputSigningMap: inputSigningMapRef,
+        }, { onStatus: setError });
+        setError('');
+      }
       // [RJJ-AUTOSIGN] end
 
       setTxid(result.txid);
@@ -514,7 +532,7 @@ export default function SendCharmScreen({ onClose, syncAfterSend }) {
       setError(err.message || 'Signing or broadcast failed');
       setConfirming(false);
     }
-  }, [proverResult, confirming, inputSigningMapRef, activeNetwork, syncAfterSend, addresses]);
+  }, [proverResult, confirming, inputSigningMapRef, activeNetwork, syncAfterSend, addresses, watchOnly]);
 
   // ── Cancel from confirmation screen ──
   const handleCancelConfirm = useCallback(() => {

@@ -4,6 +4,8 @@ import { useNetwork } from '@/contexts/NetworkContext';
 import { useCharms } from '@/stores/charmsStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useWallet } from '@/stores/walletStore';
+import { useAuth } from '@/contexts/AuthContext';
+import { signViaPasskeyDelegation } from '../services/passkey-delegation';
 import { balanceService, BTC_KEY } from '@/services/balance';
 import { applyBroadcastedTx } from '@/services/wallet/post-broadcast';
 import { formatBTC } from '@/utils/formatters';
@@ -40,6 +42,7 @@ export default function SendScreen({ onClose, syncUTXOs }) {
   // G003: seed lives in RAM after unlock, captured in a ref so the
   // prepare/broadcast sequence always reads the current value.
   const { seedPhrase } = useWallet();
+  const { watchOnly } = useAuth();
   const seedRef = useRef(seedPhrase);
   useEffect(() => { seedRef.current = seedPhrase; }, [seedPhrase]);
 
@@ -210,18 +213,37 @@ export default function SendScreen({ onClose, syncUTXOs }) {
       // G003: the orchestrator no longer reads the seed from storage, it
       // has to be handed in. Omitting it made every send fail with
       // 'Wallet locked. Please unlock and retry.'
-      if (!seedRef.current) throw new Error('Wallet locked. Please unlock and retry.');
+      //
+      // A watch-only wallet has no seed here and never will, so the same
+      // call runs in a wallet.charms.dev tab behind the passkey and only
+      // the signed transaction comes back. Selection and fee maths already
+      // happened above, and broadcasting stays below, so the two paths
+      // rejoin with the same shape.
+      let result;
+      if (seedRef.current) {
+        result = await orchestrator.processTransaction(
+          destinationAddress,
+          selectionResult.adjustedAmount || amountInSats,
+          selectionResult.selectedUtxos,
+          currentFeeRate,
+          updateAfterTransaction,
+          seedRef.current,
+        );
+      } else if (watchOnly) {
+        setStatusMessage('Approve in the wallet tab that just opened…');
+        result = await signViaPasskeyDelegation({
+          kind: 'btcTransfer',
+          network: activeNetwork,
+          destinationAddress,
+          amountInSats: selectionResult.adjustedAmount || amountInSats,
+          utxos: selectionResult.selectedUtxos,
+          feeRate: currentFeeRate,
+        }, { onStatus: setStatusMessage });
+      } else {
+        throw new Error('Wallet locked. Please unlock and retry.');
+      }
 
-      const result = await orchestrator.processTransaction(
-        destinationAddress,
-        selectionResult.adjustedAmount || amountInSats,
-        selectionResult.selectedUtxos,
-        currentFeeRate,
-        updateAfterTransaction,
-        seedRef.current,
-      );
-
-      if (!result.success) throw new Error(result.error || 'Transaction signing failed');
+      if (!result?.success) throw new Error(result?.error || 'Transaction signing failed');
 
       // 5. Decode transaction for inspection
       setStatusMessage('Decoding transaction...');
@@ -306,7 +328,7 @@ export default function SendScreen({ onClose, syncUTXOs }) {
       setError(err.message || 'Transaction preparation failed');
       setStep(STEP.FORM);
     }
-  }, [canSubmit, amount, destinationAddress, utxos, charms, activeNetwork, updateAfterTransaction, addresses]);
+  }, [canSubmit, amount, destinationAddress, utxos, charms, activeNetwork, updateAfterTransaction, addresses, watchOnly]);
 
   // ── Broadcast ──
   const handleBroadcast = useCallback(async () => {

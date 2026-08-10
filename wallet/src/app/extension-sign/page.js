@@ -183,6 +183,13 @@ function RequestSummary({ payload }) {
       {payload.kind === 'signMessage' && <Row label="Message" value={payload.message} />}
       {payload.kind === 'charmSpell' && <Row label="Transfer" value="Charm spell ready to sign" />}
       {payload.kind === 'signPsbt' && <PsbtSummary psbtHex={payload.psbtHex} />}
+      {payload.kind === 'btcTransfer' && (
+        <>
+          <Row label="Sending" value={`${(payload.amountInSats / 100_000_000).toFixed(8)} BTC`} />
+          <Row label="To" value={payload.destinationAddress} />
+          <Row label="Fee rate" value={`${payload.feeRate} sat/vB`} />
+        </>
+      )}
       <p className="text-xs text-dark-500 pt-1">
         Your seed phrase never leaves this page. Only the signature is sent
         back to the extension.
@@ -258,6 +265,40 @@ async function signForExtension(payload, mnemonic) {
       onStatus: () => {},
     });
     return { txid: out.txid };
+  }
+
+  // A plain BTC send from a watch-only extension. The extension did the
+  // UTXO selection and the fee maths, which need no secret; this runs the
+  // same orchestrator the web wallet uses, with the selection handed in.
+  //
+  // Two things it reads from this origin's storage rather than the
+  // payload: the address book, which is correct because this origin is
+  // where the wallet lives, and the charm cache, used only for a
+  // belt-and-braces check that the extension already made during
+  // selection. Broadcasting stays with the extension so its balance
+  // bookkeeping owns the txid.
+  if (kind === 'btcTransfer') {
+    const { BitcoinTransactionOrchestrator } = await import('@/services/bitcoin/transaction-orchestrator');
+    const orchestrator = new BitcoinTransactionOrchestrator(network);
+    const out = await orchestrator.processTransaction(
+      payload.destinationAddress,
+      payload.amountInSats,
+      payload.utxos,
+      payload.feeRate,
+      null,
+      mnemonic,
+    );
+    if (!out?.success) throw new Error(out?.error || 'Transaction signing failed');
+    return {
+      success: true,
+      signedTxHex:   out.signedTxHex,
+      txid:          out.txid,
+      selectedUtxos: out.selectedUtxos,
+      totalSelected: out.totalSelected,
+      estimatedFee:  out.estimatedFee,
+      change:        out.change,
+      changeAddress: out.changeAddress,
+    };
   }
 
   // The addresses arrive from the extension, but they are not taken on
