@@ -489,16 +489,65 @@ async function resolveSigningSeed(password) {
   }
 
   if (walletType === 'prf') {
-    throw new Error(
-      'This wallet is secured by a passkey, which cannot be used from the ' +
-      'extension. Sign this request at wallet.charms.dev instead.'
-    );
+    // Handled by delegating the whole ceremony to a wallet.charms.dev tab,
+    // never by deriving here. See signViaPasskeyDelegation().
+    const err = new Error('Passkey wallet — approve in the wallet tab.');
+    err.code = 'PASSKEY_DELEGATION_REQUIRED';
+    throw err;
   }
 
   const stored = await chrome.storage.local.get([SK_SEED_PHRASE]);
   const seedPhrase = stored[SK_SEED_PHRASE];
   if (!seedPhrase) throw new Error('No wallet found in this extension.');
   return seedPhrase;
+}
+
+const EXT_SIGN_PENDING = 'ext:sign_delegate_pending';
+const EXT_SIGN_RESULT  = 'ext:sign_delegate_result';
+const WALLET_ORIGIN    = 'https://wallet.charms.dev';
+
+/**
+ * Delegate a signing ceremony to a wallet.charms.dev tab.
+ *
+ * A passkey for rpId wallet.charms.dev cannot be exercised from this
+ * document, but it can from a page on that origin, where Touch ID / Face
+ * ID prompts normally. We park the request, open the tab, and wait for the
+ * signed artifact. The mnemonic is derived and dropped over there, so the
+ * extension only ever receives a signature.
+ *
+ * @returns {Promise<any>} whatever the page produced for this request kind
+ */
+async function signViaPasskeyDelegation(payload, { onStatus } = {}) {
+  const requestId = `sig-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  await chrome.storage.local.set({ [EXT_SIGN_PENDING]: { requestId, payload, at: Date.now() } });
+  await chrome.storage.local.remove(EXT_SIGN_RESULT);
+
+  const tab = await chrome.tabs.create({
+    url: `${WALLET_ORIGIN}/extension-sign?req=${encodeURIComponent(requestId)}`,
+    active: true,
+  });
+  onStatus?.('Approve in the wallet tab that just opened…');
+
+  // Poll rather than message-listen: this popup can be closed and reopened
+  // while the user is in the other tab, and storage survives that.
+  const TIMEOUT_MS = 5 * 60 * 1000;
+  const started = Date.now();
+  try {
+    while (Date.now() - started < TIMEOUT_MS) {
+      const data = await chrome.storage.local.get([EXT_SIGN_RESULT]);
+      const res = data[EXT_SIGN_RESULT];
+      if (res && res.requestId === requestId) {
+        await chrome.storage.local.remove(EXT_SIGN_RESULT);
+        if (res.error) throw new Error(res.error);
+        return res.result;
+      }
+      await new Promise(r => setTimeout(r, 400));
+    }
+    throw new Error('Timed out waiting for approval in the wallet tab.');
+  } finally {
+    await chrome.storage.local.remove(EXT_SIGN_PENDING);
+    try { await chrome.tabs.remove(tab.id); } catch (_) { /* user may have closed it */ }
+  }
 }
 
 function SignApproval() {
@@ -637,6 +686,14 @@ function SignApproval() {
       if (err.code === 'PASSWORD_REQUIRED') {
         setNeedsPassword(true);
         setError('Enter your wallet password to sign.');
+      } else if (err.code === 'PASSKEY_DELEGATION_REQUIRED') {
+        // The PSBT and message signers still live in this file rather than
+        // wallet/src, so the wallet tab has nothing to call yet. Say so
+        // plainly instead of surfacing the internal delegation error.
+        setError(
+          'This wallet is secured by a passkey. Signing dApp requests from ' +
+          'the extension is not available yet — approve it at wallet.charms.dev.'
+        );
       } else {
         setError(err.message);
       }
@@ -651,19 +708,35 @@ function SignApproval() {
     setError(null);
     try {
       const storageData = await chrome.storage.local.get([SK_ACTIVE_NETWORK]);
-      const seedPhrase = await resolveSigningSeed(password);
       const network = pendingProof.meta?.network || storageData[SK_ACTIVE_NETWORK] || 'mainnet';
 
-      const { signAndBroadcastTransfer } = await import('@/services/charm-transfer');
-      const prevTxMap = new Map(pendingProof.prevTxMapEntries || []);
-      const result = await signAndBroadcastTransfer({
-        spellTxHex: pendingProof.spellTxHex,
-        prevTxMap,
-        inputSigningMap: pendingProof.meta?.inputSigningMap,
-        seedPhrase,
-        network,
-        onStatus: () => {},
-      });
+      let result;
+      try {
+        const seedPhrase = await resolveSigningSeed(password);
+        const { signAndBroadcastTransfer } = await import('@/services/charm-transfer');
+        const prevTxMap = new Map(pendingProof.prevTxMapEntries || []);
+        result = await signAndBroadcastTransfer({
+          spellTxHex: pendingProof.spellTxHex,
+          prevTxMap,
+          inputSigningMap: pendingProof.meta?.inputSigningMap,
+          seedPhrase,
+          network,
+          onStatus: () => {},
+        });
+      } catch (e) {
+        if (e.code !== 'PASSKEY_DELEGATION_REQUIRED') throw e;
+        // Passkey wallet: the ceremony and the signing both happen in a
+        // wallet.charms.dev tab, and only the txid comes back.
+        setError('Approve in the wallet tab that just opened…');
+        result = await signViaPasskeyDelegation({
+          kind: 'charmSpell',
+          network,
+          spellTxHex:       pendingProof.spellTxHex,
+          prevTxMapEntries: pendingProof.prevTxMapEntries || [],
+          inputSigningMap:  pendingProof.meta?.inputSigningMap,
+        }, { onStatus: setError });
+        setError(null);
+      }
 
       await chrome.storage.local.remove([EXT_PENDING_PROOF]);
       setTxid(result.txid);

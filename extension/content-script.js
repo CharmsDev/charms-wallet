@@ -90,6 +90,31 @@ window.addEventListener('message', (event) => {
     });
   }
 
+  // ── Passkey signing delegation ───────────────────────────────────────
+  //
+  // The popup cannot run WebAuthn for rpId wallet.charms.dev, but this
+  // page can, so /extension-sign performs the ceremony and signs there.
+  // These two relays are the whole transport: the page never talks to the
+  // service worker directly.
+
+  // Page asks for the pending request body.
+  if (event.data && event.data.type === 'CHARMS_EXT_SIGN_FETCH') {
+    const { requestId } = event.data;
+    chrome.runtime.sendMessage({ type: 'EXT_SIGN_GET', requestId }, (response) => {
+      window.postMessage({
+        type: 'CHARMS_EXT_SIGN_PAYLOAD',
+        requestId,
+        payload: chrome.runtime.lastError ? null : (response?.payload ?? null),
+      }, '*');
+    });
+  }
+
+  // Page returns the signature, or the reason it could not produce one.
+  if (event.data && event.data.type === 'CHARMS_EXT_SIGN_RESULT') {
+    const { requestId, result, error } = event.data;
+    chrome.runtime.sendMessage({ type: 'EXT_SIGN_RESOLVE', requestId, result, error });
+  }
+
   // Check extension status request — query background for wallet presence
   if (event.data && event.data.type === 'CHARMS_WALLET_CHECK_EXTENSION') {
     chrome.runtime.sendMessage({ type: 'CHECK_WALLET_STATUS' }, (response) => {

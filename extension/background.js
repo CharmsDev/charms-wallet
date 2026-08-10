@@ -31,7 +31,12 @@ const EXT = {
   SIGN_RESPONSE:       'ext:sign_response',
   PENDING_PROOF:       'ext:pending_proof',
   PROVING_STATUS:      'ext:proving_status',
+  // Passkey signing delegated to a wallet.charms.dev tab.
+  SIGN_DELEGATE_PENDING: 'ext:sign_delegate_pending',
+  SIGN_DELEGATE_RESULT:  'ext:sign_delegate_result',
 };
+const EXT_SIGN_PENDING = 'ext:sign_delegate_pending';
+const EXT_SIGN_RESULT  = 'ext:sign_delegate_result';
 const DATA_TYPES = {
   ADDRESSES:    'addresses',
   UTXOS:        'utxos',
@@ -819,6 +824,43 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // blob; only legacy or web-transferred wallets keep a plaintext seed,
   // so testing SEED_PHRASE alone reported hasWallet=false for every
   // wallet created since G003.
+  // ── Passkey signing delegation ───────────────────────────────────────
+  // The popup writes EXT_SIGN_PENDING then opens the wallet tab. The page
+  // reads it through EXT_SIGN_GET, signs with the passkey, and returns the
+  // artifact via EXT_SIGN_RESOLVE. Only the signature crosses back; the
+  // mnemonic stays in the wallet tab.
+
+  if (request.type === 'EXT_SIGN_GET') {
+    chrome.storage.local.get([EXT_SIGN_PENDING], (data) => {
+      const pending = data[EXT_SIGN_PENDING];
+      // Match on id so a stale tab cannot answer a newer request.
+      const payload = pending && pending.requestId === request.requestId ? pending.payload : null;
+      sendResponse({ payload });
+    });
+    return true;
+  }
+
+  if (request.type === 'EXT_SIGN_RESOLVE') {
+    chrome.storage.local.get([EXT_SIGN_PENDING], (data) => {
+      const pending = data[EXT_SIGN_PENDING];
+      if (!pending || pending.requestId !== request.requestId) {
+        sendResponse({ ok: false });
+        return;
+      }
+      chrome.storage.local.set({
+        [EXT_SIGN_RESULT]: {
+          requestId: request.requestId,
+          result: request.result ?? null,
+          error: request.error ?? null,
+          at: Date.now(),
+        },
+      }, () => {
+        chrome.storage.local.remove(EXT_SIGN_PENDING, () => sendResponse({ ok: true }));
+      });
+    });
+    return true;
+  }
+
   if (request.type === 'CHECK_WALLET_STATUS') {
     chrome.storage.local.get([SK.AUTH, SK.SEED_PHRASE], (data) => {
       sendResponse({ hasWallet: !!(data[SK.AUTH] || data[SK.SEED_PHRASE]) });
