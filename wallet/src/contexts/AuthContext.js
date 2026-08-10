@@ -19,6 +19,10 @@
  *
  * No idle auto-lock. Per-action confirmation lives at the dialog
  * level (Send, Beam, etc.) — not here.
+ *
+ * One state sits outside that lifecycle: `watchOnly`. See isWatchOnly
+ * below. It reports 'unlocked' with no mnemonic, so consumers that need
+ * to sign must check it rather than assume a seed is available.
  */
 
 import {
@@ -28,7 +32,25 @@ import {
   isPrfSupported, getWalletType,
   unlockPrfWallet, unlockPasswordWallet,
 } from '@/services/auth';
+import { StorageAdapter } from '@/services/storage-adapter';
 import { useWallet } from '@/stores/walletStore';
+
+/**
+ * A passkey wallet needs a WebAuthn ceremony for rpId wallet.charms.dev,
+ * and the extension popup runs on chrome-extension://, which cannot ask
+ * for it. Rather than park the user on an unlock screen that can never
+ * succeed, the extension runs the wallet watch-only: balances and history
+ * from storage and the indexer, and every signature delegated back to a
+ * tab on the real origin.
+ *
+ * Deliberately narrow. A passkey wallet opened in a browser without PRF
+ * (Firefox, most of Linux) also cannot unlock, but there is no second
+ * origin to delegate to there, so that case keeps the existing locked
+ * screen and its error rather than a state with no way forward.
+ */
+function isWatchOnly(walletType) {
+  return walletType === 'prf' && !isPrfSupported() && StorageAdapter.isExtension();
+}
 
 const AuthContext = createContext(null);
 
@@ -43,6 +65,7 @@ export function AuthProvider({ children }) {
 
   const [status, setStatus] = useState('checking');     // 'checking' | 'locked' | 'unlocked'
   const [walletType, setWalletType] = useState(null);   // 'prf' | 'password' | null
+  const [watchOnly, setWatchOnly] = useState(false);
   const [error, setError] = useState(null);
 
   // Detect the wallet type on mount.
@@ -52,7 +75,11 @@ export function AuthProvider({ children }) {
       const t = await getWalletType();
       if (cancelled) return;
       setWalletType(t);
-      setStatus(t ? 'locked' : 'unlocked');
+      // Watch-only counts as unlocked: there is nothing to unlock, and
+      // the gates downstream must let the wallet render.
+      const watching = isWatchOnly(t);
+      setWatchOnly(watching);
+      setStatus(t && !watching ? 'locked' : 'unlocked');
     })();
     return () => { cancelled = true; };
   }, []);
@@ -69,6 +96,7 @@ export function AuthProvider({ children }) {
       if (e.key && !e.key.includes('auth')) return;
       const t = await getWalletType();
       setWalletType(t);
+      setWatchOnly(isWatchOnly(t));
       // If the auth blob was removed elsewhere (e.g. user deleted the
       // wallet in another tab), drop this tab's RAM seed too so we
       // don't keep operating on a wallet that no longer exists.
@@ -81,6 +109,7 @@ export function AuthProvider({ children }) {
   const refreshWalletType = useCallback(async () => {
     const t = await getWalletType();
     setWalletType(t);
+    setWatchOnly(isWatchOnly(t));
   }, []);
 
   const triggerUnlockPrf = useCallback(async () => {
@@ -109,8 +138,10 @@ export function AuthProvider({ children }) {
 
   const lockNow = useCallback(() => {
     setSeedPhrase?.(null);
-    setStatus('locked');
-  }, [setSeedPhrase]);
+    // A watch-only wallet holds no seed to drop and has no unlock screen
+    // to come back through, so locking it would be a one-way door.
+    setStatus(watchOnly ? 'unlocked' : 'locked');
+  }, [setSeedPhrase, watchOnly]);
 
   /** Mark the session unlocked without re-prompting — used right
    *  after setup when the mnemonic is already in RAM. Re-reads the
@@ -123,6 +154,7 @@ export function AuthProvider({ children }) {
   const value = {
     status,
     walletType,
+    watchOnly,
     prfSupported: isPrfSupported(),
     error,
     triggerUnlockPrf,

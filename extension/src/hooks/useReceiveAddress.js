@@ -32,6 +32,17 @@ export function useReceiveAddress({ activeBlockchain, activeNetwork, addresses, 
     [activeBlockchain, activeNetwork]
   );
 
+  // Watch-only fallback. A linked passkey wallet has no mnemonic here, so
+  // there is nothing to derive from and we serve the address book the
+  // wallet arrived with. Generating beyond it needs the seed, which lives
+  // at wallet.charms.dev.
+  const receiveList = useMemo(
+    () => (addresses || [])
+      .filter(a => a && !a.isChange && typeof a.address === 'string')
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0)),
+    [addresses]
+  );
+
   const networkObj = activeNetwork === 'mainnet' ? MAINNET_NETWORK_OBJ : null;
 
   const ensureAddressSaved = useCallback(async (addr, idx) => {
@@ -51,9 +62,19 @@ export function useReceiveAddress({ activeBlockchain, activeNetwork, addresses, 
     setError('');
     try {
       const seedPhrase = seedRef.current;
-      if (!seedPhrase) throw new Error('Wallet locked. Please unlock and retry.');
       const stored = await StorageAdapter.get(indexKey);
       const idx = stored != null ? Number(stored) : 0;
+
+      if (!seedPhrase) {
+        const pick = receiveList[idx] || receiveList[0];
+        if (!pick) {
+          throw new Error('This wallet brought no receive addresses over. Open it at wallet.charms.dev to generate one.');
+        }
+        setReceiveIndex(pick.index ?? idx);
+        setReceiveAddress(pick.address);
+        return;
+      }
+
       setReceiveIndex(idx);
       const addr = await generateTaprootAddress(seedPhrase, idx, false, networkObj);
       setReceiveAddress(addr);
@@ -64,7 +85,7 @@ export function useReceiveAddress({ activeBlockchain, activeNetwork, addresses, 
     } finally {
       setIsGenerating(false);
     }
-  }, [indexKey, networkObj, ensureAddressSaved]);
+  }, [indexKey, networkObj, ensureAddressSaved, receiveList]);
 
   const generateNext = useCallback(async () => {
     if (isGenerating) return;
@@ -73,7 +94,20 @@ export function useReceiveAddress({ activeBlockchain, activeNetwork, addresses, 
     setError('');
     try {
       const seedPhrase = seedRef.current;
-      if (!seedPhrase) throw new Error('Wallet locked. Please unlock and retry.');
+
+      if (!seedPhrase) {
+        const pos = receiveList.findIndex(a => a.address === receiveAddress);
+        const next = receiveList[pos + 1];
+        if (!next) {
+          throw new Error('That is the last address this wallet brought over. Generate more at wallet.charms.dev.');
+        }
+        const nextStoredIdx = next.index ?? pos + 1;
+        await StorageAdapter.set(indexKey, nextStoredIdx);
+        setReceiveIndex(nextStoredIdx);
+        setReceiveAddress(next.address);
+        return;
+      }
+
       const nextIdx = receiveIndex + 1;
       const addr = await generateTaprootAddress(seedPhrase, nextIdx, false, networkObj);
       await StorageAdapter.set(indexKey, nextIdx);
@@ -86,7 +120,7 @@ export function useReceiveAddress({ activeBlockchain, activeNetwork, addresses, 
     } finally {
       setIsGenerating(false);
     }
-  }, [isGenerating, receiveIndex, indexKey, networkObj, ensureAddressSaved]);
+  }, [isGenerating, receiveIndex, indexKey, networkObj, ensureAddressSaved, receiveList, receiveAddress]);
 
   const copyAddress = useCallback(() => {
     if (!receiveAddress) return;

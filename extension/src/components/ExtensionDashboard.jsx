@@ -3,6 +3,7 @@ import { useWallet } from '@/stores/walletStore';
 import { useAddresses } from '@/stores/addressesStore';
 import { useUTXOs } from '@/stores/utxoStore';
 import { useNetwork } from '@/contexts/NetworkContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { useExtensionWalletSync } from '../hooks/useExtensionWalletSync';
 import { useBlockchain } from '@/stores/blockchainStore';
 import { useDashboardSync } from '../hooks/useDashboardSync';
@@ -21,6 +22,7 @@ export default function ExtensionDashboard() {
   const { addresses, loadAddresses } = useAddresses();
   const { activeNetwork, saveNetwork, getAvailableNetworks } = useNetwork();
   const { activeBlockchain } = useBlockchain();
+  const { watchOnly } = useAuth();
 
   // Initialise the Cardano store lazily on first switch to ADA — derives
   // address 0 if needed, then refreshes provider data. No-op on Bitcoin.
@@ -78,6 +80,8 @@ export default function ExtensionDashboard() {
         onSync={handleManualSync}
       />
 
+      {watchOnly && <WatchOnlyNotice />}
+
       <div className="flex-1 overflow-auto">
         {activeScreen === 'home' && (
           <HomeScreen
@@ -102,6 +106,22 @@ export default function ExtensionDashboard() {
       </div>
 
       <BottomNav activeScreen={activeScreen} onNavigate={setActiveScreen} />
+    </div>
+  );
+}
+
+/**
+ * A linked passkey wallet keeps its seed at wallet.charms.dev. Say so
+ * once, up front, so opening a tab to approve a send reads as the design
+ * rather than as something going wrong.
+ */
+function WatchOnlyNotice() {
+  return (
+    <div className="px-4 py-2 bg-primary-500/10 border-b border-primary-500/20">
+      <p className="text-[11px] text-primary-200 leading-snug">
+        Secured by your passkey. Sending opens wallet.charms.dev to approve
+        with Face ID or Touch ID.
+      </p>
     </div>
   );
 }

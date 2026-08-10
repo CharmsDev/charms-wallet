@@ -12,7 +12,7 @@ import { NavigationProvider } from '@/contexts/NavigationContext';
 import { UTXOProvider } from '@/stores/utxoStore';
 import { CharmsProvider } from '@/stores/charmsStore';
 import { BeamOperationsProvider } from '@/contexts/BeamOperationsContext';
-import { AuthProvider } from '@/contexts/AuthContext';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 
 // Import wallet components
 import WalletSetupWizard from '@/components/wallet/setup/WalletSetupWizard';
@@ -101,6 +101,7 @@ function ExtensionContent() {
     initializationStep,
     initializationProgress,
   } = useWallet();
+  const { watchOnly } = useAuth();
 
   const [linking, setLinking] = useState(false);
 
@@ -188,7 +189,10 @@ function ExtensionContent() {
   // here; a passkey cannot be enrolled on a chrome-extension:// origin).
   // Linking an existing web wallet is surfaced as an extra option on the
   // choose step, and is the path that keeps the seed where it is.
-  if (!hasWallet || !seedPhrase) {
+  // A watch-only wallet is real and present, it just has no mnemonic in
+  // RAM and never will on this origin. Treating that as "no wallet" would
+  // offer to create a second one on top of it.
+  if (!hasWallet || (!seedPhrase && !watchOnly)) {
     return (
       <div className="h-full overflow-auto">
         <WalletSetupWizard
